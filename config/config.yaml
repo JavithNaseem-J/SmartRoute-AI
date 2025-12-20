@@ -1,0 +1,66 @@
+# Core paths
+artifacts_root: artifacts
+data_root: data
+models_root: models
+
+# Data directories
+data:
+  documents: data/documents
+  embeddings: data/embeddings
+  queries: data/queries
+  costs: data/costs
+
+# Model storage
+models:
+  local_dir: models/local
+  classifier_dir: models/classifier
+  embeddings_dir: models/embeddings
+
+# Vector store
+vector_store:
+  type: chroma  
+  persist_dir: data/embeddings
+  collection_name: documents
+  
+# Retrieval settings
+  top_k: 5
+  score_threshold: 0.7
+  embedding_model: sentence-transformers/all-MiniLM-L6-v2
+  search_type: similarity_score_threshold
+  
+# Document processing
+document_processing:
+  chunk_size: 512
+  chunk_overlap: 50
+  separators: ["\n\n", "\n", ". ", " ", ""]
+  
+# API settings
+api:
+  host: 0.0.0.0
+  port: 8000
+  workers: 4
+  cors_origins: ["*"]
+  reload: true
+  
+# Dashboard
+dashboard:
+  port: 8501
+  theme: dark
+  refresh_interval: 5
+  
+# Monitoring
+monitoring:
+  enable_mlflow: true  
+  mlflow_uri: http://localhost:5000
+  enable_prometheus: true
+  prometheus_port: 9090
+  log_level: INFO
+  log_file: logs/app.log
+
+# Cost tracking
+cost_tracking:
+  daily_log: data/costs/daily_costs.jsonl
+  usage_db: data/costs/usage.db
+  report_interval_hours: 24
+  alert_threshold: 0.8
+  enable_alerts: true

@@ -1,0 +1,149 @@
+# Default strategy
+default_strategy: cost_optimized
+
+# Routing strategies
+strategies:
+  cost_optimized:
+    description: "Minimize cost while maintaining quality"
+    simple:
+      model: "llama_3_2_1b"
+      fallback: "mistral_7b"
+      quality_threshold: 0.7
+      max_latency: 3.0
+      
+    medium:
+      model: "mistral_7b"
+      fallback: "gpt_4o_mini"
+      quality_threshold: 0.75
+      max_latency: 5.0
+      
+    complex:
+      model: "gpt_4o_mini"
+      fallback: "gpt_4o"
+      quality_threshold: 0.8
+      max_latency: 10.0
+      
+  quality_first:
+    description: "Prioritize quality over cost"
+    simple:
+      model: "gpt_4o_mini"
+      fallback: "gpt_4o"
+      quality_threshold: 0.85
+      
+    medium:
+      model: "gpt_4o_mini"
+      fallback: "gpt_4o"
+      quality_threshold: 0.85
+      
+    complex:
+      model: "gpt_4o"
+      fallback: "claude_3_sonnet"
+      quality_threshold: 0.9
+      
+  balanced:
+    description: "Balance between cost and quality"
+    simple:
+      model: "llama_3_2_1b"
+      fallback: "gpt_4o_mini"
+      quality_threshold: 0.75
+      
+    medium:
+      model: "mistral_7b"
+      fallback: "gpt_4o_mini"
+      quality_threshold: 0.8
+      
+    complex:
+      model: "gpt_4o_mini"
+      fallback: "claude_3_haiku"
+      quality_threshold: 0.85
+
+# Query complexity classification rules
+complexity_rules:
+  simple:
+    max_words: 15
+    max_entities: 2
+    max_sentences: 1
+    keywords:
+      - "what is"
+      - "define"
+      - "who is"
+      - "when"
+      - "where"
+      - "list"
+      - "name"
+    patterns:
+      - "^what is"
+      - "^define"
+      - "^who"
+    confidence_threshold: 0.8
+    examples:
+      - "What is machine learning?"
+      - "Define neural network"
+      - "Who invented Python?"
+    
+  medium:
+    max_words: 30
+    max_entities: 5
+    max_sentences: 3
+    keywords:
+      - "how"
+      - "why"
+      - "explain"
+      - "compare"
+      - "difference"
+      - "describe"
+      - "summarize"
+    patterns:
+      - "^how"
+      - "^why"
+      - "^explain"
+      - "compare .+ and"
+    confidence_threshold: 0.6
+    examples:
+      - "How does machine learning work?"
+      - "Explain the difference between AI and ML"
+      - "Why is deep learning popular?"
+    
+  complex:
+    min_words: 30
+    min_sentences: 2
+    keywords:
+      - "analyze"
+      - "evaluate"
+      - "synthesize"
+      - "argue"
+      - "critique"
+      - "multi-step"
+      - "comprehensive"
+      - "detailed analysis"
+    requires_reasoning: true
+    confidence_threshold: 0.4
+    examples:
+      - "Analyze the ethical implications of AI in healthcare"
+      - "Evaluate different approaches to AGI development"
+      - "Provide a comprehensive analysis of climate policies"
+
+# Budget limits
+budgets:
+  daily: 10.0
+  weekly: 50.0
+  monthly: 200.0
+  alert_threshold: 0.8  # Alert at 80%
+  emergency_stop: true   # Stop if budget exceeded
+
+# Quality gates
+quality:
+  min_confidence: 0.6
+  max_retries: 2
+  escalate_on_failure: true
+  user_feedback_weight: 0.3
+  ragas_threshold: 0.7
+  
+# Feature extraction settings
+features:
+  use_word_count: true
+  use_entity_count: true
+  use_keyword_matching: true
+  use_embeddings: false  
+  use_length_ratio: true
+  use_question_patterns: true

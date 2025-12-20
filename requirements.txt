@@ -1,0 +1,72 @@
+# Core ML/LLM
+torch>=2.0.0
+transformers>=4.36.0
+accelerate>=0.25.0
+bitsandbytes>=0.41.0
+sentence-transformers>=2.2.2
+
+# LangChain (for standard operations)
+langchain>=0.1.0
+langchain-community>=0.0.20
+langchain-core>=0.1.0
+langchain-openai>=0.0.5
+langchain-anthropic>=0.1.0
+langchain-huggingface>=0.0.1
+
+# Vector DB
+chromadb>=0.4.22
+faiss-cpu>=1.7.4
+
+# LLM APIs
+openai>=1.12.0
+anthropic>=0.18.0
+tiktoken>=0.5.2
+
+# FastAPI
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-multipart>=0.0.6
+
+# Streamlit Dashboard
+streamlit>=1.31.0
+plotly>=5.18.0
+pandas>=2.1.4
+
+# Evaluation (RAGAS for quality metrics)
+ragas>=0.1.0
+datasets>=2.16.0
+
+# Cost tracking & DB
+sqlalchemy>=2.0.25
+psycopg2-binary>=2.9.9  # Optional: for PostgreSQL
+
+# Monitoring
+prometheus-client>=0.19.0
+mlflow>=2.10.0  # Optional
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0.1
+requests>=2.31.0
+tqdm>=4.66.1
+scikit-learn>=1.4.0
+numpy>=1.26.0
+joblib>=1.3.2
+spacy>=3.7.0  # For entity extraction
+
+# Testing
+pytest>=8.0.0
+pytest-asyncio>=0.23.3
+pytest-cov>=4.1.0
+httpx>=0.26.0
+
+# Code quality
+black>=24.1.0
+ruff>=0.1.14
+mypy>=1.8.0
+isort>=5.13.0
+
+# HuggingFace Hub
+huggingface-hub>=0.20.0

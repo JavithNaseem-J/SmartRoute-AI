@@ -1,0 +1,110 @@
+models:
+  gpt4:
+    name: "gpt-4"
+    provider: "openai"
+    type: "api"
+    cost_per_1k_tokens:
+      input: 0.03
+      output: 0.06
+    max_tokens: 8192
+    capabilities:
+      - "complex_reasoning"
+      - "code_generation"
+      - "creative_writing"
+    latency_ms: 2000
+    quality_score: 0.95
+    
+  gpt35:
+    name: "gpt-3.5-turbo"
+    provider: "openai"
+    type: "api"
+    cost_per_1k_tokens:
+      input: 0.0015
+      output: 0.002
+    max_tokens: 4096
+    capabilities:
+      - "simple_reasoning"
+      - "basic_code"
+      - "qa"
+    latency_ms: 800
+    quality_score: 0.75
+    
+  claude_opus:
+    name: "claude-3-opus"
+    provider: "anthropic"
+    type: "api"
+    cost_per_1k_tokens:
+      input: 0.015
+      output: 0.075
+    max_tokens: 4096
+    capabilities:
+      - "complex_reasoning"
+      - "analysis"
+      - "creative_writing"
+    latency_ms: 1500
+    quality_score: 0.93
+    
+  claude_sonnet:
+    name: "claude-3-sonnet"
+    provider: "anthropic"
+    type: "api"
+    cost_per_1k_tokens:
+      input: 0.003
+      output: 0.015
+    max_tokens: 4096
+    capabilities:
+      - "reasoning"
+      - "code_generation"
+      - "analysis"
+    latency_ms: 1000
+    quality_score: 0.85
+    
+  llama70b:
+    name: "llama-2-70b"
+    provider: "local"
+    type: "local"
+    cost_per_1k_tokens:
+      input: 0.0001
+      output: 0.0001
+    max_tokens: 4096
+    capabilities:
+      - "reasoning"
+      - "code_generation"
+    latency_ms: 3000
+    quality_score: 0.80
+    
+  mistral:
+    name: "mistral-7b"
+    provider: "local"
+    type: "local"
+    cost_per_1k_tokens:
+      input: 0.00005
+      output: 0.00005
+    max_tokens: 8192
+    capabilities:
+      - "simple_reasoning"
+      - "qa"
+      - "basic_code"
+    latency_ms: 500
+    quality_score: 0.70
+
+routing_rules:
+  complexity_thresholds:
+    simple: 0.3
+    medium: 0.6
+    complex: 0.9
+    
+  quality_requirements:
+    high: ["gpt4", "claude_opus"]
+    medium: ["claude_sonnet", "gpt35", "llama70b"]
+    low: ["mistral"]
+    
+  cost_optimization:
+    enabled: true
+    fallback_on_failure: true
+    prefer_local: false
+    
+  latency_targets:
+    realtime: 1000
+    interactive: 3000
+    batch: 10000
