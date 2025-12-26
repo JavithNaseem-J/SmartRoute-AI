@@ -1,0 +1,87 @@
+[tool.poetry]
+name = "SmartRouteAI"
+version = "0.1.0"
+description = "Cost-optimized LLM routing system with RAG, model switching, and cost tracking."
+authors = ["Javith Naseem <javithnaseem.j@gmail.com>"]
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.12"
+
+# ----------------------
+# Core ML / LLM
+# ----------------------
+torch = ">=2.0.0"
+transformers = ">=4.36.0"
+accelerate = ">=0.25.0"
+bitsandbytes = ">=0.42.0"
+sentence-transformers = ">=2.3.0"
+
+# ----------------------
+# API-based LLMs
+# ----------------------
+openai = ">=1.12.0"
+anthropic = ">=0.18.0"
+tiktoken = ">=0.5.2"
+groq = ">=0.4.0"  # Groq API for fast, free inference
+
+# ----------------------
+# LangChain + Vector Store
+# ----------------------
+langchain = ">=0.1.0"
+langchain-community = ">=0.0.20"
+chromadb = ">=0.4.22"
+
+# ----------------------
+# FastAPI
+# ----------------------
+fastapi = ">=0.109.0"
+uvicorn = { version = ">=0.27.0", extras = ["standard"] }
+pydantic = ">=2.5.0"
+slowapi = ">=0.1.9"  # Rate limiting for FastAPI
+pydantic-settings = ">=2.1.0"
+
+# ----------------------
+# Dashboard
+# ----------------------
+streamlit = ">=1.31.0"
+plotly = ">=5.18.0"
+pandas = ">=2.1.4"
+
+# ----------------------
+# Evaluation
+# ----------------------
+ragas = ">=0.1.0"
+datasets = ">=2.16.0"
+
+# ----------------------
+# Classical ML
+# ----------------------
+scikit-learn = ">=1.4.0"
+numpy = ">=1.26.0"
+
+# ----------------------
+# Database
+# ----------------------
+sqlalchemy = ">=2.0.25"
+
+# ----------------------
+# Utilities
+# ----------------------
+python-dotenv = ">=1.0.0"
+pyyaml = ">=6.0.1"
+tqdm = ">=4.66.1"
+
+
+[tool.poetry.group.dev.dependencies]
+pytest = ">=8.0.0"
+pytest-cov = ">=4.1.0"
+httpx = ">=0.26.0"
+black = ">=24.1.0"
+isort = ">=5.13.0"
+flake8 = ">=7.0.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

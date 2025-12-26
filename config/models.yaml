@@ -1,110 +1,74 @@
-models:
-  gpt4:
-    name: "gpt-4"
-    provider: "openai"
-    type: "api"
-    cost_per_1k_tokens:
-      input: 0.03
-      output: 0.06
-    max_tokens: 8192
-    capabilities:
-      - "complex_reasoning"
-      - "code_generation"
-      - "creative_writing"
-    latency_ms: 2000
-    quality_score: 0.95
+local_models:
+  tinyllama:
+    model_id: "TinyLlama/TinyLlama-1.1B-Chat-v1.0"
+    cost_per_1k_input: 0.0
+    cost_per_1k_output: 0.0
+    max_tokens: 2048
+    quantization: "4bit"
+    suitable_for: ["simple"]
     
-  gpt35:
-    name: "gpt-3.5-turbo"
-    provider: "openai"
-    type: "api"
-    cost_per_1k_tokens:
-      input: 0.0015
-      output: 0.002
+  qwen_1_5b:
+    model_id: "Qwen/Qwen2.5-1.5B-Instruct"
+    cost_per_1k_input: 0.0
+    cost_per_1k_output: 0.0
     max_tokens: 4096
-    capabilities:
-      - "simple_reasoning"
-      - "basic_code"
-      - "qa"
-    latency_ms: 800
-    quality_score: 0.75
-    
-  claude_opus:
-    name: "claude-3-opus"
-    provider: "anthropic"
-    type: "api"
-    cost_per_1k_tokens:
-      input: 0.015
-      output: 0.075
-    max_tokens: 4096
-    capabilities:
-      - "complex_reasoning"
-      - "analysis"
-      - "creative_writing"
-    latency_ms: 1500
-    quality_score: 0.93
-    
-  claude_sonnet:
-    name: "claude-3-sonnet"
-    provider: "anthropic"
-    type: "api"
-    cost_per_1k_tokens:
-      input: 0.003
-      output: 0.015
-    max_tokens: 4096
-    capabilities:
-      - "reasoning"
-      - "code_generation"
-      - "analysis"
-    latency_ms: 1000
-    quality_score: 0.85
-    
-  llama70b:
-    name: "llama-2-70b"
-    provider: "local"
-    type: "local"
-    cost_per_1k_tokens:
-      input: 0.0001
-      output: 0.0001
-    max_tokens: 4096
-    capabilities:
-      - "reasoning"
-      - "code_generation"
-    latency_ms: 3000
-    quality_score: 0.80
-    
-  mistral:
-    name: "mistral-7b"
-    provider: "local"
-    type: "local"
-    cost_per_1k_tokens:
-      input: 0.00005
-      output: 0.00005
-    max_tokens: 8192
-    capabilities:
-      - "simple_reasoning"
-      - "qa"
-      - "basic_code"
-    latency_ms: 500
-    quality_score: 0.70
+    quantization: "4bit"
+    suitable_for: ["simple", "medium"]
 
-routing_rules:
-  complexity_thresholds:
-    simple: 0.3
-    medium: 0.6
-    complex: 0.9
+# Groq models - FREE and ultra-fast! Get API key at: https://console.groq.com/keys
+# Tiered for cost optimization: simple→fast small model, complex→powerful large model
+groq_models:
+  # Tier 1: Fast & Light (for SIMPLE queries) - 560 tokens/sec
+  llama_3_1_8b:
+    model_id: "llama-3.1-8b-instant"
+    cost_per_1k_input: 0.0
+    cost_per_1k_output: 0.0
+    max_tokens: 8192
+    tier: "simple"
+    speed: "560 tokens/sec"
+    suitable_for: ["simple"]
     
-  quality_requirements:
-    high: ["gpt4", "claude_opus"]
-    medium: ["claude_sonnet", "gpt35", "llama70b"]
-    low: ["mistral"]
+  # Tier 2: Balanced (for MEDIUM queries) - 400 tokens/sec
+  qwen_32b:
+    model_id: "qwen-qwq-32b"
+    cost_per_1k_input: 0.0
+    cost_per_1k_output: 0.0
+    max_tokens: 32768
+    tier: "medium"
+    speed: "400 tokens/sec"
+    suitable_for: ["medium"]
     
-  cost_optimization:
-    enabled: true
-    fallback_on_failure: true
-    prefer_local: false
+  # Tier 3: Powerful (for COMPLEX queries) - 280 tokens/sec
+  llama_3_3_70b:
+    model_id: "llama-3.3-70b-versatile"
+    cost_per_1k_input: 0.0
+    cost_per_1k_output: 0.0
+    max_tokens: 32768
+    tier: "complex"
+    speed: "280 tokens/sec"
+    suitable_for: ["complex"]
+
+api_models:
+  gpt_4o_mini:
+    model_id: "gpt-4o-mini"
+    provider: "openai"
+    cost_per_1k_input: 0.150
+    cost_per_1k_output: 0.600
+    max_tokens: 16384
+    suitable_for: ["medium", "complex"]
     
-  latency_targets:
-    realtime: 1000
-    interactive: 3000
-    batch: 10000
+  gpt_4o:
+    model_id: "gpt-4o"
+    provider: "openai"
+    cost_per_1k_input: 2.50
+    cost_per_1k_output: 10.00
+    max_tokens: 16384
+    suitable_for: ["complex"]
+    
+  claude_3_haiku:
+    model_id: "claude-3-haiku-20240307"
+    provider: "anthropic"
+    cost_per_1k_input: 0.25
+    cost_per_1k_output: 1.25
+    max_tokens: 4096
+    suitable_for: ["medium", "complex"]

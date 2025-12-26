@@ -1,0 +1,15 @@
+{"query": "What is machine learning?", "complexity": "simple", "expected_model": "llama_3_1_8b"}
+{"query": "Define artificial intelligence", "complexity": "simple", "expected_model": "llama_3_1_8b"}
+{"query": "What is a neural network?", "complexity": "simple", "expected_model": "llama_3_1_8b"}
+{"query": "Who invented deep learning?", "complexity": "simple", "expected_model": "llama_3_1_8b"}
+{"query": "What is NLP?", "complexity": "simple", "expected_model": "llama_3_1_8b"}
+{"query": "Explain the differences between supervised and unsupervised learning with examples", "complexity": "medium", "expected_model": "qwen_32b"}
+{"query": "How does backpropagation work in neural networks?", "complexity": "medium", "expected_model": "qwen_32b"}
+{"query": "Compare and contrast LSTM and GRU architectures", "complexity": "medium", "expected_model": "qwen_32b"}
+{"query": "What are the advantages of transformer models over RNNs?", "complexity": "medium", "expected_model": "qwen_32b"}
+{"query": "Explain the attention mechanism in transformers", "complexity": "medium", "expected_model": "qwen_32b"}
+{"query": "Design a complete neural network architecture for multi-modal learning that processes both images and text, explain the attention mechanisms needed", "complexity": "complex", "expected_model": "llama_3_3_70b"}
+{"query": "Analyze the ethical implications of large language models in healthcare and propose a governance framework", "complexity": "complex", "expected_model": "llama_3_3_70b"}
+{"query": "Evaluate different approaches to achieving artificial general intelligence and discuss their feasibility", "complexity": "complex", "expected_model": "llama_3_3_70b"}
+{"query": "Synthesize current research on neural architecture search and propose improvements for efficiency", "complexity": "complex", "expected_model": "llama_3_3_70b"}
+{"query": "Critique the transformer architecture and propose modifications for better long-context understanding", "complexity": "complex", "expected_model": "llama_3_3_70b"}
