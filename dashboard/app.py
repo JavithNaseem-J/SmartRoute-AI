@@ -4,15 +4,19 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
+import tempfile
+import os
+from dotenv import load_dotenv
 
-# Add src to path
+# Load environment variables from .env file
+load_dotenv()
+
 sys.path.append(str(Path(__file__).parent.parent))
-
 from src.pipeline.inference import InferencePipeline
+from src.retrieval.embedder import DocumentEmbedder
 
-# Page config
 st.set_page_config(
-    page_title="Cost-Optimized RAG",
+    page_title="SmartRoute-AI",
     page_icon="💰",
     layout="wide"
 )
@@ -22,17 +26,22 @@ st.set_page_config(
 def init_pipeline():
     return InferencePipeline()
 
+@st.cache_resource
+def init_embedder():
+    return DocumentEmbedder()
+
 try:
     pipeline = init_pipeline()
+    embedder = init_embedder()
     ready = True
 except Exception as e:
     st.error(f"Failed to initialize: {e}")
     ready = False
-    pipeline = None
+
 
 # Title
-st.title("💰 Cost-Optimized RAG System")
-st.markdown("**Smart routing for 70% cost savings**")
+st.title("💰SmartRoute-AI")
+st.header("Cost-Optimized LLM Inference with Smart Routing and RAG")
 st.markdown("---")
 
 # Sidebar
@@ -40,9 +49,9 @@ with st.sidebar:
     st.header("⚙️ Settings")
     
     if ready:
-        st.success("✓ System Ready")
+        st.success("System Ready")
     else:
-        st.error("✗ System Error")
+        st.error("System Error")
     
     strategy = st.selectbox(
         "Routing Strategy",
@@ -50,7 +59,7 @@ with st.sidebar:
         index=0
     )
     
-    use_retrieval = st.checkbox("Use RAG Retrieval", value=False)
+    use_retrieval = st.checkbox("Use RAG Retrieval", value=True)
     
     days_filter = st.selectbox(
         "Time Period",
@@ -66,20 +75,65 @@ with st.sidebar:
         st.rerun()
 
 # Main tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "💬 Query Interface",
     "📊 Cost Analytics",
-    "💰 Budget Status",
-    "📈 Model Performance"
-])
+    "💰 Budget Status"])
 
 # Tab 1: Query Interface
 with tab1:
-    st.header("Ask a Question")
+    # Document Upload Section
+    st.header("📄 Upload Documents")
+    
+    uploaded_files = st.file_uploader(
+        "Upload PDF, TXT, or MD files to add to knowledge base",
+        type=['pdf', 'txt', 'md'],
+        accept_multiple_files=True
+    )
+    
+    if uploaded_files:
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            process_btn = st.button("📥 Process Documents", type="primary")
+        
+        if process_btn:
+            with st.spinner("Processing documents..."):
+                # Save uploaded files temporarily
+                docs_dir = Path("data/documents")
+                docs_dir.mkdir(parents=True, exist_ok=True)
+                
+                processed_count = 0
+                for uploaded_file in uploaded_files:
+                    # Save file
+                    file_path = docs_dir / uploaded_file.name
+                    with open(file_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+                    processed_count += 1
+                
+                # Rebuild vector store
+                try:
+                    embedder.build_vectorstore(docs_dir)
+                    
+                    # Reload the retriever's vector store
+                    pipeline.retriever.reload()
+                    
+                    st.success(f"✅ Processed {processed_count} document(s) and updated knowledge base!")
+                    
+                    # Show stats
+                    stats = embedder.get_stats()
+                    st.info(f"📊 Vector store now has {stats.get('document_count', 0)} chunks")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing documents: {e}")
+    
+    st.markdown("---")
+    
+    # Query Section
+    st.header("❓ Ask a Question")
     
     query = st.text_area(
         "Your Question",
-        placeholder="What is machine learning?",
+        placeholder="Ask questions about your uploaded documents...",
         height=100
     )
     
@@ -102,23 +156,15 @@ with tab1:
             st.markdown("### Answer")
             st.write(result['answer'])
             
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Model", result['model_used'])
-            with col2:
-                st.metric("Complexity", result['complexity'])
-            with col3:
-                st.metric("Cost", f"${result['cost']:.4f}")
-            with col4:
-                st.metric("Latency", f"{result['latency']:.2f}s")
             
-            if result['sources']:
+            if result.get('sources'):
                 with st.expander("📚 Sources"):
                     for source in result['sources']:
                         st.write(f"- {source}")
             
-            with st.expander("🔄 Routing Details"):
-                st.json(result['routing_info'])
+            if result.get('routing_info'):
+                with st.expander("🔄 Full Routing Info"):
+                    st.json(result['routing_info'])
         else:
             st.error(f"❌ {result['error']}")
 
@@ -246,70 +292,3 @@ with tab3:
                 st.metric("Remaining", f"${data['remaining']:.4f}")
             
             st.markdown("---")
-
-# Tab 4: Model Performance
-with tab4:
-    st.header("Model Performance Comparison")
-    
-    if ready:
-        stats = pipeline.tracker.get_statistics(days=days_filter)
-        
-        if stats['by_model']:
-            # Create comparison dataframe
-            comparison_data = []
-            for model_id, model_stats in stats['by_model'].items():
-                comparison_data.append({
-                    'Model': model_id,
-                    'Queries': model_stats['count'],
-                    'Total Cost': model_stats['cost'],
-                    'Avg Cost': model_stats['avg_cost'],
-                    '% of Queries': (model_stats['count'] / stats['total_queries'] * 100) if stats['total_queries'] > 0 else 0,
-                    '% of Cost': (model_stats['cost'] / stats['total_cost'] * 100) if stats['total_cost'] > 0 else 0
-                })
-            
-            df = pd.DataFrame(comparison_data)
-            
-            # Display table
-            st.dataframe(
-                df.style.format({
-                    'Total Cost': '${:.4f}',
-                    'Avg Cost': '${:.4f}',
-                    '% of Queries': '{:.1f}%',
-                    '% of Cost': '{:.1f}%'
-                }),
-                use_container_width=True
-            )
-            
-            # Efficiency scatter plot
-            st.subheader("Cost Efficiency Analysis")
-            fig = px.scatter(
-                df,
-                x='% of Queries',
-                y='% of Cost',
-                size='Queries',
-                color='Model',
-                hover_data=['Avg Cost'],
-                title='Model Efficiency (Lower is better)',
-                labels={
-                    '% of Queries': 'Percentage of Total Queries',
-                    '% of Cost': 'Percentage of Total Cost'
-                }
-            )
-            
-            # Add ideal line (y=x)
-            fig.add_shape(
-                type='line',
-                x0=0, y0=0, x1=100, y1=100,
-                line=dict(color='gray', dash='dash'),
-                name='Ideal (Cost = Usage)'
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
-            
-            st.markdown("""
-            **Interpretation:** 
-            - Points **below** the diagonal line are cost-efficient (using less cost than expected)
-            - Points **above** the diagonal are expensive (using more cost than their query share)
-            """)
-        else:
-            st.info("No model performance data yet. Run some queries first!")

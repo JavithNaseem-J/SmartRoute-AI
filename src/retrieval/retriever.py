@@ -6,7 +6,7 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.document_loaders import DirectoryLoader, TextLoader, PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from ..utils.logger import logger
+from src.utils.logger import logger
 
 
 class DocumentRetriever:
@@ -18,9 +18,10 @@ class DocumentRetriever:
         top_k: int = 5,
         max_distance: float = 1.5  # ChromaDB uses L2 distance, lower = better
     ):
-        self.persist_dir = persist_dir
+        self.persist_dir = Path(persist_dir)  # Ensure it's a Path object
         self.top_k = top_k
         self.max_distance = max_distance  # Maximum L2 distance to accept
+        self.vectordb = None
         
         # Load embedding model
         logger.info("Loading embedding model...")
@@ -29,16 +30,36 @@ class DocumentRetriever:
         )
         
         # Load vector store if exists
-        if persist_dir.exists():
-            logger.info(f"Loading vector store from {persist_dir}")
-            self.vectordb = Chroma(
-                persist_directory=str(persist_dir),
-                embedding_function=self.embeddings
-            )
-            logger.info("✓ Vector store loaded")
+        self._load_vectorstore()
+    
+    def _load_vectorstore(self):
+        """Load or reload the vector store"""
+        if self.persist_dir.exists():
+            logger.info(f"Loading vector store from {self.persist_dir}")
+            try:
+                self.vectordb = Chroma(
+                    persist_directory=str(self.persist_dir),
+                    embedding_function=self.embeddings,
+                    collection_name="smartroute_docs"  # Must match embedder's collection name
+                )
+                # Verify the vectordb has documents
+                doc_count = self.vectordb._collection.count()
+                if doc_count > 0:
+                    logger.info(f"✓ Vector store loaded with {doc_count} documents")
+                else:
+                    logger.warning("Vector store exists but has no documents")
+                    self.vectordb = None
+            except Exception as e:
+                logger.error(f"Failed to load vector store: {e}")
+                self.vectordb = None
         else:
-            logger.warning(f"No vector store found at {persist_dir}")
+            logger.warning(f"No vector store found at {self.persist_dir}")
             self.vectordb = None
+    
+    def reload(self):
+        """Reload the vector store (call after new documents are added)"""
+        logger.info("Reloading vector store...")
+        self._load_vectorstore()
     
     def retrieve(self, query: str) -> Tuple[str, List[str]]:
         """

@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 from typing import List, Dict
+from datetime import datetime
 import json
 
 # Add src to path
@@ -136,6 +137,42 @@ def run_evaluation():
         json.dump(results_by_strategy, f, indent=2)
     
     print(f"\n✓ Results saved to: {output_file}")
+    
+    # Save metrics summary
+    metrics = {
+        'timestamp': datetime.now().isoformat(),
+        'total_queries': len(test_queries),
+        'strategies': {}
+    }
+    
+    for strategy, data in results_by_strategy.items():
+        model_counts = {}
+        complexity_counts = {}
+        for result in data['results']:
+            model = result['model']
+            complexity = result['complexity']
+            model_counts[model] = model_counts.get(model, 0) + 1
+            complexity_counts[complexity] = complexity_counts.get(complexity, 0) + 1
+        
+        metrics['strategies'][strategy] = {
+            'total_cost': round(data['total_cost'], 6),
+            'avg_cost_per_query': round(data['avg_cost'], 6),
+            'avg_latency_seconds': round(data['avg_latency'], 2),
+            'model_distribution': model_counts,
+            'complexity_distribution': complexity_counts
+        }
+    
+    if "cost_optimized" in results_by_strategy and "quality_first" in results_by_strategy:
+        metrics['cost_savings'] = {
+            'amount': round(savings, 6),
+            'percentage': round(savings_pct, 2)
+        }
+    
+    metrics_file = output_dir / "metrics.json"
+    with open(metrics_file, 'w') as f:
+        json.dump(metrics, f, indent=2)
+    
+    print(f"✓ Metrics saved to: {metrics_file}")
     
     # Model distribution
     print(f"\n{'='*70}")

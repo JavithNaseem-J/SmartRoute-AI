@@ -20,11 +20,11 @@ def temp_routing_config():
                 'description': 'Test strategy',
                 'simple': {
                     'model': 'llama_3_1_8b',
-                    'fallback': 'qwen_32b',
+                    'fallback': 'llama4_scout_17b',
                     'quality_threshold': 0.7
                 },
                 'medium': {
-                    'model': 'qwen_32b',
+                    'model': 'llama4_scout_17b',
                     'fallback': 'llama_3_3_70b',
                     'quality_threshold': 0.75
                 },

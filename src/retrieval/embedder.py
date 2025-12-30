@@ -1,6 +1,5 @@
 from pathlib import Path
 from typing import List, Optional
-
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
 from langchain_community.document_loaders import (
@@ -12,7 +11,7 @@ from langchain_community.document_loaders import (
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
 
-from ..utils.logger import logger
+from src.utils.logger import logger
 
 
 class DocumentEmbedder:
@@ -58,11 +57,7 @@ class DocumentEmbedder:
         self.vectordb = None
         logger.info("✓ DocumentEmbedder initialized")
     
-    def load_documents(
-        self,
-        docs_dir: Path,
-        glob_pattern: str = "**/*"
-    ) -> List[Document]:
+    def load_documents(self,docs_dir: Path,glob_pattern: str = "**/*") -> List[Document]:
         """
         Load documents from a directory.
         
@@ -77,12 +72,7 @@ class DocumentEmbedder:
         all_docs = []
         
         # Load PDFs
-        pdf_loader = DirectoryLoader(
-            str(docs_dir),
-            glob="**/*.pdf",
-            loader_cls=PyPDFLoader,
-            show_progress=True
-        )
+        pdf_loader = DirectoryLoader(str(docs_dir),glob="**/*.pdf",loader_cls=PyPDFLoader,show_progress=True)
         try:
             pdf_docs = pdf_loader.load()
             logger.info(f"Loaded {len(pdf_docs)} PDF pages")
@@ -91,12 +81,7 @@ class DocumentEmbedder:
             logger.warning(f"Error loading PDFs: {e}")
         
         # Load text files
-        txt_loader = DirectoryLoader(
-            str(docs_dir),
-            glob="**/*.txt",
-            loader_cls=TextLoader,
-            show_progress=True
-        )
+        txt_loader = DirectoryLoader(str(docs_dir),glob="**/*.txt",loader_cls=TextLoader,show_progress=True)
         try:
             txt_docs = txt_loader.load()
             logger.info(f"Loaded {len(txt_docs)} text files")
@@ -105,12 +90,7 @@ class DocumentEmbedder:
             logger.warning(f"Error loading text files: {e}")
         
         # Load markdown files
-        md_loader = DirectoryLoader(
-            str(docs_dir),
-            glob="**/*.md",
-            loader_cls=TextLoader,  # Use TextLoader for better compatibility
-            show_progress=True
-        )
+        md_loader = DirectoryLoader(str(docs_dir),glob="**/*.md",loader_cls=TextLoader,show_progress=True)
         try:
             md_docs = md_loader.load()
             logger.info(f"Loaded {len(md_docs)} markdown files")
@@ -135,11 +115,7 @@ class DocumentEmbedder:
         logger.info(f"Created {len(chunks)} chunks from {len(documents)} documents")
         return chunks
     
-    def embed_documents(
-        self,
-        documents: List[Document],
-        collection_name: str = "smartroute_docs"
-    ) -> Chroma:
+    def embed_documents(self,documents: List[Document],collection_name: str = "smartroute_docs") -> Chroma:
         """
         Embed documents and create vector store.
         
@@ -166,11 +142,7 @@ class DocumentEmbedder:
         logger.info(f"✓ Vector store created at {self.persist_dir}")
         return self.vectordb
     
-    def build_vectorstore(
-        self,
-        docs_dir: Path,
-        collection_name: str = "smartroute_docs"
-    ) -> Chroma:
+    def build_vectorstore(self,docs_dir: Path,collection_name: str = "smartroute_docs") -> Chroma:
         """
         Complete pipeline: load, chunk, and embed documents.
         
@@ -198,10 +170,7 @@ class DocumentEmbedder:
         
         return vectordb
     
-    def add_documents(
-        self,
-        documents: List[Document]
-    ) -> None:
+    def add_documents(self,documents: List[Document]) -> None:
         """
         Add new documents to existing vector store.
         

@@ -65,7 +65,7 @@ def test_multiple_queries(tracker):
     """Test logging multiple queries"""
     queries = [
         ("What is AI?", "llama_3_1_8b", "simple", 0.0),
-        ("How does ML work?", "qwen_32b", "medium", 0.0),
+        ("How does ML work?", "llama4_scout_17b", "medium", 0.0),
         ("Analyze AI ethics", "llama_3_3_70b", "complex", 0.0),
     ]
     

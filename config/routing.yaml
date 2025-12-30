@@ -5,12 +5,12 @@ strategies:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
       model: "llama_3_1_8b"        # 8B model - fast, efficient for simple queries
-      fallback: "qwen_32b"          # Escalate to medium if needed
+      fallback: "llama4_scout_17b"  # Escalate to medium if needed
       quality_threshold: 0.7
       max_latency: 3.0
       
     medium:
-      model: "qwen_32b"             # 32B model - balanced for medium complexity
+      model: "llama4_scout_17b"     # 17B model - balanced for medium complexity
       fallback: "llama_3_3_70b"     # Escalate to large if needed
       quality_threshold: 0.75
       max_latency: 5.0
@@ -26,7 +26,7 @@ strategies:
     simple:
       model: "llama_3_3_70b"
       fallback: "llama_3_3_70b"
-      quality_threshold: 0.85
+      quality_threshold: 0.70
       
     medium:
       model: "llama_3_3_70b"
@@ -42,11 +42,11 @@ strategies:
     description: "Balance between cost and quality"
     simple:
       model: "llama_3_1_8b"
-      fallback: "qwen_32b"
+      fallback: "llama4_scout_17b"
       quality_threshold: 0.75
       
     medium:
-      model: "qwen_32b"
+      model: "llama4_scout_17b"
       fallback: "llama_3_3_70b"
       quality_threshold: 0.8
       
@@ -70,7 +70,7 @@ complexity_rules:
     confidence_threshold: 0.6
     
   complex:
-    min_words: 30
+    min_words: 45
     keywords: ["analyze", "evaluate", "synthesize", "argue", "critique"]
     requires_reasoning: true
     confidence_threshold: 0.4
