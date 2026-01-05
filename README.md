@@ -4,9 +4,6 @@
 
 > Intelligently routes queries to the most cost-effective model while maintaining quality. Achieve **70%+ cost savings** by using smaller models for simple queries and powerful models only when needed.
 
-![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 ---
 
@@ -147,16 +144,16 @@ SmartRoute-AI/
 # config/models.yaml
 groq_models:
   llama_3_1_8b:      # Tier 1: Simple queries
-  qwen_32b:          # Tier 2: Medium queries  
+  llama-4-scout-17b  # Tier 2: Medium queries  
   llama_3_3_70b:     # Tier 3: Complex queries
 ```
 
-## 📈 Dashboard
+## 📈 app
 
 Run the Streamlit dashboard for analytics:
 
 ```bash
-streamlit run dashboard/app.py
+streamlit run app.py
 ```
 
 ## 🧪 Testing
@@ -190,12 +187,3 @@ pytest tests/ -v
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
-## 👨‍💻 Author
-
-**Javith Naseem**  
-- Email: javithnaseem.j@gmail.com
-
----
-
-⭐ **Star this repo if you find it useful!**
