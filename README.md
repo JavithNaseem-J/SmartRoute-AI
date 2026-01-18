@@ -3,12 +3,6 @@
 **Cost-Optimized LLM Routing System with RAG**
 
 > Intelligently routes queries to the most cost-effective model while maintaining quality. Uses Groq's **free API** for 100% cost savings.
-
-![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-green.svg)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.45+-red.svg)
-![License](https://img.shields.io/badge/License-MIT-yellow.svg)
-
 ---
 
 ## 🎯 Features
@@ -237,7 +231,6 @@ Run the Streamlit dashboard for analytics:
 ```bash
 streamlit run app.py
 ```
->>>>>>> 7436987b900ba9558f819321c71b5df7dc33e385
 
 ## 🧪 Testing
 
@@ -259,14 +252,7 @@ docker-compose up --build
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE)
-=======
-## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests
-5. Submit a pull request
 
 ## 📜 License
 
