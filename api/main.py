@@ -1,8 +1,10 @@
 import sys
+import os
 import uvicorn
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from typing import Optional, List
 from slowapi import Limiter, _rate_limit_exceeded_handler
@@ -12,6 +14,21 @@ from slowapi.errors import RateLimitExceeded
 sys.path.append(str(Path(__file__).parent.parent))
 from src.pipeline.inference import InferencePipeline
 from src.utils.logger import logger
+
+# API Key authentication
+API_KEY = os.getenv("SMARTROUTE_API_KEY", "dev-key-change-in-production")
+api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def verify_api_key(api_key: str = Security(api_key_header)):
+    """Verify API key for protected endpoints"""
+    if api_key is None or api_key != API_KEY:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or missing API key"
+        )
+    return api_key
+
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -27,19 +44,24 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS
+# CORS - Restrict to known origins
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS", 
+    "http://localhost:8501,http://localhost:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"]
 )
 
 # Initialize pipeline
 try:
     pipeline = InferencePipeline()
-    logger.info("✓ Pipeline initialized")
+    logger.info("####### Pipeline initialized #######")
 except Exception as e:
     logger.error(f"Failed to initialize pipeline: {e}")
     pipeline = None
@@ -109,8 +131,12 @@ async def health():
 
 @app.post("/query", response_model=QueryResponse)
 @limiter.limit("30/minute")
-async def query(request: Request, query_request: QueryRequest):
-    """Process a query through the pipeline"""
+async def query(
+    request: Request,
+    query_request: QueryRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """Process a query through the pipeline (requires API key)"""
     
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -133,8 +159,12 @@ async def query(request: Request, query_request: QueryRequest):
 
 @app.get("/stats")
 @limiter.limit("60/minute")
-async def get_stats(request: Request, days: int = 1):
-    """Get cost statistics"""
+async def get_stats(
+    request: Request,
+    days: int = 1,
+    api_key: str = Depends(verify_api_key)
+):
+    """Get cost statistics (requires API key)"""
     
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -150,8 +180,12 @@ async def get_stats(request: Request, days: int = 1):
 
 @app.get("/savings")
 @limiter.limit("60/minute")
-async def get_savings(request: Request, days: int = 1):
-    """Calculate cost savings vs baseline"""
+async def get_savings(
+    request: Request,
+    days: int = 1,
+    api_key: str = Depends(verify_api_key)
+):
+    """Calculate cost savings vs baseline (requires API key)"""
     
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -167,8 +201,11 @@ async def get_savings(request: Request, days: int = 1):
 
 @app.get("/budget")
 @limiter.limit("60/minute")
-async def get_budget(request: Request):
-    """Get current budget status"""
+async def get_budget(
+    request: Request,
+    api_key: str = Depends(verify_api_key)
+):
+    """Get current budget status (requires API key)"""
     
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -204,8 +241,11 @@ async def list_models():
 
 
 @app.post("/strategy")
-async def update_strategy(strategy: str):
-    """Update default routing strategy"""
+async def update_strategy(
+    strategy: str,
+    api_key: str = Depends(verify_api_key)
+):
+    """Update default routing strategy (requires API key)"""
     
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")

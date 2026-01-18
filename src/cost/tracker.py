@@ -3,10 +3,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-from ..utils.logger import logger
+from src.utils.logger import logger
 
 Base = declarative_base()
 
@@ -149,11 +149,7 @@ class CostTracker:
             'by_strategy': by_strategy
         }
     
-    def calculate_savings(
-        self,
-        days: int = 1,
-        baseline_cost_per_query: float = 0.15
-    ) -> Dict:
+    def calculate_savings(self,days: int = 1,baseline_cost_per_query: float = 0.15) -> Dict:
         """
         Calculate savings vs baseline (all-GPT-4)
         

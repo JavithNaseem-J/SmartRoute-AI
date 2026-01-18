@@ -3,30 +3,18 @@ import time
 from typing import Dict, Optional
 from groq import Groq, RateLimitError
 
-from ..utils.logger import logger
+from src.utils.logger import logger
 
 
 class GroqModel:
-    """
-    Wrapper for Groq API - Ultra-fast inference for open-source models.
-    
-    Supported models:
-    - llama-3.3-70b-versatile (best quality)
-    - llama-3.1-8b-instant (fast, good quality)
-    - llama3-8b-8192 (fast)
-    - mixtral-8x7b-32768 (good for long context)
-    - gemma2-9b-it (Google's model)
-    
-    Get your FREE API key at: https://console.groq.com/keys
-    """
-    
+
     def __init__(
         self,
         model_id: str,
         cost_per_1k_input: float = 0.0,
         cost_per_1k_output: float = 0.0,
         max_tokens: int = 4096,
-        temperature: float = 0.7,
+        temperature: float = 0.5,
         max_retries: int = 3
     ):
         self.model_id = model_id
@@ -46,30 +34,13 @@ class GroqModel:
         
         self.client = Groq(api_key=api_key)
         
-        logger.info(f"✓ Initialized Groq client for {model_id}")
+        logger.info(f"####### Initialized Groq client for {model_id} #######")
     
-    def generate(
-        self,
-        prompt: str,
-        context: str = "",
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None
-    ) -> Dict:
-        """
-        Generate response using Groq's ultra-fast inference.
+    def generate(self,prompt: str,context: str = "",max_tokens: Optional[int] = None,temperature: Optional[float] = None) -> Dict:
+
         
-        Args:
-            prompt: User query
-            context: Optional context from RAG
-            max_tokens: Max tokens to generate
-            temperature: Sampling temperature
-        
-        Returns:
-            Dict with text, input_tokens, output_tokens
-        """
-        
-        max_tok = max_tokens or self.max_tokens
-        temp = temperature or self.temperature
+        max_tok = self.max_tokens
+        temp = self.temperature
         
         # Build messages
         if context:
@@ -112,12 +83,6 @@ class GroqModel:
             except Exception as e:
                 logger.error(f"Groq API error: {e}")
                 raise
-    
-    def calculate_cost(self, input_tokens: int, output_tokens: int) -> float:
-        """Calculate cost for a request (Groq has generous free tier)"""
-        input_cost = (input_tokens / 1000) * self.cost_per_1k_input
-        output_cost = (output_tokens / 1000) * self.cost_per_1k_output
-        return input_cost + output_cost
     
     def count_tokens(self, text: str) -> int:
         """Count tokens in text (rough estimate: ~4 chars per token)"""

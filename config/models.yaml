@@ -1,31 +1,26 @@
-# Groq models - FREE and ultra-fast! Get API key at: https://console.groq.com/keys
-# Tiered for cost optimization: simple→fast small model, complex→powerful large model
 groq_models:
-  # Tier 1: Fast & Light (for SIMPLE queries) - 560 tokens/sec
   llama_3_1_8b:
     model_id: "llama-3.1-8b-instant"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.0001    # Simulated: $0.10 per 1M input tokens
+    cost_per_1k_output: 0.0002   # Simulated: $0.20 per 1M output tokens
     max_tokens: 8192
     tier: "simple"
     speed: "560 tokens/sec"
     suitable_for: ["simple"]
     
-  # Tier 2: Balanced (for MEDIUM queries)
   llama4_scout_17b:
     model_id: "meta-llama/llama-4-scout-17b-16e-instruct"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.0005    # Simulated: $0.50 per 1M input tokens
+    cost_per_1k_output: 0.0015   # Simulated: $1.50 per 1M output tokens
     max_tokens: 8192
     tier: "medium"
     speed: "400 tokens/sec"
     suitable_for: ["medium"]
     
-  # Tier 3: Powerful (for COMPLEX queries) - 280 tokens/sec
   llama_3_3_70b:
     model_id: "llama-3.3-70b-versatile"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.003     # Simulated: $3.00 per 1M input tokens
+    cost_per_1k_output: 0.015    # Simulated: $15.00 per 1M output tokens
     max_tokens: 32768
     tier: "complex"
     speed: "280 tokens/sec"

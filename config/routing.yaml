@@ -4,20 +4,20 @@ strategies:
   cost_optimized:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
-      model: "llama_3_1_8b"        # 8B model - fast, efficient for simple queries
-      fallback: "llama4_scout_17b"  # Escalate to medium if needed
+      model: "llama_3_1_8b"        
+      fallback: "llama4_scout_17b" 
       quality_threshold: 0.7
       max_latency: 3.0
       
     medium:
-      model: "llama4_scout_17b"     # 17B model - balanced for medium complexity
-      fallback: "llama_3_3_70b"     # Escalate to large if needed
+      model: "llama4_scout_17b"
+      fallback: "llama_3_3_70b"
       quality_threshold: 0.75
       max_latency: 5.0
       
     complex:
-      model: "llama_3_3_70b"        # 70B model - best quality for complex queries
-      fallback: "llama_3_3_70b"     # No escalation needed, already at top
+      model: "llama_3_3_70b"   
+      fallback: "llama_3_3_70b" 
       quality_threshold: 0.8
       max_latency: 10.0
       

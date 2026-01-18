@@ -1,9 +1,8 @@
 import yaml
 from pathlib import Path
 from typing import Dict, Optional
-
-from .classifier import ComplexityClassifier
-from ..utils.logger import logger
+from src.routing.classifier import ComplexityClassifier
+from src.utils.logger import logger
 
 
 class QueryRouter:
@@ -12,11 +11,7 @@ class QueryRouter:
     Routes queries to cost-effective models based on complexity
     """
     
-    def __init__(
-        self,
-        routing_config_path: Path,
-        classifier_path: Optional[Path] = None
-    ):
+    def __init__(self, routing_config_path: Path, classifier_path: Optional[Path] = None):
         # Load routing configuration
         with open(routing_config_path, 'r') as f:
             self.config = yaml.safe_load(f)
@@ -29,31 +24,7 @@ class QueryRouter:
         
         logger.info(f"Router initialized with strategy: {self.default_strategy}")
     
-    def route(
-        self,
-        query: str,
-        strategy: Optional[str] = None,
-        user_context: Optional[Dict] = None
-    ) -> Dict:
-        """
-        Route query to appropriate model
-        
-        Args:
-            query: User query string
-            strategy: Routing strategy (cost_optimized, quality_first, balanced)
-            user_context: Optional user context for personalization
-        
-        Returns:
-            Dictionary with routing decision:
-            {
-                'model_id': str,
-                'complexity': str,
-                'confidence': float,
-                'fallback_model': str,
-                'strategy': str,
-                'reason': str
-            }
-        """
+    def route(self, query: str, strategy: Optional[str] = None, user_context: Optional[Dict] = None) -> Dict:
         
         # Use default strategy if not specified
         strategy = strategy or self.default_strategy
@@ -62,7 +33,7 @@ class QueryRouter:
             logger.warning(f"Unknown strategy {strategy}, using {self.default_strategy}")
             strategy = self.default_strategy
         
-        # Step 1: Classify query complexity
+        # Classify query complexity
         complexity, confidence = self.classifier.predict(query)
         
         logger.info(
@@ -70,7 +41,7 @@ class QueryRouter:
             f"(confidence: {confidence:.2f})"
         )
         
-        # Step 2: Get routing rules for this strategy and complexity
+        # Get routing rules for this strategy and complexity
         strategy_config = self.config['strategies'][strategy]
         
         if complexity not in strategy_config:
@@ -79,12 +50,12 @@ class QueryRouter:
         
         rules = strategy_config[complexity]
         
-        # Step 3: Select model based on rules
+        # Select model based on rules
         model_id = rules['model']
         fallback_model = rules.get('fallback', model_id)
         quality_threshold = rules.get('quality_threshold', 0.0)
         
-        # Step 4: Check if we need to escalate to fallback
+        # Check if we need to escalate to fallback
         reason = 'normal_routing'
         
         if confidence < quality_threshold:
@@ -95,7 +66,7 @@ class QueryRouter:
             model_id = fallback_model
             reason = 'low_confidence_escalation'
         
-        # Step 5: Return routing decision
+        # Return routing decision
         return {
             'model_id': model_id,
             'complexity': complexity,
@@ -131,24 +102,22 @@ class QueryRouter:
         """Generate human-readable explanation of routing decision"""
         
         explanation = f"""
-Query Routing Decision:
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+            Query Routing Decision:
 
-Complexity:     {routing_decision['complexity']} 
-Confidence:     {routing_decision['confidence']:.2%}
-Selected Model: {routing_decision['model_id']}
-Fallback Model: {routing_decision['fallback_model']}
-Strategy:       {routing_decision['strategy']}
-Reason:         {routing_decision['reason'].replace('_', ' ').title()}
+            Complexity:     {routing_decision['complexity']} 
+            Confidence:     {routing_decision['confidence']:.2%}
+            Selected Model: {routing_decision['model_id']}
+            Fallback Model: {routing_decision['fallback_model']}
+            Strategy:       {routing_decision['strategy']}
+            Reason:         {routing_decision['reason'].replace('_', ' ').title()}
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Explanation:
-The query was classified as '{routing_decision['complexity']}' with 
-{routing_decision['confidence']:.0%} confidence. Based on the 
-'{routing_decision['strategy']}' strategy, the query was routed to 
-'{routing_decision['model_id']}'.
-        """.strip()
+            Explanation:
+            The query was classified as '{routing_decision['complexity']}' with 
+            {routing_decision['confidence']:.0%} confidence. Based on the 
+            '{routing_decision['strategy']}' strategy, the query was routed to 
+            '{routing_decision['model_id']}'.
+                    """.strip()
         
         return explanation
     

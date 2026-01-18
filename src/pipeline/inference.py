@@ -2,12 +2,12 @@ import time
 from pathlib import Path
 from typing import Dict, Optional
 
-from ..routing.router import QueryRouter
-from ..models.model_manager import ModelManager
-from ..retrieval.retriever import DocumentRetriever
-from ..cost.tracker import CostTracker
-from ..cost.budget import BudgetManager
-from ..utils.logger import logger
+from src.routing.router import QueryRouter
+from src.models.model_manager import ModelManager
+from src.retrieval.retriever import DocumentRetriever
+from src.cost.tracker import CostTracker
+from src.cost.budget import BudgetManager
+from src.utils.logger import logger
 
 
 class InferencePipeline:
@@ -52,7 +52,7 @@ class InferencePipeline:
             config_path=config_dir / "routing.yaml"
         )
         
-        logger.info("✓ Pipeline ready")
+        logger.info("####### Pipeline ready #######")
     
     def run(
         self,
@@ -107,9 +107,9 @@ class InferencePipeline:
             if not can_afford:
                 logger.warning(
                     f"Budget exceeded ({reason}), "
-                    f"falling back to free local model"
+                    f"falling back to cheapest model"
                 )
-                model_id = "llama_3_2_1b"  # Free fallback
+                model_id = "llama_3_1_8b"  # Cheapest tier model
                 routing_decision['model_id'] = model_id
                 routing_decision['reason'] = f"budget_{reason}"
             
@@ -160,9 +160,9 @@ class InferencePipeline:
             )
             
             logger.info(
-                f"✓ Query completed: "
+                f"####### Query completed: "
                 f"cost=${actual_cost:.4f}, "
-                f"latency={latency:.2f}s"
+                f"latency={latency:.2f}s #######"
             )
             
             return {

@@ -1,21 +1,25 @@
 import yaml
 from pathlib import Path
-from datetime import datetime
-from typing import Dict, Tuple
+from datetime import datetime, timedelta
+from typing import Dict, Tuple, Optional
 
-from .tracker import CostTracker
-from ..utils.logger import logger
+from src.cost.tracker import CostTracker
+from src.utils.logger import logger
 
 
 class BudgetManager:
-    """Enforce budget limits and prevent overspending"""
+    """Enforce budget limits and prevent overspending with caching."""
     
     def __init__(
         self,
         tracker: CostTracker,
-        config_path: Path = Path("config/routing.yaml")
+        config_path: Path = Path("config/routing.yaml"),
+        cache_ttl_seconds: int = 60  # Cache budget stats for 60 seconds
     ):
         self.tracker = tracker
+        self._cache_ttl = cache_ttl_seconds
+        self._stats_cache: Optional[Dict] = None
+        self._cache_timestamp: Optional[datetime] = None
         
         # Load budget configuration
         with open(config_path, 'r') as f:
@@ -33,9 +37,35 @@ class BudgetManager:
         
         logger.info(f"Budget manager initialized: Daily ${self.limits['daily']}")
     
+    def _get_cached_stats(self) -> Dict:
+        """Get budget statistics with caching to reduce DB queries."""
+        now = datetime.utcnow()
+        
+        # Check if cache is valid
+        if (self._stats_cache is not None and 
+            self._cache_timestamp is not None and
+            (now - self._cache_timestamp).total_seconds() < self._cache_ttl):
+            return self._stats_cache
+        
+        # Refresh cache - single query for daily stats (most restrictive)
+        # Weekly and monthly are only checked when daily passes
+        self._stats_cache = {
+            'daily': self.tracker.get_statistics(days=1)['total_cost']
+        }
+        self._cache_timestamp = now
+        return self._stats_cache
+    
+    def _invalidate_cache(self):
+        """Invalidate the stats cache (call after logging a query)."""
+        self._stats_cache = None
+        self._cache_timestamp = None
+    
     def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
         """
-        Check if we can afford this query
+        Check if we can afford this query (optimized with caching).
+        
+        Only checks daily budget by default (most restrictive).
+        Weekly/monthly checked only on dashboard requests.
         
         Args:
             estimated_cost: Estimated cost of the query
@@ -43,9 +73,9 @@ class BudgetManager:
         Returns:
             (can_afford, reason) tuple
         """
-        
-        # Check daily budget
-        daily_spent = self.tracker.get_statistics(days=1)['total_cost']
+        # Get cached daily stats
+        stats = self._get_cached_stats()
+        daily_spent = stats['daily']
         daily_remaining = self.limits['daily'] - daily_spent
         
         if estimated_cost > daily_remaining:
@@ -55,6 +85,18 @@ class BudgetManager:
                 f"${self.limits['daily']:.2f} limit"
             )
             return False, "daily_limit_exceeded"
+        
+        return True, "within_budget"
+    
+    def check_budget_full(self, estimated_cost: float) -> Tuple[bool, str]:
+        """
+        Full budget check including weekly and monthly limits.
+        Use this for dashboard/status checks, not per-query.
+        """
+        # Check daily budget first (cached)
+        can_afford, reason = self.check_budget(estimated_cost)
+        if not can_afford:
+            return can_afford, reason
         
         # Check weekly budget
         weekly_spent = self.tracker.get_statistics(days=7)['total_cost']
