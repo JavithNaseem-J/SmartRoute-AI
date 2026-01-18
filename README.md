@@ -213,6 +213,7 @@ curl -X POST "http://localhost:8000/query" \
 
 ### Model Tiers
 
+<<<<<<< HEAD
 | Complexity | Model | Speed |
 |------------|-------|-------|
 | Simple | Llama 3.1 8B | ~560 tok/sec |
@@ -220,6 +221,23 @@ curl -X POST "http://localhost:8000/query" \
 | Complex | Llama 3.3 70B | ~280 tok/sec |
 
 ---
+=======
+```yaml
+# config/models.yaml
+groq_models:
+  llama_3_1_8b:      # Tier 1: Simple queries
+  llama-4-scout-17b  # Tier 2: Medium queries  
+  llama_3_3_70b:     # Tier 3: Complex queries
+```
+
+## 📈 app
+
+Run the Streamlit dashboard for analytics:
+
+```bash
+streamlit run app.py
+```
+>>>>>>> 7436987b900ba9558f819321c71b5df7dc33e385
 
 ## 🧪 Testing
 
@@ -231,6 +249,7 @@ pytest tests/ -v
 
 ## 🐳 Docker
 
+<<<<<<< HEAD
 ```bash
 docker-compose up --build
 ```
@@ -240,3 +259,16 @@ docker-compose up --build
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE)
+=======
+## 🤝 Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Run tests
+5. Submit a pull request
+
+## 📜 License
+
+MIT License - see [LICENSE](LICENSE) for details.
+>>>>>>> 7436987b900ba9558f819321c71b5df7dc33e385
