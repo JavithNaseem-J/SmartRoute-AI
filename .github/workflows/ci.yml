@@ -38,7 +38,8 @@ jobs:
   docker-build-and-push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # Only run if Docker Hub secrets are configured
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DOCKER_USERNAME != ''
     
     steps:
       - name: Checkout code
@@ -69,5 +70,27 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  docker-build-test:
+    needs: test
+    runs-on: ubuntu-latest
+    # Run if Docker Hub is NOT configured (fallback)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DOCKER_USERNAME == ''
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Test Docker build (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: smartrouteai:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
