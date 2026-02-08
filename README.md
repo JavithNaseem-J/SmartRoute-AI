@@ -123,8 +123,7 @@ conda create -n SmartRoute-AI python=3.10 -y
 conda activate SmartRoute-AI
 
 # Install dependencies
-pip install poetry
-poetry install
+pip install -r requirements.txt
 ```
 
 ### 2. Get Groq API Key (FREE)
@@ -186,7 +185,7 @@ sequenceDiagram
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/health` | GET | Health check |
-| `/query` | POST | Process query (requires API key) |
+| `/query` | POST | Process query |
 | `/stats` | GET | Get usage statistics |
 | `/models` | GET | List available models |
 
@@ -194,7 +193,6 @@ sequenceDiagram
 
 ```bash
 curl -X POST "http://localhost:8000/query" \
-  -H "X-API-Key: your-api-key" \
   -H "Content-Type: application/json" \
   -d '{"query": "What is machine learning?", "strategy": "cost_optimized"}'
 ```
@@ -213,7 +211,6 @@ curl -X POST "http://localhost:8000/query" \
 
 ### Model Tiers
 
-<<<<<<< HEAD
 | Complexity | Model | Speed |
 |------------|-------|-------|
 | Simple | Llama 3.1 8B | ~560 tok/sec |
@@ -234,6 +231,11 @@ pytest tests/ -v
 
 ```bash
 docker-compose up --build
+```
+
+With dashboard:
+```bash
+docker-compose --profile dashboard up --build
 ```
 
 ---
@@ -324,4 +326,3 @@ pip install -r requirements-dev.txt
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) for details.
-
