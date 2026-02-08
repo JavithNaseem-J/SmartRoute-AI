@@ -1,4 +1,3 @@
-"""Simple tests for cost tracking."""
 import pytest
 import tempfile
 from pathlib import Path
@@ -15,11 +14,11 @@ def tracker():
     t = CostTracker(db_path=temp_file.name)
     yield t
     t.session.close()
-    t.engine.dispose()  # Properly close SQLAlchemy connection
+    t.engine.dispose()  
     try:
         Path(temp_file.name).unlink(missing_ok=True)
     except PermissionError:
-        pass  # Windows file locking
+        pass  
 
 
 def test_tracker_logs_query(tracker):

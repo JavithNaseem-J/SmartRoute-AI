@@ -1,4 +1,3 @@
-"""Simple tests for the routing module."""
 import pytest
 import tempfile
 import yaml

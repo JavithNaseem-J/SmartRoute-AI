@@ -1,5 +1,4 @@
 services:
-  # SmartRoute-AI Dashboard
   - type: web
     name: smartroute-ai
     runtime: docker

@@ -4,7 +4,6 @@ import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
-import tempfile
 import os
 from dotenv import load_dotenv
 

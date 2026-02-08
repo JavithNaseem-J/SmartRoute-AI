@@ -1,4 +1,3 @@
-"""Simple tests for the API."""
 import pytest
 import sys
 import os
