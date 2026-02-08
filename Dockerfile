@@ -1,27 +1,28 @@
-# SmartRoute-AI Docker Image (Optimized for Render)
+# SmartRoute-AI Docker Image (Optimized with uv)
 
 FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PYTHONPATH=/app
 
 WORKDIR /app
 
-# Install runtime dependencies
+# Install system dependencies and uv
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     build-essential \
+    && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements with optimizations
+# Add uv to PATH
+ENV PATH="/root/.local/bin:$PATH"
+
+# Copy requirements
 COPY requirements.txt .
 
-# Install torch CPU-only first (smaller), then other deps
-RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir -r requirements.txt
+# Install dependencies with uv (much faster than pip)
+RUN uv pip install --system --no-cache -r requirements.txt
 
 # Copy application code
 COPY . .
