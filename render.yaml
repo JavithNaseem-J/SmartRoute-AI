@@ -1,0 +1,42 @@
+services:
+  # FastAPI Backend API Service
+  - type: web
+    name: smartroute-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DAILY_BUDGET
+        value: "10.0"
+      - key: WEEKLY_BUDGET
+        value: "50.0"
+      - key: MONTHLY_BUDGET
+        value: "200.0"
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+  # Streamlit Dashboard Service
+  - type: web
+    name: smartroute-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile.streamlit
+    region: oregon
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: DAILY_BUDGET
+        value: "10.0"
+      - key: WEEKLY_BUDGET
+        value: "50.0"
+      - key: MONTHLY_BUDGET
+        value: "200.0"
+      - key: PYTHONUNBUFFERED
+        value: "1"

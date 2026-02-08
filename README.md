@@ -221,23 +221,6 @@ curl -X POST "http://localhost:8000/query" \
 | Complex | Llama 3.3 70B | ~280 tok/sec |
 
 ---
-=======
-```yaml
-# config/models.yaml
-groq_models:
-  llama_3_1_8b:      # Tier 1: Simple queries
-  llama-4-scout-17b  # Tier 2: Medium queries  
-  llama_3_3_70b:     # Tier 3: Complex queries
-```
-
-## 📈 app
-
-Run the Streamlit dashboard for analytics:
-
-```bash
-streamlit run app.py
-```
->>>>>>> 7436987b900ba9558f819321c71b5df7dc33e385
 
 ## 🧪 Testing
 
@@ -249,17 +232,85 @@ pytest tests/ -v
 
 ## 🐳 Docker
 
-<<<<<<< HEAD
 ```bash
 docker-compose up --build
 ```
 
 ---
 
-## 📄 License
+## 🚀 Render Deployment
 
-MIT License - see [LICENSE](LICENSE)
-=======
+### Option 1: Blueprint (Recommended)
+
+1. Push your code to GitHub
+2. Go to [Render Dashboard](https://dashboard.render.com)
+3. Click **New** → **Blueprint**
+4. Connect your GitHub repository
+5. Render will auto-detect `render.yaml` and create **both services**:
+   - `smartroute-api` - FastAPI backend
+   - `smartroute-dashboard` - Streamlit UI
+6. Add your environment variables:
+   - `GROQ_API_KEY`: Your Groq API key (required)
+
+### Option 2: Manual Deployment
+
+**Deploy API Service:**
+1. Go to [Render Dashboard](https://dashboard.render.com)
+2. Click **New** → **Web Service**
+3. Connect your GitHub repository
+4. Configure settings:
+   - **Name**: `smartroute-api`
+   - **Runtime**: Docker
+   - **Dockerfile Path**: `./Dockerfile`
+   - **Branch**: `main`
+   - **Plan**: Free (or your preferred tier)
+5. Add environment variables:
+   - `GROQ_API_KEY`: Your Groq API key
+   - `DAILY_BUDGET`: `10.0`
+   - `WEEKLY_BUDGET`: `50.0`
+   - `MONTHLY_BUDGET`: `200.0`
+   - `ALLOWED_ORIGINS`: `*`
+6. Click **Create Web Service**
+
+**Deploy Dashboard Service:**
+1. Click **New** → **Web Service** again
+2. Configure settings:
+   - **Name**: `smartroute-dashboard`
+   - **Runtime**: Docker
+   - **Dockerfile Path**: `./Dockerfile.streamlit`
+   - **Branch**: `main`
+   - **Plan**: Free
+3. Add the same environment variables as above
+4. Click **Create Web Service**
+
+### Post-Deployment URLs
+
+| Service | URL |
+|---------|-----|
+| **API** | `https://smartroute-api.onrender.com` |
+| **Dashboard** | `https://smartroute-dashboard.onrender.com` |
+
+Test the API health:
+```bash
+curl https://smartroute-api.onrender.com/health
+```
+
+---
+
+## 📦 Dependencies
+
+| File | Purpose |
+|------|---------|
+| `requirements.txt` | Production dependencies |
+| `requirements-dev.txt` | Development + testing tools |
+
+Install for development:
+```bash
+pip install -r requirements-dev.txt
+```
+
+---
+
 ## 🤝 Contributing
 
 1. Fork the repository
@@ -268,7 +319,9 @@ MIT License - see [LICENSE](LICENSE)
 4. Run tests
 5. Submit a pull request
 
+---
+
 ## 📜 License
 
 MIT License - see [LICENSE](LICENSE) for details.
->>>>>>> 7436987b900ba9558f819321c71b5df7dc33e385
+
