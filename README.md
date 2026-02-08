@@ -4,11 +4,6 @@
 
 > **Intelligent query routing system that reduces LLM costs by 60-80% while maintaining quality** through ML-based complexity classification and hybrid RAG retrieval.
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.109+-00a393.svg)](https://fastapi.tiangolo.com/)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.31+-FF4B4B.svg)](https://streamlit.io/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
-[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 [Live Demo](https://smartroute-ai.onrender.com) • [Documentation](#-documentation) • [Architecture](#-architecture) • [Benchmark](#-cost-savings-benchmark)
 
@@ -213,7 +208,7 @@ graph TD
 |----------|-----------|----------------|---------|
 | **Baseline (Always 70B)** | $0.004800 | $0.000120 | — |
 | **Smart Routing** | $0.001200 | $0.000030 | **75%** ⬇️ |
-| **Always 8B** | $0.000600 | $0.000015 | 87% (⚠️ quality loss) |
+| **Always 8B** | $0.000600 | $0.000015 | 81%  |
 
 ### **Model Selection Distribution**
 
@@ -488,7 +483,8 @@ MONTHLY_BUDGET_LIMIT=100.00
 - Real-time spend tracking
 - Alert thresholds
 
-![Dashboard Preview](https://via.placeholder.com/800x400?text=Dashboard+Screenshot)
+
+https://github.com/user-attachments/assets/e5777071-aefd-498f-91e1-30ccf5f52b25 
 
 ---
 
@@ -512,83 +508,7 @@ mypy src/
 
 ---
 
-## 🤝 Contributing
-
-Contributions welcome! Please:
-1. Fork the repository
-2. Create feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit changes (`git commit -m 'Add amazing feature'`)
-4. Push to branch (`git push origin feature/amazing-feature`)
-5. Open Pull Request
-
----
-
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) for details.
 
----
-
-## 🙏 Acknowledgments
-
-- **Groq** for blazing-fast LLM inference
-- **ChromaDB** for vector database
-- **Sentence-Transformers** for embeddings
-- **LangChain** for RAG components
-
----
-
-## 📞 Contact
-
-**Javith Naseem J**  
-AI/ML Engineer | LLM Systems | RAG Specialist
-
-- Portfolio: [your-portfolio-link]
-- LinkedIn: [your-linkedin]
-- Email: [your-email]
-
----
-
-## 🎯 For Recruiters
-
-### **Why This Project Demonstrates Excellence:**
-
-1. **End-to-End ML System**
-   - Problem identification → Solution design → Implementation → Deployment
-   - Real business impact (60-80% cost reduction)
-
-2. **Production-Grade Engineering**
-   - Docker containerization
-   - CI/CD pipeline
-   - API design & documentation
-   - Cost tracking & monitoring
-
-3. **Advanced AI/ML Concepts**
-   - ML classification for routing
-   - Hybrid RAG retrieval
-   - Feature engineering
-   - Model optimization
-
-4. **System Design & Architecture**
-   - Microservices pattern
-   - Scalable infrastructure
-   - Database design
-   - API rate limiting
-
-5. **Business Acumen**
-   - ROI analysis
-   - Cost optimization
-   - Performance benchmarking
-   - Stakeholder communication
-
-**This project showcases the full stack of skills required for senior AI/ML Engineering roles.**
-
----
-
-<div align="center">
-
-**⭐ Star this repo if you found it useful!**
-
-Made with ❤️ by [Javith Naseem J](https://github.com/JavithNaseem-J)
-
-</div>
