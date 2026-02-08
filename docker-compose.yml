@@ -1,49 +1,15 @@
 version: '3.8'
 
 services:
-  # FastAPI Backend API
-  smartroute-api:
+  smartroute-ai:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: smartroute-api
-    ports:
-      - "8000:8000"
-    environment:
-      - GROQ_API_KEY=${GROQ_API_KEY}
-      - LOG_LEVEL=${LOG_LEVEL:-INFO}
-      - DAILY_BUDGET=${DAILY_BUDGET:-10.0}
-      - WEEKLY_BUDGET=${WEEKLY_BUDGET:-50.0}
-      - MONTHLY_BUDGET=${MONTHLY_BUDGET:-200.0}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-*}
-      - PORT=8000
-    volumes:
-      # Persist data across container restarts
-      - ./data/documents:/app/data/documents:ro
-      - ./data/embeddings:/app/data/embeddings
-      - ./data/costs:/app/data/costs
-      - ./models/classifiers:/app/models/classifiers
-    restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  # Streamlit Dashboard
-  smartroute-dashboard:
-    build:
-      context: .
-      dockerfile: Dockerfile.streamlit
-    container_name: smartroute-dashboard
+    container_name: smartroute-ai
     ports:
       - "8501:8501"
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - DAILY_BUDGET=${DAILY_BUDGET:-10.0}
-      - WEEKLY_BUDGET=${WEEKLY_BUDGET:-50.0}
-      - MONTHLY_BUDGET=${MONTHLY_BUDGET:-200.0}
       - PORT=8501
     volumes:
       - ./data/documents:/app/data/documents
@@ -51,14 +17,6 @@ services:
       - ./data/costs:/app/data/costs
       - ./models/classifiers:/app/models/classifiers
     restart: unless-stopped
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8501/_stcore/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
-    profiles:
-      - dashboard
 
 networks:
   default:

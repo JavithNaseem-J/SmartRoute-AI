@@ -60,26 +60,6 @@ class InferencePipeline:
         strategy: Optional[str] = None,
         use_retrieval: bool = True
     ) -> Dict:
-        """
-        Execute complete inference pipeline
-        
-        Args:
-            query: User query
-            strategy: Routing strategy (cost_optimized, quality_first, balanced)
-            use_retrieval: Whether to use RAG retrieval
-        
-        Returns:
-            Dictionary containing:
-            - answer: Generated response
-            - model_used: Which model was used
-            - complexity: Query complexity
-            - confidence: Classifier confidence
-            - cost: Query cost in USD
-            - latency: Response time in seconds
-            - sources: RAG sources (if applicable)
-            - success: Whether query succeeded
-        """
-        
         start_time = time.time()
         
         try:

@@ -14,7 +14,7 @@ class BudgetManager:
         self,
         tracker: CostTracker,
         config_path: Path = Path("config/routing.yaml"),
-        cache_ttl_seconds: int = 60  # Cache budget stats for 60 seconds
+        cache_ttl_seconds: int = 60  
     ):
         self.tracker = tracker
         self._cache_ttl = cache_ttl_seconds

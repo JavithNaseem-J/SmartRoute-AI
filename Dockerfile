@@ -1,21 +1,6 @@
-# SmartRoute-AI API Docker Image
-# Multi-stage build for optimized image size
+# SmartRoute-AI Docker Image
 
-FROM python:3.10-slim as builder
-
-# Set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
-
-WORKDIR /app
-
-# Copy requirements
-COPY requirements.txt ./
-
-# Production stage
-FROM python:3.10-slim as production
+FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -44,13 +29,12 @@ USER appuser
 # Create necessary directories
 RUN mkdir -p data/documents data/embeddings data/costs models/classifiers
 
-# Expose port
-EXPOSE 8000
+# Expose Streamlit port
+EXPOSE 8501
 
-# Health check (uses PORT env variable, defaults to 8000)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:${PORT:-8000}/health || exit 1
+    CMD curl -f http://localhost:${PORT:-8501}/_stcore/health || exit 1
 
-# Default command - run API server with Render-compatible settings
-# Render injects PORT env variable, defaulting to 8000 for local development
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Run Streamlit dashboard
+CMD ["sh", "-c", "streamlit run app.py --server.port=${PORT:-8501} --server.address=0.0.0.0 --server.headless=true"]
