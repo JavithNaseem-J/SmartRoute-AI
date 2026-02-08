@@ -1,10 +1,12 @@
-# SmartRoute-AI Docker Image
+# SmartRoute-AI Docker Image (Optimized for Render)
 
 FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PYTHONPATH=/app
+    PYTHONPATH=/app \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
 
@@ -14,9 +16,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install requirements
+# Copy and install requirements with optimizations
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Install torch CPU-only first (smaller), then other deps
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY . .
@@ -33,7 +38,7 @@ RUN mkdir -p data/documents data/embeddings data/costs models/classifiers
 EXPOSE 8501
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:${PORT:-8501}/_stcore/health || exit 1
 
 # Run Streamlit dashboard
