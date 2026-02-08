@@ -262,7 +262,7 @@ pip install -r requirements.txt
 
 ```bash
 cp .env.example .env
-# Edit .env and add: GROQ_API_KEY=gsk_xxxxx
+# Edit .env and add: GROQ_API_KEY=gsk_xxxxxx
 ```
 
 ### **3. Train ML Classifier**
