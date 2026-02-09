@@ -38,7 +38,7 @@ jobs:
   docker-build-and-push:
     needs: test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
@@ -76,7 +76,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     # Run if Docker Hub is NOT configured (fallback)
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && secrets.DOCKER_USERNAME == ''
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout code
