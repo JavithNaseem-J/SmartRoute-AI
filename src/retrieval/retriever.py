@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import List, Tuple, Optional
-from langchain_community.retrievers import BM25Retriever, EnsembleRetriever
+from langchain_community.retrievers import BM25Retriever
+from langchain.retrievers.ensemble import EnsembleRetriever
 from src.utils.logger import logger
 from src.retrieval.vector_store import VectorStore
 from src.retrieval.embedder import Embedder
