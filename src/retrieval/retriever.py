@@ -1,7 +1,6 @@
 from pathlib import Path
 from typing import List, Tuple, Optional
 from langchain_community.retrievers import BM25Retriever
-from langchain.retrievers.ensemble import EnsembleRetriever
 from src.utils.logger import logger
 from src.retrieval.vector_store import VectorStore
 from src.retrieval.embedder import Embedder
@@ -35,9 +34,9 @@ class DocumentRetriever:
             embedder=self.embedder
         )
         
-        # BM25 and hybrid retrievers
+        # BM25 retriever
         self.bm25_retriever: Optional[BM25Retriever] = None
-        self.hybrid_retriever: Optional[EnsembleRetriever] = None
+        self.dense_retriever = None
         
         # Load indexes
         self._load_bm25_index()
@@ -57,21 +56,18 @@ class DocumentRetriever:
     
     def _setup_hybrid_retriever(self) -> None:
         """Setup hybrid retriever combining BM25 and dense search."""
-        if self.vector_store.is_ready and self.bm25_retriever:
-            dense_retriever = self.vector_store.as_retriever(
+        if self.vector_store.is_ready:
+            self.dense_retriever = self.vector_store.as_retriever(
                 search_kwargs={"k": self.top_k}
             )
             
-            self.hybrid_retriever = EnsembleRetriever(
-                retrievers=[self.bm25_retriever, dense_retriever],
-                weights=[self.bm25_weight, self.dense_weight]
-            )
-            logger.info(
-                f"####### Hybrid retriever ready "
-                f"(BM25: {self.bm25_weight}, Dense: {self.dense_weight}) #######"
-            )
-        elif self.vector_store.is_ready:
-            logger.info("Using dense-only retrieval (BM25 not available)")
+            if self.bm25_retriever:
+                logger.info(
+                    f"####### Hybrid retriever ready "
+                    f"(BM25: {self.bm25_weight}, Dense: {self.dense_weight}) #######"
+                )
+            else:
+                logger.info("Using dense-only retrieval (BM25 not available)")
         else:
             logger.warning("No retrieval indexes available")
     
@@ -93,7 +89,7 @@ class DocumentRetriever:
             return "", []
         
         try:
-            if self.hybrid_retriever:
+            if self.bm25_retriever and self.dense_retriever:
                 return self._retrieve_hybrid(query)
             else:
                 return self._retrieve_dense(query)
@@ -105,8 +101,28 @@ class DocumentRetriever:
         """Retrieve using hybrid BM25 + dense search."""
         logger.info("Using hybrid search (BM25 + Dense)")
         
-        results = self.hybrid_retriever.invoke(query)
-        results = results[:self.top_k]
+        # Get results from both retrievers
+        bm25_results = self.bm25_retriever.invoke(query) if self.bm25_retriever else []
+        dense_results = self.dense_retriever.invoke(query) if self.dense_retriever else []
+        
+        # Combine and deduplicate results
+        seen_content = set()
+        combined_results = []
+        
+        # Add BM25 results (with weight)
+        for doc in bm25_results[:self.top_k]:
+            if doc.page_content not in seen_content:
+                seen_content.add(doc.page_content)
+                combined_results.append(doc)
+        
+        # Add dense results (with weight)
+        for doc in dense_results[:self.top_k]:
+            if doc.page_content not in seen_content:
+                seen_content.add(doc.page_content)
+                combined_results.append(doc)
+        
+        # Limit to top_k
+        results = combined_results[:self.top_k]
         
         context_parts = []
         sources = []
@@ -164,15 +180,26 @@ class DocumentRetriever:
         if not self.vector_store.is_ready:
             return []
         
-        if self.hybrid_retriever:
-            return self.hybrid_retriever.invoke(query)[:self.top_k]
+        if self.bm25_retriever and self.dense_retriever:
+            # Manual hybrid retrieval
+            bm25_results = self.bm25_retriever.invoke(query)[:self.top_k]
+            dense_results = self.dense_retriever.invoke(query)[:self.top_k]
+            
+            # Combine and deduplicate
+            seen_content = set()
+            combined = []
+            for doc in bm25_results + dense_results:
+                if doc.page_content not in seen_content:
+                    seen_content.add(doc.page_content)
+                    combined.append(doc)
+            return combined[:self.top_k]
         else:
             return self.vector_store.similarity_search(query, k=self.top_k)
     
     @property
     def retrieval_mode(self) -> str:
         """Get current retrieval mode."""
-        if self.hybrid_retriever:
+        if self.bm25_retriever and self.dense_retriever:
             return "hybrid"
         elif self.vector_store.is_ready:
             return "dense_only"
@@ -186,7 +213,7 @@ class DocumentRetriever:
             "retrieval_mode": self.retrieval_mode,
             "top_k": self.top_k,
             "max_distance": self.max_distance,
-            "bm25_weight": self.bm25_weight if self.hybrid_retriever else None,
-            "dense_weight": self.dense_weight if self.hybrid_retriever else None,
+            "bm25_weight": self.bm25_weight if (self.bm25_retriever and self.dense_retriever) else None,
+            "dense_weight": self.dense_weight if (self.bm25_retriever and self.dense_retriever) else None,
             "vector_store": self.vector_store.get_stats()
         }
