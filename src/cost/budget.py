@@ -38,7 +38,7 @@ class BudgetManager:
         logger.info(f"Budget manager initialized: Daily ${self.limits['daily']}")
     
     def _get_cached_stats(self) -> Dict:
-        """Get budget statistics with caching to reduce DB queries."""
+        """Get budget statistics with caching to reduce DB queries (used for UI/Status only)."""
         now = datetime.utcnow()
         
         # Check if cache is valid
@@ -62,20 +62,13 @@ class BudgetManager:
     
     def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
         """
-        Check if we can afford this query (optimized with caching).
+        Check if we can afford this query.
         
-        Only checks daily budget by default (most restrictive).
-        Weekly/monthly checked only on dashboard requests.
-        
-        Args:
-            estimated_cost: Estimated cost of the query
-        
-        Returns:
-            (can_afford, reason) tuple
+        CRITICAL: Checks daily budget directly against DB (no cache) to prevent race conditions.
+        most restrictive check.
         """
-        # Get cached daily stats
-        stats = self._get_cached_stats()
-        daily_spent = stats['daily']
+        # ALWAYS check critical paths without cache
+        daily_spent = self.tracker.get_statistics(days=1)['total_cost']
         daily_remaining = self.limits['daily'] - daily_spent
         
         if estimated_cost > daily_remaining:
@@ -93,7 +86,8 @@ class BudgetManager:
         Full budget check including weekly and monthly limits.
         Use this for dashboard/status checks, not per-query.
         """
-        # Check daily budget first (cached)
+        # Check daily budget first (cached is fine here as it's just a check, not a gate for spending)
+        # Actually for consistency, we rely on check_budget which is non-cached.
         can_afford, reason = self.check_budget(estimated_cost)
         if not can_afford:
             return can_afford, reason
@@ -168,29 +162,32 @@ class BudgetManager:
         """
         
         # Load model costs
-        with open(model_config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        
-        # Check local models (free)
-        if model_id in config.get('local_models', {}):
-            return 0.0
-        
-        # Check API models
-        if model_id in config.get('api_models', {}):
-            model_config = config['api_models'][model_id]
+        try:
+            with open(model_config_path, 'r') as f:
+                config = yaml.safe_load(f)
             
-            # Estimate tokens (rough: 4 chars per token)
-            estimated_input_tokens = query_length // 4
-            estimated_output_tokens = 500  # Average response
+            # Check local models (free)
+            if model_id in config.get('local_models', {}):
+                return 0.0
             
-            cost_per_1k_input = model_config['cost_per_1k_input']
-            cost_per_1k_output = model_config['cost_per_1k_output']
+            # Check API models
+            if model_id in config.get('api_models', {}):
+                model_config = config['api_models'][model_id]
+                
+                # Estimate tokens (rough: 4 chars per token)
+                estimated_input_tokens = query_length // 4
+                estimated_output_tokens = 500  # Average response
+                
+                cost_per_1k_input = model_config['cost_per_1k_input']
+                cost_per_1k_output = model_config['cost_per_1k_output']
+                
+                input_cost = (estimated_input_tokens / 1000) * cost_per_1k_input
+                output_cost = (estimated_output_tokens / 1000) * cost_per_1k_output
+                
+                return input_cost + output_cost
+        except Exception:
+            pass # Fallback
             
-            input_cost = (estimated_input_tokens / 1000) * cost_per_1k_input
-            output_cost = (estimated_output_tokens / 1000) * cost_per_1k_output
-            
-            return input_cost + output_cost
-        
         # Unknown model, return conservative estimate
         return 0.05
     

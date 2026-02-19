@@ -2,59 +2,106 @@ import sys
 import numpy as np
 from pathlib import Path
 from sklearn.model_selection import train_test_split
+try:
+    from datasets import load_dataset
+    HAS_DATASETS = True
+except ImportError:
+    HAS_DATASETS = False
+
 sys.path.append(str(Path(__file__).parent.parent))
 from src.routing.classifier import ComplexityClassifier
 from src.routing.features import FeatureExtractor
 
 
-def generate_synthetic_training_data():
-    """Generate synthetic training data for classifier"""
+def get_training_data():
+    """
+    Get training data from MS MARCO dataset if available, 
+    otherwise use expanded synthetic data.
+    """
+    queries = []
+    labels = []
     
-    # Simple queries
-    simple_queries = [
-        "What is machine learning?",
-        "Define neural network",
-        "Who invented Python?",
-        "When was AI created?",
-        "Where is Dubai?",
-        "What does API stand for?",
-        "Name the capital",
-        "List programming languages",
-        "What is 2+2?",
-        "Define photosynthesis",
-    ] * 50  # 500 examples
+    if HAS_DATASETS:
+        print("Loading MS MARCO dataset (v1.1)...")
+        try:
+            # Load a subset of MS MARCO
+            dataset = load_dataset("ms_marco", "v1.1", split="train", streaming=True)
+            
+            print("Labeling data based on heuristics...")
+            count = 0
+            for item in dataset:
+                query = item['query']
+                queries.append(query)
+                
+                # Heuristic labeling
+                # 0: Simple (short, fact-based)
+                # 1: Medium (how/why, moderate length)
+                # 2: Complex (analyze/evaluate, long)
+                
+                label = 1 # default medium
+                words = len(query.split())
+                query_lower = query.lower()
+                
+                if words < 6 and not any(k in query_lower for k in ['why', 'how', 'explain']):
+                    label = 0
+                elif any(k in query_lower for k in ['analyze', 'evaluate', 'critique', 'synthesize', 'comprehensive']):
+                    label = 2
+                elif words > 20: 
+                    label = 2
+                
+                labels.append(label)
+                
+                count += 1
+                if count >= 10000:
+                    break
+                    
+            print(f"Loaded {len(queries)} queries from MS MARCO.")
+            return queries, labels
+            
+        except Exception as e:
+            print(f"Failed to load MS MARCO: {e}")
+            print("Falling back to synthetic data...")
     
-    # Medium queries
-    medium_queries = [
-        "How does machine learning work?",
-        "Why is deep learning popular?",
-        "Explain the difference between AI and ML",
-        "Compare supervised and unsupervised learning",
-        "Describe how neural networks learn",
-        "What are the benefits of cloud computing?",
-        "How do transformers work in NLP?",
-        "Explain gradient descent algorithm",
-        "Why use transfer learning?",
-        "Summarize the history of AI",
-    ] * 50  # 500 examples
+    # Fallback to BETTER synthetic data (no duplicates)
+    print("Generating synthetic data...")
     
-    # Complex queries
-    complex_queries = [
-        "Analyze the impact of AI on job markets and provide evaluation",
-        "Evaluate the ethical implications of autonomous vehicles in detail",
-        "Synthesize research findings on climate change policy",
-        "Compare different approaches to AGI development",
-        "Analyze the relationship between data privacy and AI",
-        "Evaluate quantum computing theories and implications",
-        "Argue for AI regulation using multiple perspectives",
-        "Synthesize renewable energy research comprehensively",
-        "Analyze drug development from discovery to market",
-        "Evaluate economic models for developing nations",
-    ] * 50
+    # Define templates to generate varied queries
+    subjects = ["AI", "Python", "Machine Learning", "Data Science", "Cloud Computing", "React", "SQL", "Docker", "Kubernetes", "API"]
+    actions_simple = ["What is", "Define", "Who created", "When was", "List features of"]
+    actions_medium = ["How does", "Why use", "Explain the concept of", "Describe the benefits of", "Compare X and Y in"]
+    actions_complex = ["Analyze the impact of", "Evaluate the detailed performance of", "Critique the architectural design of", "Synthesize recent research on", "Develop a comprehensive strategy for"]
     
-    queries = simple_queries + medium_queries + complex_queries
-    labels = [0] * len(simple_queries) + [1] * len(medium_queries) + [2] * len(complex_queries)
+    queries = []
+    labels = []
     
+    import random
+    
+    # Generate Simple (0)
+    for _ in range(1000):
+        s = random.choice(subjects)
+        a = random.choice(actions_simple)
+        q = f"{a} {s}?"
+        queries.append(q)
+        labels.append(0)
+        
+    # Generate Medium (1)
+    for _ in range(1000):
+        s = random.choice(subjects)
+        a = random.choice(actions_medium)
+        context = "in modern tech" if random.random() > 0.5 else "for beginners"
+        q = f"{a} {s} {context}?"
+        queries.append(q)
+        labels.append(1)
+        
+    # Generate Complex (2)
+    for _ in range(1000):
+        s = random.choice(subjects)
+        a = random.choice(actions_complex)
+        detail = "considering scalability and cost" if random.random() > 0.5 else "with respect to future trends"
+        q = f"{a} {s} {detail}, providing specific examples and references."
+        queries.append(q)
+        labels.append(2)
+        
     return queries, labels
 
 
@@ -63,29 +110,25 @@ def main():
     print("TRAINING QUERY COMPLEXITY CLASSIFIER")
     print("="*60)
     
-    print("\n[1/5] Generating synthetic training data...")
-    queries, labels = generate_synthetic_training_data()
+    print("\n[1/5] Getting training data...")
+    queries, labels = get_training_data()
     
-    print(f"####### Generated {len(queries)} examples: #######")
-    print(f"  - Simple: {labels.count(0)} queries")
-    print(f"  - Medium: {labels.count(1)} queries")
-    print(f"  - Complex: {labels.count(2)} queries")
+    # Convert labels to array
+    labels = np.array(labels)
     
-    # Extract features
+    print(f"####### Examples: {len(queries)} #######")
+    print(f"  - Simple: {np.sum(labels==0)}")
+    print(f"  - Medium: {np.sum(labels==1)}")
+    print(f"  - Complex: {np.sum(labels==2)}")
+    
+    # Extract features — use batch method for speed (single encode call)
     print("\n[2/5] Extracting features...")
     feature_extractor = FeatureExtractor()
-    
-    X = []
-    for i, query in enumerate(queries):
-        if i % 200 == 0:
-            print(f"  Processed {i}/{len(queries)} queries...")
-        
-        features = feature_extractor.extract(query)
-        feature_vector = feature_extractor.extract_vector(features)
-        X.append(feature_vector)
-    
-    X = np.array(X)
-    y = np.array(labels)
+
+    # batch_extract_vectors encodes ALL queries in one SentenceTransformer
+    # call instead of 10,000 individual forward passes — ~50x faster
+    X = feature_extractor.batch_extract_vectors(queries, batch_size=256)
+    y = labels
     
     print(f"####### Extracted features: {X.shape} #######")
     
@@ -105,22 +148,31 @@ def main():
     print("\n[4/5] Training LightGBM classifier...")
     classifier = ComplexityClassifier()
     
+    # Note: ComplexityClassifier might need to resize its internal model if it was pre-loaded
+    # but here we are initializing a new one.
+    
     train_accuracy = classifier.train(X_train, y_train)
     print(f"####### Training accuracy: {train_accuracy:.2%} #######")
 
     # Evaluate on test set
-    X_test_scaled = classifier.scaler.transform(X_test)
+    if hasattr(classifier, 'scaler'):
+        X_test_scaled = classifier.scaler.transform(X_test)
+    else:
+        X_test_scaled = X_test
+        
     test_accuracy = classifier.model.score(X_test_scaled, y_test)
     print(f"####### Test accuracy: {test_accuracy:.2%} #######")
     
     # Feature importance
     print("\n[5/5] Analyzing feature importance...")
-    importance = classifier.get_feature_importance()
-    
-    print("\nTop 10 Most Important Features:")
-    sorted_features = sorted(importance.items(), key=lambda x: x[1], reverse=True)
-    for i, (feature, score) in enumerate(sorted_features[:10], 1):
-        print(f"  {i}. {feature}: {score:.4f}")
+    try:
+        importance = classifier.get_feature_importance()
+        print("\nTop Features:")
+        sorted_features = sorted(importance.items(), key=lambda x: x[1], reverse=True)
+        for i, (feature, score) in enumerate(sorted_features[:10], 1):
+            print(f"  {i}. {feature}: {score:.4f}")
+    except Exception as e:
+        print(f"Could not get feature importance: {e}")
     
     # Save model
     save_path = Path("models/classifiers/complexity_classifier.pkl")
@@ -143,17 +195,22 @@ def main():
         ("Evaluate different approaches to AGI development with detailed reasoning", "complex")
     ]
     
+    # Mapping
+    label_map = {0: "simple", 1: "medium", 2: "complex"}
+    reverse_map = {"simple": 0, "medium": 1, "complex": 2}
+    
     correct = 0
-    for query, expected in test_examples:
-        predicted, confidence = classifier.predict(query)
-        is_correct = "#######" if predicted == expected else ">>>>>>><<<<<<<"
+    for query, expected_str in test_examples:
+        predicted_str, confidence = classifier.predict(query)
         
-        if predicted == expected:
+        is_correct = "#######" if predicted_str == expected_str else ">>>>>>><<<<<<<"
+        
+        if predicted_str == expected_str:
             correct += 1
         
         print(f"\n{is_correct} Query: '{query[:60]}...'")
-        print(f"  Expected: {expected}")
-        print(f"  Predicted: {predicted} (confidence: {confidence:.2%})")
+        print(f"  Expected: {expected_str}")
+        print(f"  Predicted: {predicted_str} (confidence: {confidence:.2%})")
     
     accuracy = correct / len(test_examples)
     print(f"\n####### Test Examples Accuracy: {accuracy:.2%} ({correct}/{len(test_examples)}) #######")
@@ -161,10 +218,7 @@ def main():
     print("\n" + "="*60)
     print("####### TRAINING COMPLETE! #######")
     print("="*60)
-    print(f"\nModel saved at: {save_path}")
-    print("You can now run the inference pipeline with:")
-    print("  python -c 'from src.pipeline.inference import InferencePipeline; p = InferencePipeline(); print(p.run(\"What is AI?\"))'")
     
-
+    
 if __name__ == "__main__":
     main()

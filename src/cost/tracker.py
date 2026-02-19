@@ -1,8 +1,9 @@
 import json
+import hashlib
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -18,6 +19,8 @@ class QueryLog(Base):
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     query = Column(String, nullable=False)
+    query_hash = Column(String)  # New: for deduplication
+    query_length = Column(Integer)  # New: for debugging full size
     model_id = Column(String, nullable=False)
     complexity = Column(String)
     strategy = Column(String)
@@ -39,6 +42,27 @@ class CostTracker:
         self.engine = create_engine(f'sqlite:///{self.db_path}')
         Base.metadata.create_all(self.engine)
         
+        # Migration: Check if new columns exist, if not add them
+        try:
+            with self.engine.connect() as conn:
+                # Check for query_hash column
+                try:
+                    conn.execute(text("SELECT query_hash FROM query_logs LIMIT 1"))
+                except Exception:
+                    logger.info("Migrating DB: Adding query_hash column")
+                    conn.execute(text("ALTER TABLE query_logs ADD COLUMN query_hash VARCHAR"))
+                
+                # Check for query_length column
+                try:
+                    conn.execute(text("SELECT query_length FROM query_logs LIMIT 1"))
+                except Exception:
+                    logger.info("Migrating DB: Adding query_length column")
+                    conn.execute(text("ALTER TABLE query_logs ADD COLUMN query_length INTEGER"))
+                
+                conn.commit()
+        except Exception as e:
+            logger.warning(f"DB Migration check failed: {e}")
+
         Session = sessionmaker(bind=self.engine)
         self.session = Session()
         
@@ -58,8 +82,14 @@ class CostTracker:
     ):
         """Log a query with its cost"""
         
+        # Calculate hash and length
+        q_hash = hashlib.sha256(query.encode()).hexdigest()
+        q_len = len(query)
+        
         log_entry = QueryLog(
-            query=query[:200],  # Truncate long queries
+            query=query[:200],  # Truncate long queries for storage
+            query_hash=q_hash,
+            query_length=q_len,
             model_id=model_id,
             complexity=complexity,
             strategy=strategy,
@@ -227,7 +257,9 @@ class CostTracker:
                     'output_tokens': log.output_tokens,
                     'cost': log.cost,
                     'latency': log.latency,
-                    'success': log.success
+                    'success': log.success,
+                    'query_hash': log.query_hash,
+                    'query_length': log.query_length
                 }
                 f.write(json.dumps(entry) + '\n')
         

@@ -49,7 +49,8 @@ class DocumentRetriever:
         docs = self.vector_store.load_bm25_documents()
         if docs:
             self.bm25_retriever = BM25Retriever.from_documents(docs)
-            self.bm25_retriever.k = self.top_k
+            # Fetch more candidates for re-ranking
+            self.bm25_retriever.k = self.top_k * 2  
             logger.info(f"####### BM25 index loaded: {len(docs)} documents #######")
         else:
             logger.warning("No BM25 index found - hybrid search unavailable")
@@ -98,43 +99,54 @@ class DocumentRetriever:
             return "", []
     
     def _retrieve_hybrid(self, query: str) -> Tuple[str, List[str]]:
-        """Retrieve using hybrid BM25 + dense search."""
-        logger.info("Using hybrid search (BM25 + Dense)")
+        """Retrieve using hybrid BM25 + dense search with RRF Fusion."""
+        logger.info("Using hybrid search (BM25 + Dense + RRF)")
         
         # Get results from both retrievers
+        # Fetch more candidates for fusion
         bm25_results = self.bm25_retriever.invoke(query) if self.bm25_retriever else []
-        dense_results = self.dense_retriever.invoke(query) if self.dense_retriever else []
         
-        # Combine and deduplicate results
-        seen_content = set()
-        combined_results = []
+        # Get dense results with scores if possible, but for RRF we use rank
+        # We access the vector store directly to ensure we get a list
+        dense_results = self.vector_store.similarity_search(query, k=self.top_k * 2)
         
-        # Add BM25 results (with weight)
-        for doc in bm25_results[:self.top_k]:
-            if doc.page_content not in seen_content:
-                seen_content.add(doc.page_content)
-                combined_results.append(doc)
+        # Reciprocal Rank Fusion
+        rrf_constant = 60
+        scores = {}
         
-        # Add dense results (with weight)
-        for doc in dense_results[:self.top_k]:
-            if doc.page_content not in seen_content:
-                seen_content.add(doc.page_content)
-                combined_results.append(doc)
-        
-        # Limit to top_k
-        results = combined_results[:self.top_k]
+        # Process BM25
+        for rank, doc in enumerate(bm25_results):
+            if doc.page_content not in scores:
+                scores[doc.page_content] = {'doc': doc, 'score': 0.0}
+            
+            # Weighted RRF score
+            rank_score = 1 / (rrf_constant + rank)
+            scores[doc.page_content]['score'] += self.bm25_weight * rank_score
+            
+        # Process Dense
+        for rank, doc in enumerate(dense_results):
+            if doc.page_content not in scores:
+                scores[doc.page_content] = {'doc': doc, 'score': 0.0}
+            
+            # Weighted RRF score
+            rank_score = 1 / (rrf_constant + rank)
+            scores[doc.page_content]['score'] += self.dense_weight * rank_score
+            
+        # Sort by combined score
+        sorted_results = sorted(scores.values(), key=lambda x: x['score'], reverse=True)
+        top_docs = [item['doc'] for item in sorted_results[:self.top_k]]
         
         context_parts = []
         sources = []
         
-        for i, doc in enumerate(results):
+        for i, doc in enumerate(top_docs):
             context_parts.append(
                 f"[Source {i+1}]\n{doc.page_content}"
             )
             source = doc.metadata.get('source', 'Unknown')
             sources.append(f"Source {i+1}: {source}")
         
-        logger.info(f"Hybrid search retrieved {len(results)} documents")
+        logger.info(f"Hybrid search retrieved {len(top_docs)} documents")
         
         context = "\n\n".join(context_parts)
         return context, sources
@@ -176,23 +188,29 @@ class DocumentRetriever:
         return context, sources
     
     def retrieve_documents(self, query: str) -> List:
-
         if not self.vector_store.is_ready:
             return []
         
         if self.bm25_retriever and self.dense_retriever:
-            # Manual hybrid retrieval
-            bm25_results = self.bm25_retriever.invoke(query)[:self.top_k]
-            dense_results = self.dense_retriever.invoke(query)[:self.top_k]
+            # Re-use the RRF logic but return raw docs
+            # Code duplication here is minimal/acceptable for now
+            bm25_results = self.bm25_retriever.invoke(query)
+            dense_results = self.vector_store.similarity_search(query, k=self.top_k * 2)
             
-            # Combine and deduplicate
-            seen_content = set()
-            combined = []
-            for doc in bm25_results + dense_results:
-                if doc.page_content not in seen_content:
-                    seen_content.add(doc.page_content)
-                    combined.append(doc)
-            return combined[:self.top_k]
+            rrf_constant = 60
+            scores = {}
+            for rank, doc in enumerate(bm25_results):
+                if doc.page_content not in scores:
+                    scores[doc.page_content] = {'doc': doc, 'score': 0.0}
+                scores[doc.page_content]['score'] += self.bm25_weight * (1 / (rrf_constant + rank))
+            
+            for rank, doc in enumerate(dense_results):
+                if doc.page_content not in scores:
+                    scores[doc.page_content] = {'doc': doc, 'score': 0.0}
+                scores[doc.page_content]['score'] += self.dense_weight * (1 / (rrf_constant + rank))
+                
+            sorted_results = sorted(scores.values(), key=lambda x: x['score'], reverse=True)
+            return [item['doc'] for item in sorted_results[:self.top_k]]
         else:
             return self.vector_store.similarity_search(query, k=self.top_k)
     
