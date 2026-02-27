@@ -4,7 +4,7 @@
 
 > **Intelligent query routing system that reduces LLM costs by ~70% while maintaining quality** through ML-based complexity classification, semantic feature engineering, and Reciprocal Rank Fusion (RRF) hybrid RAG retrieval.
 
-[Live Demo](https://smartroute-ai.onrender.com) • [Documentation](#-api-documentation) • [Architecture](#️-architecture) • [Benchmark](#-cost-savings-with-receipts)
+[Live Demo](https://smartroute-ai.streamlit.app) • [Architecture](#️-architecture)
 
 ---
 
@@ -230,65 +230,6 @@ graph TD
 - Correctly routed to 8B: 33/33 simple queries ✅
 - Correctly routed to 70B: 29/32 complex queries ✅
 - Mis-routed: 3/32 (complex query sent to 17B — user noticed quality drop)
-
----
-
-### Cost Breakdown by Query Type
-
-| Category | Baseline Cost | SmartRoute Cost | Savings | Example Query |
-|----------|---------------|-----------------|---------|---------------|
-| **Coding** | $0.2820 | $0.0846 | 70% | "Write a Python function to..." |
-| **Summarization** | $0.1870 | $0.0561 | 70% | "Summarize this 10-page PDF" |
-| **Creative** | $0.0934 | $0.0467 | 50% | "Write a story about..." |
-| **Data Analysis** | $0.0624 | $0.0312 | 50% | "What insights from this CSV?" |
-
-**Insight**: Coding and summarization benefit most (70% savings) because many are simple enough for 8B/17B models.
-
----
-
-### Latency Analysis
-
-**Does routing add overhead?** Yes, but it's acceptable.
-
-| Stage | Time | % of Total |
-|-------|------|------------|
-| ML classification | 42ms | 3.2% |
-| Model API call | 1,180ms | 89.4% |
-| RAG retrieval (if used) | 98ms | 7.4% |
-| **Total** | **1,320ms** | 100% |
-
-**vs Always-70B baseline**: 1,800ms → **27% faster** (8B/17B respond quicker)
-
----
-
-### Real-World Scaling Projection
-
-| Daily Queries | Monthly Cost (Baseline) | Monthly Cost (SmartRoute) | Annual Savings |
-|---------------|-------------------------|---------------------------|----------------|
-| 100 | $1.50 | $0.44 | $12.72 |
-| 1,000 | $15.00 | $4.44 | $127.20 |
-| 10,000 | $150.00 | $44.40 | **$1,272** ✅ |
-| 100,000 | $1,500 | $444 | **$12,720** ✅ |
-
-> **Assumptions**: Groq pricing as of Feb 2025, 45% coding / 30% summarization query mix, 92% routing accuracy.
-
----
-
-### Comparison to Alternatives
-
-| Solution | Cost Savings | Setup Complexity | Accuracy |
-|----------|--------------|------------------|----------|
-| **SmartRoute-AI** | **70%** | Medium (train classifier) | 92% |
-| Always cheapest (8B only) | 94% | None | ~60% (quality issues) |
-| Manual routing | 80% | High (human in loop) | 95% |
-| OpenRouter | 40% | Low (API key) | 85% |
-
-**Takeaway**: SmartRoute-AI offers the best balance of cost, quality, and automation.
-
-**Run the benchmark yourself:**
-```bash
-python scripts/benchmark_cost_savings.py
-```
 
 ---
 
