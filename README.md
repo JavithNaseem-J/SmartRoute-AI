@@ -180,47 +180,6 @@ graph TD
 
 ---
 
-## 💰 Cost Savings (With Receipts)
-
-### Benchmark Methodology
-
-**Test Setup:**
-- Duration: 7-day personal usage window (Feb 8–15, 2025)
-- Queries: **1,247 total**
-- Query distribution:
-  - 45% coding questions
-  - 30% document summarization
-  - 15% creative writing
-  - 10% data analysis
-- **Baseline**: All queries routed to `llama-3.1-70b` (most expensive)
-- **Pricing**: Groq API rates — 70B: $0.003/1K input + $0.015/1K output
-
----
-
-### Actual Results (7-Day Test)
-
-| Strategy | Total Cost | Queries | Avg Cost/Query | vs Baseline |
-|----------|-----------|---------|----------------|-------------|
-| **Baseline (All 70B)** | $0.6235 | 1,247 | $0.000500 | — |
-| **SmartRoute-AI** | $0.1840 | 1,247 | $0.000148 | **70.5% cheaper** ✅ |
-
----
-
-### Model Selection Distribution (1,247 queries)
-
-| Model | Queries | % of Total | Total Cost | Avg Latency |
-|-------|---------|------------|------------|-------------|
-| llama-3.1-8b | 487 | 39.1% | $0.0487 | 0.8s |
-| llama-3.3-17b | 498 | 39.9% | $0.0747 | 1.2s |
-| llama-3.1-70b | 262 | 21.0% | $0.0786 | 1.8s |
-
-**Routing Accuracy**: 92% (manually verified 100 random samples)
-- Correctly routed to 8B: 33/33 simple queries ✅
-- Correctly routed to 70B: 29/32 complex queries ✅
-- Mis-routed: 3/32 (complex query sent to 17B — user noticed quality drop)
-
----
-
 ## 🚀 Quick Start (4 Paths)
 
 ### Path 1: Try It Now (5 minutes)
