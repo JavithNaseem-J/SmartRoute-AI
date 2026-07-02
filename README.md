@@ -4,7 +4,7 @@
 
 > **Intelligent query routing system that reduces LLM costs by ~70% while maintaining quality** through ML-based complexity classification, semantic feature engineering, and Reciprocal Rank Fusion (RRF) hybrid RAG retrieval.
 
-[Live Demo](https://smartroute-ai.streamlit.app) • [Architecture](#️-architecture)
+[Live Demo](https://smartroute-ai.streamlit.app)
 
 
 ---
