@@ -674,17 +674,6 @@ Full API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## 📈 Performance & Scalability
-
-### **Benchmarks** (Local Testing)
-
-| Metric | Value | Notes |
-|--------|-------|-------|
-| **Avg Latency** | 1.32s | End-to-end query processing |
-| **Routing Overhead** | ~42ms | ML classification time |
-| **RAG Retrieval** | ~225ms | Hybrid RRF, top-5 from 1000 docs |
-| **Throughput** | 50 QPS | Single instance (CPU) |
-
 ### **Scalability**
 - **Horizontal**: Stateless design, easily load-balanced
 - **Caching**: Model caching, embedding reuse
