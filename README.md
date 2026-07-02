@@ -6,18 +6,6 @@
 
 [Live Demo](https://smartroute-ai.streamlit.app) • [Architecture](#️-architecture)
 
----
-
-## 📊 Business Impact
-
-| Metric | Value | Impact |
-|--------|-------|---------|
-| **Cost Reduction** | ~70% | $12K–$127K annual savings at scale |
-| **Routing Accuracy** | ~92% | Verified on 100-query manual sample |
-| **Avg Response Time** | 1.32s | vs 1.8s always-70B baseline |
-| **Routing Overhead** | ~42ms | 3.2% of total latency |
-
-**ROI Example**: At 10,000 queries/day, save **~$44/day ($1,320/month)** vs. always using the 70B model.
 
 ---
 
