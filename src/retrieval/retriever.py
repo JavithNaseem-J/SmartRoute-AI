@@ -1,9 +1,12 @@
 from pathlib import Path
 from typing import List, Tuple, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from langchain_community.retrievers import BM25Retriever
 from src.utils.logger import logger
 from src.retrieval.vector_store import VectorStore
 from src.retrieval.embedder import Embedder
+from src.retrieval.cache import RetrievalCache
+from src.retrieval.reranker import DocumentReranker
 
 
 class DocumentRetriever:
@@ -41,6 +44,12 @@ class DocumentRetriever:
         # Load indexes
         self._load_bm25_index()
         self._setup_hybrid_retriever()
+        
+        # Cache for retrieval results
+        self.cache = RetrievalCache()
+
+        # Re-ranker for post-retrieval relevance filtering
+        self.reranker = DocumentReranker()
         
         logger.info("####### DocumentRetriever initialized #######")
     
@@ -82,6 +91,7 @@ class DocumentRetriever:
         )
         self._load_bm25_index()
         self._setup_hybrid_retriever()
+        self.cache.clear()
     
     def retrieve(self, query: str) -> Tuple[str, List[str]]:
 
@@ -89,65 +99,80 @@ class DocumentRetriever:
             logger.warning("No vector store available")
             return "", []
         
+        # 1. Check cache first
+        cached = self.cache.get(query)
+        if cached:
+            logger.info(f"Retrieval cache hit for query: {query[:30]}...")
+            return cached
+            
+        # 2. Execute retrieval
         try:
             if self.bm25_retriever and self.dense_retriever:
-                return self._retrieve_hybrid(query)
+                context, sources = self._retrieve_hybrid(query)
             else:
-                return self._retrieve_dense(query)
+                context, sources = self._retrieve_dense(query)
+                
+            # 3. Cache the result
+            if context:
+                self.cache.set(query, context, sources)
+                
+            return context, sources
         except Exception as e:
             logger.error(f"Retrieval failed: {e}")
             return "", []
     
     def _retrieve_hybrid(self, query: str) -> Tuple[str, List[str]]:
-        """Retrieve using hybrid BM25 + dense search with RRF Fusion."""
+        """Retrieve using hybrid BM25 + dense search with RRF Fusion.
+
+        BM25 and dense retrieval are independent — neither result depends on the
+        other. They are submitted to a ThreadPoolExecutor and run concurrently.
+        Total retrieval time = max(bm25_time, dense_time) instead of their sum.
+        """
         logger.info("Using hybrid search (BM25 + Dense + RRF)")
-        
-        # Get results from both retrievers
-        # Fetch more candidates for fusion
-        bm25_results = self.bm25_retriever.invoke(query) if self.bm25_retriever else []
-        
-        # Get dense results with scores if possible, but for RRF we use rank
-        # We access the vector store directly to ensure we get a list
-        dense_results = self.vector_store.similarity_search(query, k=self.top_k * 2)
-        
-        # Reciprocal Rank Fusion
+
+        # Run BM25 and dense retrieval in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            bm25_future = executor.submit(
+                self.bm25_retriever.invoke, query
+            ) if self.bm25_retriever else None
+            dense_future = executor.submit(
+                self.vector_store.similarity_search, query, self.top_k * 2
+            )
+
+            bm25_results = bm25_future.result() if bm25_future else []
+            dense_results = dense_future.result()
+
+        # Reciprocal Rank Fusion — unchanged from original
         rrf_constant = 60
         scores = {}
-        
-        # Process BM25
+
         for rank, doc in enumerate(bm25_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {'doc': doc, 'score': 0.0}
-            
-            # Weighted RRF score
-            rank_score = 1 / (rrf_constant + rank)
-            scores[doc.page_content]['score'] += self.bm25_weight * rank_score
-            
-        # Process Dense
+            scores[doc.page_content]['score'] += self.bm25_weight * (1 / (rrf_constant + rank))
+
         for rank, doc in enumerate(dense_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {'doc': doc, 'score': 0.0}
-            
-            # Weighted RRF score
-            rank_score = 1 / (rrf_constant + rank)
-            scores[doc.page_content]['score'] += self.dense_weight * rank_score
-            
-        # Sort by combined score
+            scores[doc.page_content]['score'] += self.dense_weight * (1 / (rrf_constant + rank))
+
         sorted_results = sorted(scores.values(), key=lambda x: x['score'], reverse=True)
-        top_docs = [item['doc'] for item in sorted_results[:self.top_k]]
-        
+        # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
+        candidate_docs = [item['doc'] for item in sorted_results[:self.top_k * 2]]
+
+        # Re-rank candidates against the query
+        top_docs = self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
+
         context_parts = []
         sources = []
-        
+
         for i, doc in enumerate(top_docs):
-            context_parts.append(
-                f"[Source {i+1}]\n{doc.page_content}"
-            )
+            context_parts.append(f"[Source {i+1}]\n{doc.page_content}")
             source = doc.metadata.get('source', 'Unknown')
             sources.append(f"Source {i+1}: {source}")
-        
+
         logger.info(f"Hybrid search retrieved {len(top_docs)} documents")
-        
+
         context = "\n\n".join(context_parts)
         return context, sources
     

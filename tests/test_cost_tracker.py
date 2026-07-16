@@ -13,12 +13,11 @@ def tracker():
     temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
     t = CostTracker(db_path=temp_file.name)
     yield t
-    t.session.close()
-    t.engine.dispose()  
+    t.close()   # disposes engine and connection pool (no persistent session to close)
     try:
         Path(temp_file.name).unlink(missing_ok=True)
     except PermissionError:
-        pass  
+        pass
 
 
 def test_tracker_logs_query(tracker):

@@ -1,5 +1,3 @@
-import sys
-from pathlib import Path
 import streamlit as st
 import plotly.graph_objects as go
 import plotly.express as px
@@ -9,7 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-sys.path.append(str(Path(__file__).parent.parent))
 from src.pipeline.inference import InferencePipeline
 from src.retrieval.indexer import DocumentIndexer
 

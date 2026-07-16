@@ -81,11 +81,8 @@ class ComplexityClassifier:
         if not self.is_trained:
             return {}
         
-        feature_names = [
-            'word_count', 'sentence_count', 'has_code', 'has_technical_terms',
-            'has_numbers', 'question_depth', 'is_multipart', 'requires_reasoning',
-            'is_analysis', 'comma_count'
-        ]
+        from src.routing.features import FeatureExtractor
+        feature_names = FeatureExtractor.FEATURE_ORDER
         
         importances = self.model.feature_importances_
         

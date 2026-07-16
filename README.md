@@ -1,8 +1,21 @@
-# 🚀 SmartRoute-AI
+# SmartRoute-AI: Architectural Documentation
 
-### **AI-Powered Cost Optimization for LLM Inference at Scale**
+## 1. Executive Summary
+SmartRoute-AI is a cost-optimized, production-ready Retrieval-Augmented Generation (RAG) system. Its primary innovation is an intelligent query router that classifies user queries by complexity using a LightGBM model and routes them to the most cost-effective Large Language Model (LLM) tier. The system employs a Hybrid Retrieval approach (BM25 + Dense ChromaDB) with Cross-Encoder re-ranking, and provides atomic budget tracking (via Redis) to prevent cost overruns. It exposes a FastAPI backend, a Streamlit dashboard, and is fully containerized via Docker Compose.
 
-> **Intelligent query routing system that reduces LLM costs by ~70% while maintaining quality** through ML-based complexity classification, semantic feature engineering, and Reciprocal Rank Fusion (RRF) hybrid RAG retrieval.
+## 2. Repository Structure
+- `api/main.py`: FastAPI application, endpoints, and authentication middleware.
+- `app.py`: Streamlit frontend dashboard (deduced from `docker-compose.yml` and previous context).
+- `config/`: Contains YAML configuration for models (`models.yaml`) and routing logic/budgets (`routing.yaml`).
+- `src/pipeline/inference.py`: Core orchestration pipeline combining routing, retrieval, generation, and cost tracking.
+- `src/routing/`: Implements the ML-based router (`router.py`), LightGBM classifier (`classifier.py`), and feature extraction logic (`features.py`).
+- `src/retrieval/`: Handles hybrid search (`retriever.py`), ChromaDB wrapper (`vector_store.py`), document chunking (`chunking.py`), embeddings (`embedder.py`), cross-encoder (`reranker.py`), and caching (`cache.py`).
+- `src/models/`: Groq API integration (`groq_model.py`) and model registry (`model_manager.py`).
+- `src/cost/`: Database logging (`tracker.py`) and budget enforcement (`budget.py`).
+- `src/memory/`: Per-session conversation history (`conversation.py`).
+- `src/utils/`: Guardrails (`guardrails.py`), JSON logging (`logger.py`), and OpenTelemetry tracing (`tracing.py`).
+- `docker-compose.yml` / `Dockerfile` / `Dockerfile.api`: Deployment configuration.
+- `data/` and `logs/`: Persistent storage for DB, ChromaDB, and JSON logs.
 
 [Live Demo](https://smartroute-ai.streamlit.app)
 
@@ -54,131 +67,88 @@
 
 ### **System Overview**
 
-```mermaid
-graph TB
-    subgraph "Client Layer"
-        UI[Streamlit Dashboard]
-        API[REST API Client]
-    end
-    
-    subgraph "Application Layer"
-        FastAPI[FastAPI Server<br/>Rate Limiting & CORS]
-        Pipeline[Inference Pipeline<br/>Orchestrator]
-    end
-    
-    subgraph "Intelligence Layer"
-        Router[Query Router<br/>LightGBM + Semantic Features]
-        Retriever[Document Retriever<br/>RRF Hybrid Search]
-        ModelMgr[Model Manager<br/>Groq API]
-    end
-    
-    subgraph "Data Layer"
-        ChromaDB[(ChromaDB<br/>Vector Store)]
-        SQLite[(SQLite<br/>Cost Tracking)]
-        Docs[Document<br/>Storage]
-    end
-    
-    subgraph "External Services"
-        Groq[Groq API<br/>LLaMA Models]
-    end
-    
-    UI --> Pipeline
-    API --> FastAPI
-    FastAPI --> Pipeline
-    
-    Pipeline --> Router
-    Pipeline --> Retriever
-    Pipeline --> ModelMgr
-    
-    Router -.->|Complexity| ModelMgr
-    Retriever --> ChromaDB
-    Retriever --> Docs
-    ModelMgr --> Groq
-    
-    Pipeline --> SQLite
-    
-    style Router fill:#4CAF50
-    style Retriever fill:#2196F3
-    style ModelMgr fill:#FF9800
-    style Pipeline fill:#9C27B0
-```
+## 3. Architecture Overview
+The system follows a microservice architecture (API, Dashboard, Redis). The backend operates synchronously for individual requests but supports batch concurrency via ThreadPoolExecutor. It emphasizes defensive design with prompt injection guardrails, constant-time API key validation, and fallback mechanisms for both models and databases.
 
-### **Query Processing Flow**
+## 4. Runtime Flow
+Application startup
+↓
+`api/main.py` initializes FastAPI, loads `InferencePipeline` (which loads router, retriever, models, tracker)
+↓
+User Request (`POST /query`)
+↓
+API endpoint (`require_api_key` validation)
+↓
+Validation (`validate_query` checks length and prompt injections)
+↓
+Routing (`QueryRouter.route()` classifies complexity using LightGBM and selects model)
+↓
+Budget Check (`BudgetManager.check_budget()` via Redis INCRBYFLOAT or SQLite fallback)
+↓
+Retrieval (`DocumentRetriever.retrieve()` executes BM25 + Dense search concurrently, applies RRF, and Cross-Encoder Re-ranking)
+↓
+Prompt Creation (System prompt + History + Context + Query)
+↓
+LLM (`GroqModel.generate()` or `generate_stream()`)
+↓
+Output parsing (Tokens counted via `tiktoken`)
+↓
+Logging (`CostTracker.log_query()` records cost and latency to DB)
+↓
+Response
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Pipeline
-    participant Router
-    participant Retriever
-    participant ModelManager
-    participant CostTracker
-    participant Groq
+## 5. Component Analysis
 
-    User->>Pipeline: Submit Query
-    
-    Pipeline->>Router: Route Query
-    Router->>Router: Extract Features<br/>(semantic + linguistic)
-    Router->>Router: LightGBM Classification
-    Router->>Router: Apply Strategy
-    Router-->>Pipeline: Routing Decision<br/>(model_id, complexity, confidence)
-    
-    Pipeline->>Pipeline: Check Budget (DB, no cache)
-    
-    alt Budget OK
-        Pipeline->>Retriever: Retrieve Context (if RAG)
-        Retriever->>Retriever: BM25 + Dense Search
-        Retriever->>Retriever: RRF Fusion → Top-K
-        Retriever-->>Pipeline: Ranked Chunks + Sources
-        Pipeline->>ModelManager: Generate Response
-        ModelManager->>Groq: API Call (llama-3.x-xB)
-        Groq-->>ModelManager: Response + Token Count
-        ModelManager-->>Pipeline: Answer + Metadata
-    else Budget Exceeded
-        Pipeline->>Pipeline: Fallback to 8B Model
-    end
-    
-    Pipeline->>CostTracker: Log (tokens, cost, hash, latency)
-    Pipeline-->>User: Response + Cost + Sources
-```
+- **API (`api/main.py`)**: Exposes endpoints (`/query`, `/stats`, `/savings`, `/budget`, `/stream`). Enforces Rate Limiting (slowapi), CORS, Authentication, and Tracing.
+- **InferencePipeline (`src/pipeline/inference.py`)**: The central orchestrator. Inputs: query, strategy. Outputs: dict with answer, cost, routing info. Dependencies: Router, Retriever, ModelManager, CostTracker, BudgetManager, ConversationMemory.
+- **QueryRouter (`src/routing/router.py`)**: Uses `ComplexityClassifier` to determine if a query is simple, medium, or complex. Falls back to quality thresholds based on confidence.
+- **FeatureExtractor (`src/routing/features.py`)**: Extracts lexical (word count, etc.) and semantic (cosine similarity to reference queries via SentenceTransformer) features.
+- **DocumentRetriever (`src/retrieval/retriever.py`)**: Combines `BM25Retriever` and `VectorStore` (Chroma). Uses Reciprocal Rank Fusion (RRF) to merge results, then passes candidates to `DocumentReranker`.
+- **ModelManager & GroqModel (`src/models/`)**: Loads model configs, handles Groq API requests with exponential backoff for rate limits.
+- **CostTracker & BudgetManager (`src/cost/`)**: `CostTracker` logs every query using SQLAlchemy (WAL mode SQLite or Postgres). `BudgetManager` uses Redis for atomic limits to prevent race conditions.
+- **ConversationMemory (`src/memory/conversation.py`)**: Manages multi-turn history. Uses Redis for distributed environments or an in-memory dictionary.
+- **Guardrails (`src/utils/guardrails.py`)**: Regex-based prompt injection detection.
 
-### **Routing Decision Logic**
+## 6. API Analysis
 
-```mermaid
-graph TD
-    Query[Query Input] --> Extract[Feature Extraction<br/>13 features: semantic + linguistic]
-    Extract --> |Feature Vector| Classifier[LightGBM Classifier]
-    
-    Classifier --> |Probability Scores| Complexity{Predicted<br/>Complexity}
-    
-    Complexity -->|Simple<br/>P > 0.7| Simple[8B Model<br/>llama-3.1-8b]
-    Complexity -->|Medium<br/>P > 0.7| Medium[17B Model<br/>llama-3.3-17b]
-    Complexity -->|Complex<br/>P > 0.7| Complex[70B Model<br/>llama-3.1-70b]
-    Complexity -->|Low Confidence<br/>P < 0.7| Escalate[Route to Higher Tier]
-    
-    Simple --> Strategy{Routing<br/>Strategy}
-    Medium --> Strategy
-    Complex --> Strategy
-    Escalate --> Strategy
-    
-    Strategy -->|cost_optimized| CostCheck{Budget<br/>Available?}
-    Strategy -->|quality_first| UseComplex[Always 70B]
-    Strategy -->|balanced| UseBalanced[Balanced Selection]
-    
-    CostCheck -->|Yes| UseSelected[Use Selected Model]
-    CostCheck -->|No| Fallback[Fallback to 8B]
-    
-    UseSelected --> Groq[Groq API]
-    UseComplex --> Groq
-    UseBalanced --> Groq
-    Fallback --> Groq
-    
-    style Classifier fill:#4CAF50
-    style Strategy fill:#2196F3
-    style Groq fill:#FF6B6B
-```
+- **`GET /` & `GET /health`**: Health checks. Public, no auth required.
+- **`POST /query`**: 
+  - Request: `{query: str, strategy: str, use_retrieval: bool, session_id: str}`
+  - Response: `{answer, model_used, complexity, confidence, cost, latency, sources, success, error}`
+  - Flow: Validates API key -> `pipeline.run()` -> Returns result.
+- **`POST /query/stream`**: Same as `/query` but returns Server-Sent Events (SSE).
+- **`GET /stats`, `/savings`, `/budget`**: Retrieves financial and pipeline usage metrics.
+- **`DELETE /memory/{session_id}`**: Clears session history.
+
+## 7. AI Pipeline
+1. **Query Processing**: Sanitized, checked against injection patterns (`guardrails.py`).
+2. **Feature Extraction**: 10 lexical features + 3 semantic features extracted (`features.py`).
+3. **Classification**: LightGBM model predicts complexity (simple, medium, complex) (`classifier.py`).
+4. **Retrieval**: ThreadPoolExecutor runs BM25 and ChromaDB similarity search concurrently. Resulting documents merged via RRF (`retriever.py`).
+5. **Re-ranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` re-scores top merged candidates (`reranker.py`).
+6. **Prompt Construction**: Formatted with system instructions, session history, retrieved context, and the query.
+7. **LLM Invocation**: Sent to Groq API. Tokens counted using `tiktoken`.
+8. **Logging**: Full transaction logged to database.
+
+## 8. Data Flow
+- **User Input** -> Guardrails -> Memory Lookup -> Router -> Embedder (Query)
+- **Document Upload** (implied via indexer) -> Chunker -> Embedder -> ChromaDB + BM25 JSON
+- **Model Output** -> Token Counter -> Cost Calculator -> Cost DB -> User Response
+
+## 9. Dependency Analysis
+- **Frameworks**: FastAPI, Uvicorn, Streamlit.
+- **AI/ML**: langchain, sentence-transformers, lightgbm, scikit-learn, groq, tiktoken.
+- **Vector/DB**: chromadb, rank-bm25, sqlalchemy, redis.
+- **Tracing/Logging**: opentelemetry-sdk, python logging (JSON formatter).
+
+## 10. Configuration
+- **Environment Variables** (`.env`): `GROQ_API_KEY`, `SMARTROUTE_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- **`config/models.yaml`**: Defines tiers, costs, and context windows for models (e.g., `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`).
+- **`config/routing.yaml`**: Defines strategies (cost_optimized, quality_first, balanced), routing rules, quality thresholds, and budget limits.
 
 ---
+
+## 11. Mermaid Diagrams
 
 ## 🚀 Quick Start (4 Paths)
 
@@ -720,3 +690,31 @@ MONTHLY_BUDGET_LIMIT=100.00
 ## 📄 License
 
 MIT License — see [LICENSE](LICENSE) for details.
+
+## 12. Verification (Files Supporting Diagrams)
+- **Diagram 1 & 4**: `api/main.py`, `src/pipeline/inference.py`.
+- **Diagram 2 & 7**: OS directory traversal and import statements across `src/`.
+- **Diagram 3 & 5**: `src/pipeline/inference.py`.
+- **Diagram 6**: `src/routing/classifier.py`, `src/routing/features.py`, `src/retrieval/retriever.py`, `src/retrieval/reranker.py`.
+- **Diagram 8**: `src/cost/tracker.py`, `src/memory/conversation.py`, `src/retrieval/cache.py`, `src/retrieval/vector_store.py`.
+- **Diagram 9**: `docker-compose.yml`, `Dockerfile.api`.
+- **Diagram 10**: `src/cost/budget.py`, `src/routing/router.py`, `src/models/model_manager.py`.
+- **Diagram 11**: `src/models/groq_model.py`.
+- **Diagram 12**: `src/utils/logger.py`, `src/utils/tracing.py`.
+- **Diagram 13**: `src/cost/budget.py`, `src/cost/tracker.py`, `src/pipeline/inference.py`.
+- **Diagram 14**: `api/main.py` (`require_api_key`).
+
+## 13. Production Architecture Observations
+- **Concurrency**: Avoids `asyncio` for pipeline execution. Uses `run_in_executor` in FastAPI and `ThreadPoolExecutor` for hybrid search and batch inference. This circumvents strict async propagation requirements while maintaining API responsiveness.
+- **Thread Safety**: Uses atomic Redis operations (`INCRBYFLOAT`) for budget tracking and SQLite WAL mode / SessionMaker patterns for database concurrency.
+- **Security**: Prompt injection regex guards, constant-time token comparison (`secrets.compare_digest`), bounded memory arrays (FIFO eviction for session contexts to prevent context window bloat).
+
+## 14. Potential Architectural Weaknesses
+- **Synchronous Bottlenecks**: Deeply nested synchronous `ThreadPoolExecutor` usage (e.g. `batch_run` calling `run`, which calls hybrid retrieval thread pools) could lead to thread starvation under high concurrent API load.
+- **In-Memory Fallbacks**: If Redis is absent, BudgetManager and ConversationMemory use process-local memory. In a multi-worker deployment (e.g., `uvicorn --workers 4`), this breaks consistency (session history will appear random across requests).
+- **Hardcoded ML Paths**: Classifier model paths are hardcoded to `models/classifiers/complexity_classifier.pkl`, requiring a specific execution directory.
+
+## 15. Suggested Improvements
+1. **Fully Async Pipeline**: Migrate `InferencePipeline`, `GroqModel`, and `VectorStore` to async interfaces to drastically improve vertical scaling.
+2. **PostgreSQL Migration**: Ensure production deployments strictly utilize PostgreSQL via `DATABASE_URL` instead of SQLite to completely eliminate write-locking risks under high QPS.
+3. **Model Decoupling**: Abstract `GroqModel` behind an interface (e.g., `BaseLLM`) to allow drop-in replacements like OpenAI, Anthropic, or local vLLM instances without refactoring the pipeline.

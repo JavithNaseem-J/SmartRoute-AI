@@ -1,9 +1,11 @@
 import json
+import os
 import hashlib
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, text
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, event, text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -33,41 +35,65 @@ class QueryLog(Base):
 
 class CostTracker:
     """Track and analyze costs per query"""
-    
-    def __init__(self, db_path: str = "data/costs/usage.db"):
-        # Setup database
-        self.db_path = Path(db_path)
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        self.engine = create_engine(f'sqlite:///{self.db_path}')
-        Base.metadata.create_all(self.engine)
-        
-        # Migration: Check if new columns exist, if not add them
-        try:
-            with self.engine.connect() as conn:
-                # Check for query_hash column
-                try:
-                    conn.execute(text("SELECT query_hash FROM query_logs LIMIT 1"))
-                except Exception:
-                    logger.info("Migrating DB: Adding query_hash column")
-                    conn.execute(text("ALTER TABLE query_logs ADD COLUMN query_hash VARCHAR"))
-                
-                # Check for query_length column
-                try:
-                    conn.execute(text("SELECT query_length FROM query_logs LIMIT 1"))
-                except Exception:
-                    logger.info("Migrating DB: Adding query_length column")
-                    conn.execute(text("ALTER TABLE query_logs ADD COLUMN query_length INTEGER"))
-                
-                conn.commit()
-        except Exception as e:
-            logger.warning(f"DB Migration check failed: {e}")
 
-        Session = sessionmaker(bind=self.engine)
-        self.session = Session()
-        
-        logger.info(f"Cost tracker initialized with DB: {self.db_path}")
+    def __init__(self, db_path: str = "data/costs/usage.db"):
+        # Allow DATABASE_URL override for production PostgreSQL migration.
+        # When DATABASE_URL is set (e.g. postgresql://...), SQLite is bypassed entirely.
+        database_url = os.getenv("DATABASE_URL")
+
+        if database_url:
+            self.engine = create_engine(database_url)
+            logger.info(f"Cost tracker using external DB: {database_url.split('@')[-1]}")
+        else:
+            # SQLite path — development / single-node production
+            self.db_path = Path(db_path)
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            self.engine = create_engine(
+                f"sqlite:///{self.db_path}",
+                connect_args={"check_same_thread": False},
+            )
+
+            # Enable WAL mode: eliminates write-lock errors under concurrent access.
+            # WAL allows readers and one writer to proceed simultaneously.
+            # Must be set per-connection via an event listener.
+            @event.listens_for(self.engine, "connect")
+            def set_wal_mode(dbapi_conn, connection_record):
+                cursor = dbapi_conn.cursor()
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.close()
+
+            logger.info(f"Cost tracker using SQLite (WAL mode): {self.db_path}")
+
+        Base.metadata.create_all(self.engine)
+
+        # Session factory — create a new session per DB operation (thread-safe).
+        # A single shared session (the previous pattern) is not thread-safe:
+        # multiple threads calling session.add() / session.commit() concurrently
+        # on the same session object causes data corruption and ProgrammingErrors.
+        self._Session = sessionmaker(bind=self.engine)
+
+        # Schema is managed by Alembic (alembic/versions/).
+        # create_all() is safe for fresh installs (no-ops on existing tables).
+        # For upgrades on existing databases, run: `alembic upgrade head`
+        Base.metadata.create_all(self.engine)
     
+    @contextmanager
+    def _get_session(self):
+        """Context manager that provides a short-lived, thread-local session.
+
+        Pattern: one session per unit of work (one DB operation).
+        Session is committed on success and rolled back on any exception,
+        then always closed — releasing the connection back to the pool.
+        """
+        session = self._Session()
+        try:
+            yield session
+        except Exception:
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
     def log_query(
         self,
         query: str,
@@ -81,13 +107,12 @@ class CostTracker:
         success: bool = True
     ):
         """Log a query with its cost"""
-        
-        # Calculate hash and length
+
         q_hash = hashlib.sha256(query.encode()).hexdigest()
         q_len = len(query)
-        
+
         log_entry = QueryLog(
-            query=query[:200],  # Truncate long queries for storage
+            query=query[:200],
             query_hash=q_hash,
             query_length=q_len,
             model_id=model_id,
@@ -99,10 +124,11 @@ class CostTracker:
             latency=latency,
             success=success
         )
-        
-        self.session.add(log_entry)
-        self.session.commit()
-        
+
+        with self._get_session() as session:
+            session.add(log_entry)
+            session.commit()
+
         logger.info(
             f"Logged query: {model_id}, "
             f"cost=${cost:.4f}, "
@@ -111,13 +137,14 @@ class CostTracker:
     
     def get_statistics(self, days: int = 1) -> Dict:
         """Get cost statistics for last N days"""
-        
+
         cutoff = datetime.utcnow() - timedelta(days=days)
-        
-        logs = self.session.query(QueryLog).filter(
-            QueryLog.timestamp >= cutoff
-        ).all()
-        
+
+        with self._get_session() as session:
+            logs = session.query(QueryLog).filter(
+                QueryLog.timestamp >= cutoff
+            ).all()
+
         if not logs:
             return {
                 'total_queries': 0,
@@ -179,18 +206,10 @@ class CostTracker:
             'by_strategy': by_strategy
         }
     
-    def calculate_savings(self,days: int = 1,baseline_cost_per_query: float = 0.15) -> Dict:
+    def calculate_savings(self, days: int = 1, baseline_cost_per_query: float = 0.15) -> Dict:
         """
         Calculate savings vs baseline (all-GPT-4)
-        
-        Args:
-            days: Number of days to analyze
-            baseline_cost_per_query: Cost if using expensive model for all queries
-        
-        Returns:
-            Savings statistics
         """
-        
         stats = self.get_statistics(days)
         total_queries = stats['total_queries']
         actual_cost = stats['total_cost']
@@ -217,14 +236,14 @@ class CostTracker:
     
     def get_daily_breakdown(self, days: int = 7) -> Dict:
         """Get daily cost breakdown"""
-        
+
         cutoff = datetime.utcnow() - timedelta(days=days)
-        
-        logs = self.session.query(QueryLog).filter(
-            QueryLog.timestamp >= cutoff
-        ).all()
-        
-        # Group by day
+
+        with self._get_session() as session:
+            logs = session.query(QueryLog).filter(
+                QueryLog.timestamp >= cutoff
+            ).all()
+
         daily_costs = {}
         for log in logs:
             date = log.timestamp.date().isoformat()
@@ -232,42 +251,41 @@ class CostTracker:
                 daily_costs[date] = {'queries': 0, 'cost': 0.0}
             daily_costs[date]['queries'] += 1
             daily_costs[date]['cost'] += log.cost
-        
+
         return daily_costs
-    
+
     def export_to_jsonl(self, output_path: Path, days: int = 30):
         """Export logs to JSONL for analysis"""
-        
+
         cutoff = datetime.utcnow() - timedelta(days=days)
-        
-        logs = self.session.query(QueryLog).filter(
-            QueryLog.timestamp >= cutoff
-        ).all()
-        
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        
-        with open(output_path, 'w') as f:
-            for log in logs:
-                entry = {
-                    'timestamp': log.timestamp.isoformat(),
-                    'model_id': log.model_id,
-                    'complexity': log.complexity,
-                    'strategy': log.strategy,
-                    'input_tokens': log.input_tokens,
-                    'output_tokens': log.output_tokens,
-                    'cost': log.cost,
-                    'latency': log.latency,
-                    'success': log.success,
-                    'query_hash': log.query_hash,
-                    'query_length': log.query_length
-                }
-                f.write(json.dumps(entry) + '\n')
-        
+
+        with self._get_session() as session:
+            logs = session.query(QueryLog).filter(
+                QueryLog.timestamp >= cutoff
+            ).all()
+
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+
+            with open(output_path, 'w') as f:
+                for log in logs:
+                    entry = {
+                        'timestamp': log.timestamp.isoformat(),
+                        'model_id': log.model_id,
+                        'complexity': log.complexity,
+                        'strategy': log.strategy,
+                        'input_tokens': log.input_tokens,
+                        'output_tokens': log.output_tokens,
+                        'cost': log.cost,
+                        'latency': log.latency,
+                        'success': log.success,
+                        'query_hash': log.query_hash,
+                        'query_length': log.query_length
+                    }
+                    f.write(json.dumps(entry) + '\n')
+
         logger.info(f"Exported {len(logs)} logs to {output_path}")
-    
+
     def close(self):
-        """Close database connection"""
-        if self.session:
-            self.session.close()
+        """Dispose the engine and its connection pool."""
         if self.engine:
             self.engine.dispose()

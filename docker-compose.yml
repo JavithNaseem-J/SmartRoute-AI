@@ -1,22 +1,82 @@
 version: '3.8'
 
 services:
-  smartroute-ai:
+  # ── FastAPI Backend ─────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    container_name: smartroute-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - SMARTROUTE_API_KEY=${SMARTROUTE_API_KEY}
+      - DATABASE_URL=${DATABASE_URL:-}
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./data/documents:/app/data/documents
+      - ./data/embeddings:/app/data/embeddings
+      - ./data/costs:/app/data/costs
+      - ./models/classifiers:/app/models/classifiers
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 3
+    restart: unless-stopped
+
+  # ── Streamlit Dashboard ──────────────────────────────────────────────────────
+  dashboard:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: smartroute-ai
+    container_name: smartroute-dashboard
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
       - GROQ_API_KEY=${GROQ_API_KEY}
+      - SMARTROUTE_API_KEY=${SMARTROUTE_API_KEY}
+      - API_URL=http://api:8000
       - PORT=8501
     volumes:
       - ./data/documents:/app/data/documents
       - ./data/embeddings:/app/data/embeddings
       - ./data/costs:/app/data/costs
       - ./models/classifiers:/app/models/classifiers
+      - ./logs:/app/logs
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
+
+  # ── Redis (budget counter + optional caching) ────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: smartroute-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+
+volumes:
+  redis-data:
 
 networks:
   default:

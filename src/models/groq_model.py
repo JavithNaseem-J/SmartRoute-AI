@@ -1,6 +1,6 @@
 import os
 import time
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from groq import Groq, RateLimitError
 
 from src.utils.logger import logger
@@ -36,22 +36,31 @@ class GroqModel:
         
         logger.info(f"####### Initialized Groq client for {model_id} #######")
     
-    def generate(self,prompt: str,context: str = "",max_tokens: Optional[int] = None,temperature: Optional[float] = None) -> Dict:
-
-        
+    def generate(
+        self,
+        prompt: str,
+        context: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        history: Optional[List[Dict]] = None,
+    ) -> Dict:
         max_tok = self.max_tokens
         temp = self.temperature
-        
-        # Build messages
+
+        # Build messages: system → history → current user turn.
+        # History is a list of {"role": "user"|"assistant", "content": ...} dicts
+        # from previous turns. Inserting it here gives the model full context
+        # of the conversation without changing any other part of the pipeline.
         if context:
             system_msg = "You are a helpful AI assistant. Use the provided context to answer the question accurately and concisely."
             user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
         else:
             system_msg = "You are a helpful AI assistant. Answer questions accurately and concisely."
             user_msg = prompt
-        
+
         messages = [
             {"role": "system", "content": system_msg},
+            *(history or []),          # previous turns, empty list if no session
             {"role": "user", "content": user_msg}
         ]
         
@@ -83,10 +92,57 @@ class GroqModel:
             except Exception as e:
                 logger.error(f"Groq API error: {e}")
                 raise
+
+    def generate_stream(
+        self,
+        prompt: str,
+        context: str = "",
+        max_tokens: Optional[int] = None,
+        temperature: Optional[float] = None,
+        history: Optional[List[Dict]] = None,
+    ):
+        """Stream tokens from Groq using server-sent events."""
+        max_tok = max_tokens or self.max_tokens
+        temp = temperature or self.temperature
+
+        if context:
+            system_msg = "You are a helpful AI assistant. Use the provided context to answer the question accurately and concisely."
+            user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
+        else:
+            system_msg = "You are a helpful AI assistant. Answer questions accurately and concisely."
+            user_msg = prompt
+
+        messages = [
+            {"role": "system", "content": system_msg},
+            *(history or []),
+            {"role": "user", "content": user_msg}
+        ]
+
+        stream = self.client.chat.completions.create(
+            model=self.model_id,
+            messages=messages,
+            max_tokens=max_tok,
+            temperature=temp,
+            stream=True
+        )
+
+        for chunk in stream:
+            delta = chunk.choices[0].delta.content
+            if delta:
+                yield delta
+
     
     def count_tokens(self, text: str) -> int:
-        """Count tokens in text (rough estimate: ~4 chars per token)"""
-        return len(text) // 4
+        """Count tokens using tiktoken for accurate budget estimates."""
+        try:
+            import tiktoken
+            # cl100k_base is OpenAI's encoding, but it's very close to Llama's
+            # BPE tokenizer counts, and is extremely fast locally.
+            enc = tiktoken.get_encoding("cl100k_base")
+            return len(enc.encode(text))
+        except ImportError:
+            logger.warning("tiktoken not installed, falling back to heuristic token count")
+            return len(text) // 4
     
     def get_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate actual cost based on token usage"""

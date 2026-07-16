@@ -1,13 +1,15 @@
 import time
 from pathlib import Path
-from typing import Dict, Optional
-
+from typing import Dict, Optional, List
+from concurrent.futures import ThreadPoolExecutor
 from src.routing.router import QueryRouter
 from src.models.model_manager import ModelManager
 from src.retrieval.retriever import DocumentRetriever
 from src.cost.tracker import CostTracker
 from src.cost.budget import BudgetManager
+from src.memory.conversation import ConversationMemory
 from src.utils.logger import logger
+from src.utils.guardrails import validate_query, GuardrailViolation
 
 
 class InferencePipeline:
@@ -51,16 +53,44 @@ class InferencePipeline:
             tracker=self.tracker,
             config_path=config_dir / "routing.yaml"
         )
-        
+
+        # Conversation memory — one instance shared across all requests.
+        # Thread-safe by design (Lock inside ConversationMemory).
+        # Uses Redis when REDIS_URL is set, in-memory dict otherwise.
+        self.memory = ConversationMemory()
+
         logger.info("####### Pipeline ready #######")
     
     def run(
         self,
         query: str,
         strategy: Optional[str] = None,
-        use_retrieval: bool = True
+        use_retrieval: bool = True,
+        session_id: Optional[str] = None,
     ) -> Dict:
         start_time = time.time()
+
+        # Step 0: Guardrails — sanitize and check for injection before anything else.
+        # GuardrailViolation is returned as a user-facing error; no cost is logged.
+        try:
+            query = validate_query(query)
+        except GuardrailViolation as e:
+            logger.warning(f"Query blocked by guardrails: {e}")
+            return {
+                'answer': str(e),
+                'model_used': None,
+                'complexity': None,
+                'confidence': 0.0,
+                'cost': 0.0,
+                'latency': time.time() - start_time,
+                'input_tokens': 0,
+                'output_tokens': 0,
+                'context': '',
+                'sources': [],
+                'routing_info': {},
+                'success': False,
+                'error': 'guardrail_violation'
+            }
         
         try:
             # Step 1: Route query to appropriate model
@@ -105,17 +135,21 @@ class InferencePipeline:
             # Step 4: Load model and generate response
             logger.info(f"Generating with {model_id}...")
             model = self.model_manager.load_model(model_id)
-            
+
             # Count input tokens
             full_prompt = f"{context}\n\n{query}" if context else query
             input_tokens = model.count_tokens(full_prompt)
-            
+
+            # Retrieve conversation history for this session ([] if stateless call)
+            history = self.memory.get_history(session_id) if session_id else []
+
             # Generate
             result = model.generate(
                 prompt=query,
                 context=context,
                 max_tokens=1000,
-                temperature=0.7
+                temperature=0.7,
+                history=history,
             )
             
             answer = result['text']
@@ -125,7 +159,7 @@ class InferencePipeline:
             actual_cost = model.get_cost(input_tokens, output_tokens)
             
             latency = time.time() - start_time
-            
+
             # Step 5: Log everything for cost tracking
             self.tracker.log_query(
                 query=query,
@@ -138,6 +172,10 @@ class InferencePipeline:
                 latency=latency,
                 success=True
             )
+
+            # Step 6: Persist this turn to memory (only for stateful sessions)
+            if session_id:
+                self.memory.add_turn(session_id, query, answer)
             
             logger.info(
                 f"####### Query completed: "
@@ -197,15 +235,31 @@ class InferencePipeline:
     
     def batch_run(
         self,
-        queries: list,
+        queries: List[str],
         strategy: Optional[str] = None,
         use_retrieval: bool = True
-    ) -> list:
-        """Process multiple queries"""
-        results = []
-        for query in queries:
-            result = self.run(query, strategy, use_retrieval)
-            results.append(result)
+    ) -> List[Dict]:
+        """Process multiple queries concurrently.
+        
+        Uses ThreadPoolExecutor to run independent queries in parallel.
+        Latency for N queries drops from sum(latency) to max(latency).
+        """
+        if not queries:
+            return []
+            
+        logger.info(f"Batch processing {len(queries)} queries concurrently...")
+        
+        # Max workers capped at 10 to avoid overwhelming the Groq API rate limits
+        # or local CPU during concurrent embedding/reranking.
+        max_workers = min(10, len(queries))
+        
+        def _run_single(q: str) -> Dict:
+            return self.run(query=q, strategy=strategy, use_retrieval=use_retrieval)
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # executor.map preserves the original order of the results
+            results = list(executor.map(_run_single, queries))
+            
         return results
     
     def get_statistics(self, days: int = 1) -> Dict:

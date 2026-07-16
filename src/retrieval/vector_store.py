@@ -1,6 +1,6 @@
+import json
 from pathlib import Path
 from typing import List, Optional
-import pickle
 from langchain_community.vectorstores import Chroma
 from langchain_core.documents import Document
 from src.utils.logger import logger
@@ -81,22 +81,27 @@ class VectorStore:
         return self._vectordb.as_retriever(**kwargs) if self._vectordb else None
     
     def save_bm25_index(self, documents: List[Document]) -> None:
-        """Save documents for BM25 index (used in hybrid search)."""
+        """Save documents for BM25 index as JSON (safe serialization)."""
         self.persist_dir.mkdir(parents=True, exist_ok=True)
-        bm25_path = self.persist_dir / "bm25_index.pkl"
-        
-        with open(bm25_path, 'wb') as f:
-            pickle.dump(documents, f)
+        bm25_path = self.persist_dir / "bm25_index.json"
+
+        serializable = [
+            {"page_content": doc.page_content, "metadata": doc.metadata}
+            for doc in documents
+        ]
+        with open(bm25_path, 'w', encoding='utf-8') as f:
+            json.dump(serializable, f, ensure_ascii=False)
         logger.info(f"####### BM25 index saved at {bm25_path} #######")
-    
+
     def load_bm25_documents(self) -> Optional[List[Document]]:
-        """Load documents for BM25 index."""
-        bm25_path = self.persist_dir / "bm25_index.pkl"
+        """Load documents for BM25 index from JSON."""
+        bm25_path = self.persist_dir / "bm25_index.json"
         if not bm25_path.exists():
             return None
         try:
-            with open(bm25_path, 'rb') as f:
-                return pickle.load(f)
+            with open(bm25_path, 'r', encoding='utf-8') as f:
+                raw = json.load(f)
+            return [Document(page_content=d["page_content"], metadata=d.get("metadata", {})) for d in raw]
         except Exception:
             return None
     

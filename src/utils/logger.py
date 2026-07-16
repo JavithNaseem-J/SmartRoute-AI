@@ -1,45 +1,61 @@
 import os
 import sys
+import json
 import logging
-from datetime import datetime
+import logging.handlers
+from datetime import datetime, timezone
 
 
-logging_str = "[%(asctime)s: %(levelname)s: %(module)s: %(message)s]"
+# ---------------------------------------------------------------------------
+# JSON formatter — every log line is a valid JSON object.
+# Machine-parseable by ELK, Datadog, CloudWatch, etc.
+# ---------------------------------------------------------------------------
+class JsonFormatter(logging.Formatter):
+    def format(self, record: logging.LogRecord) -> str:
+        log_obj = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "level": record.levelname,
+            "module": record.module,
+            "message": record.getMessage(),
+            "logger": record.name,
+        }
+        if record.exc_info:
+            log_obj["exception"] = self.formatException(record.exc_info)
+        return json.dumps(log_obj, ensure_ascii=False)
 
+
+# ---------------------------------------------------------------------------
+# Setup
+# ---------------------------------------------------------------------------
 log_dir = "logs"
 log_filepath = os.path.join(log_dir, "running_logs.log")
 os.makedirs(log_dir, exist_ok=True)
 
+_json_formatter = JsonFormatter()
 
-# Custom StreamHandler with UTF-8 encoding for Windows
-class UTF8StreamHandler(logging.StreamHandler):
-    def __init__(self, stream=None):
-        super().__init__(stream)
-    
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            stream = self.stream
-            # Handle Windows encoding issues
-            stream.write(msg + self.terminator)
-            self.flush()
-        except UnicodeEncodeError:
-            # Fallback: replace non-ASCII characters
-            msg = self.format(record).encode('ascii', 'replace').decode('ascii')
-            self.stream.write(msg + self.terminator)
-            self.flush()
-        except Exception:
-            self.handleError(record)
+# Rotating file handler — caps at 10 MB per file, keeps 5 backups (50 MB max).
+# Prevents disk exhaustion from an unbounded growing log file.
+_file_handler = logging.handlers.RotatingFileHandler(
+    log_filepath,
+    maxBytes=10 * 1024 * 1024,  # 10 MB
+    backupCount=5,
+    encoding="utf-8",
+)
+_file_handler.setFormatter(_json_formatter)
 
+# Stdout handler — Docker and Kubernetes collect logs from stdout.
+# Use JSON so log aggregators can parse structured fields directly.
+_stdout_handler = logging.StreamHandler(sys.stdout)
+_stdout_handler.setFormatter(_json_formatter)
+
+# Suppress noisy third-party loggers
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("chromadb").setLevel(logging.WARNING)
+logging.getLogger("sentence_transformers").setLevel(logging.WARNING)
 
 logging.basicConfig(
     level=logging.INFO,
-    format=logging_str,
-    handlers=[
-        logging.FileHandler(log_filepath, encoding='utf-8'),
-        UTF8StreamHandler(sys.stdout)
-    ]
+    handlers=[_file_handler, _stdout_handler],
 )
-
 
 logger = logging.getLogger("SmartRouteAILogger")

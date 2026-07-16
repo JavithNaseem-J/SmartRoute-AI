@@ -1,0 +1,95 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: smartroute-api
+  labels:
+    app: smartroute-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: smartroute-api
+  template:
+    metadata:
+      labels:
+        app: smartroute-api
+    spec:
+      containers:
+        - name: api
+          image: your-registry/smartroute-ai:latest
+          ports:
+            - containerPort: 8000
+
+          env:
+            - name: GROQ_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: smartroute-secrets
+                  key: GROQ_API_KEY
+            - name: SMARTROUTE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: smartroute-secrets
+                  key: SMARTROUTE_API_KEY
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: smartroute-secrets
+                  key: DATABASE_URL
+            - name: REDIS_URL
+              value: redis://redis-service:6379/0
+
+          # Liveness probe: if this fails, k8s restarts the container.
+          # Targets /health (unauthenticated) — not /query which requires a key.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60   # time for model loading on startup
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # Readiness probe: if this fails, k8s removes the pod from the Service.
+          # The pod stops receiving traffic but is NOT restarted.
+          # Use for graceful degradation under load (e.g. DB temporarily unreachable).
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 2
+
+          # Startup probe: allows 5 min for initial startup (model downloads).
+          # Disables liveness/readiness checks until this passes.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 30      # 30 * 10s = 5 min maximum startup window
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: smartroute-api-service
+spec:
+  selector:
+    app: smartroute-api
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8000
+  type: ClusterIP

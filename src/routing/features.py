@@ -3,6 +3,7 @@ from typing import Dict, List
 import numpy as np
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
+from src.utils.logger import logger
 
 
 class FeatureExtractor:
@@ -37,7 +38,7 @@ class FeatureExtractor:
             self.embedder = SentenceTransformer('all-MiniLM-L6-v2')
             self.has_model = True
         except Exception as e:
-            print(f"Warning: Could not load SentenceTransformer: {e}")
+            logger.warning(f"Could not load SentenceTransformer: {e}")
             self.has_model = False
 
         self.reference_queries = {
@@ -103,7 +104,7 @@ class FeatureExtractor:
             # Pad semantic columns with zeros
             semantic = np.zeros((n, 3), dtype=np.float32)
         else:
-            print(f"  Encoding {n} queries with SentenceTransformer (batch_size={batch_size})...")
+            logger.info(f"Encoding {n} queries with SentenceTransformer (batch_size={batch_size})...")
             # Single batched encode call — this is the key fix
             embeddings = self.embedder.encode(
                 queries,

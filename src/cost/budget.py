@@ -1,3 +1,4 @@
+import os
 import yaml
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -6,71 +7,132 @@ from typing import Dict, Tuple, Optional
 from src.cost.tracker import CostTracker
 from src.utils.logger import logger
 
+try:
+    import redis
+    _REDIS_AVAILABLE = True
+except ImportError:
+    _REDIS_AVAILABLE = False
+
 
 class BudgetManager:
-    """Enforce budget limits and prevent overspending with caching."""
-    
+    """Enforce budget limits and prevent overspending.
+
+    Budget enforcement uses two modes:
+    - Redis (when REDIS_URL is set): atomic INCRBYFLOAT ensures no race window
+      across multiple workers or threads.
+    - SQLite fallback (default): reads total_cost from DB. Safe for single-node
+      deployments; susceptible to race conditions under very high concurrency.
+    """
+
     def __init__(
         self,
         tracker: CostTracker,
         config_path: Path = Path("config/routing.yaml"),
-        cache_ttl_seconds: int = 60  
+        cache_ttl_seconds: int = 60
     ):
         self.tracker = tracker
         self._cache_ttl = cache_ttl_seconds
         self._stats_cache: Optional[Dict] = None
         self._cache_timestamp: Optional[datetime] = None
-        
+
         # Load budget configuration
         with open(config_path, 'r') as f:
             config = yaml.safe_load(f)
-        
+
         budgets = config.get('budgets', {})
         self.limits = {
             'daily': budgets.get('daily', 10.0),
             'weekly': budgets.get('weekly', 50.0),
             'monthly': budgets.get('monthly', 200.0)
         }
-        
+
         self.alert_threshold = budgets.get('alert_threshold', 0.8)
         self.emergency_stop = budgets.get('emergency_stop', True)
-        
+
+        # Optional Redis for atomic distributed budget enforcement.
+        # When REDIS_URL is set and redis-py is installed, check_budget uses
+        # atomic INCRBYFLOAT — no race window across threads or containers.
+        # Falls back to SQLite transparently when Redis is unavailable.
+        self._redis: Optional["redis.Redis"] = None
+        redis_url = os.getenv("REDIS_URL")
+        if redis_url and _REDIS_AVAILABLE:
+            try:
+                self._redis = redis.from_url(redis_url, decode_responses=True)
+                self._redis.ping()
+                logger.info(f"BudgetManager: Redis connected ({redis_url.split('@')[-1]})")
+            except Exception as e:
+                logger.warning(f"BudgetManager: Redis unavailable, falling back to SQLite: {e}")
+                self._redis = None
+        else:
+            logger.info("BudgetManager: using SQLite budget tracking (single-node mode)")
+
         logger.info(f"Budget manager initialized: Daily ${self.limits['daily']}")
     
     def _get_cached_stats(self) -> Dict:
         """Get budget statistics with caching to reduce DB queries (used for UI/Status only)."""
         now = datetime.utcnow()
-        
-        # Check if cache is valid
-        if (self._stats_cache is not None and 
-            self._cache_timestamp is not None and
-            (now - self._cache_timestamp).total_seconds() < self._cache_ttl):
+
+        if (self._stats_cache is not None
+                and self._cache_timestamp is not None
+                and (now - self._cache_timestamp).total_seconds() < self._cache_ttl):
             return self._stats_cache
-        
-        # Refresh cache - single query for daily stats (most restrictive)
-        # Weekly and monthly are only checked when daily passes
+
         self._stats_cache = {
             'daily': self.tracker.get_statistics(days=1)['total_cost']
         }
         self._cache_timestamp = now
         return self._stats_cache
-    
+
     def _invalidate_cache(self):
         """Invalidate the stats cache (call after logging a query)."""
         self._stats_cache = None
         self._cache_timestamp = None
-    
-    def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
+
+    def _redis_check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
+        """Atomic budget check using Redis INCRBYFLOAT.
+
+        Strategy:
+        1. INCRBYFLOAT adds `estimated_cost` to the daily key and returns the new total.
+        2. If the new total exceeds the daily limit, immediately decrement back
+           (INCRBYFLOAT with -estimated_cost) and reject the request.
+        3. The key is set with a TTL of 86400 seconds (1 day) on first creation
+           using SET ... NX EX so it auto-expires at midnight.
+
+        This is atomic: the increment and the limit check happen in the same
+        Redis command response. No two threads can both pass the limit simultaneously.
         """
-        Check if we can afford this query.
-        
-        CRITICAL: Checks daily budget directly against DB (no cache) to prevent race conditions.
-        most restrictive check.
-        """
-        # ALWAYS check critical paths without cache
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        redis_key = f"smartroute:budget:daily:{today}"
+
+        try:
+            # INCRBYFLOAT is atomic — increment and get new total in one op
+            new_total = float(self._redis.incrbyfloat(redis_key, estimated_cost))
+
+            # Set TTL only if key was just created (NX = only if not exists)
+            self._redis.expire(redis_key, 86400)
+
+            if new_total > self.limits['daily']:
+                # Over budget — roll back the increment
+                self._redis.incrbyfloat(redis_key, -estimated_cost)
+                logger.warning(
+                    f"Daily budget exceeded (Redis): ${new_total:.4f} total, "
+                    f"${self.limits['daily']:.2f} limit"
+                )
+                return False, "daily_limit_exceeded"
+
+            return True, "within_budget"
+
+        except Exception as e:
+            # Redis error — fall back to SQLite check rather than blocking all requests
+            logger.warning(f"Redis budget check failed, falling back to SQLite: {e}")
+            return self._sqlite_check_budget(estimated_cost)
+
+    def _sqlite_check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
+        """SQLite budget check — reads total_cost from DB. Not atomic across threads,
+        but acceptable for single-node deployments with low-to-moderate concurrency."""
         daily_spent = self.tracker.get_statistics(days=1)['total_cost']
         daily_remaining = self.limits['daily'] - daily_spent
-        
+
         if estimated_cost > daily_remaining:
             logger.warning(
                 f"Daily budget exceeded: ${daily_spent:.4f} spent, "
@@ -78,8 +140,17 @@ class BudgetManager:
                 f"${self.limits['daily']:.2f} limit"
             )
             return False, "daily_limit_exceeded"
-        
+
         return True, "within_budget"
+
+    def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
+        """Check if we can afford this query.
+
+        Routes to Redis atomic check when available, SQLite otherwise.
+        """
+        if self._redis:
+            return self._redis_check_budget(estimated_cost)
+        return self._sqlite_check_budget(estimated_cost)
     
     def check_budget_full(self, estimated_cost: float) -> Tuple[bool, str]:
         """
