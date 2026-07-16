@@ -691,6 +691,208 @@ MONTHLY_BUDGET_LIMIT=100.00
 
 MIT License — see [LICENSE](LICENSE) for details.
 
+## 11. Mermaid Diagrams
+
+### 1. Overall System Architecture
+```mermaid
+graph TD
+    Client[Client] -->|HTTP POST| API[FastAPI Server]
+    API --> Pipeline[Inference Pipeline]
+    Pipeline --> Router[ML Query Router]
+    Pipeline --> Budget[Budget Manager]
+    Pipeline --> Retriever[Document Retriever]
+    Pipeline --> Generator[Groq Model]
+    
+    Budget <--> Redis[(Redis)]
+    Retriever <--> Chroma[(ChromaDB)]
+    Retriever <--> BM25[BM25 Index]
+    Pipeline --> Tracker[Cost Tracker]
+    Tracker --> DB[(SQLite/Postgres)]
+```
+
+### 2. Repository Structure
+```mermaid
+graph TD
+    Root[SmartRoute-AI] --> API[api/]
+    Root --> Config[config/]
+    Root --> Src[src/]
+    Src --> Cost[cost/]
+    Src --> Memory[memory/]
+    Src --> Models[models/]
+    Src --> Pipeline[pipeline/]
+    Src --> Retrieval[retrieval/]
+    Src --> Routing[routing/]
+    Src --> Utils[utils/]
+```
+
+### 3. Component Diagram
+```mermaid
+graph TD
+    IP[InferencePipeline] --> QR[QueryRouter]
+    IP --> MM[ModelManager]
+    IP --> DR[DocumentRetriever]
+    IP --> CT[CostTracker]
+    IP --> BM[BudgetManager]
+    IP --> CM[ConversationMemory]
+```
+
+### 4. Request Flow Diagram
+```mermaid
+graph TD
+    Req[Request] --> Auth[API Key Auth]
+    Auth --> Guard[Guardrails]
+    Guard --> Route[Query Routing]
+    Route --> Budget[Budget Check]
+    Budget --> RAG{Use Retrieval?}
+    RAG -- Yes --> Retrieve[Hybrid Retrieval + Rerank]
+    RAG -- No --> Gen[Model Generation]
+    Retrieve --> Gen
+    Gen --> Log[Cost Logging]
+    Log --> Res[Response]
+```
+
+### 5. Sequence Diagram
+```mermaid
+sequenceDiagram
+    participant User
+    participant API as FastAPI
+    participant Pipe as InferencePipeline
+    participant Route as QueryRouter
+    participant RAG as DocumentRetriever
+    participant LLM as GroqModel
+    
+    User->>API: POST /query
+    API->>Pipe: run(query)
+    Pipe->>Route: route(query)
+    Route-->>Pipe: model_id, complexity
+    Pipe->>RAG: retrieve(query)
+    RAG-->>Pipe: context, sources
+    Pipe->>LLM: generate(prompt, context)
+    LLM-->>Pipe: text, tokens
+    Pipe->>API: QueryResponse
+    API-->>User: JSON Response
+```
+
+### 6. AI/RAG Pipeline
+```mermaid
+graph TD
+    Q[Query] --> Sem[SentenceTransformer Embed]
+    Sem --> FE[Feature Extractor]
+    FE --> LGB[LightGBM Classifier]
+    LGB --> ModelSel[Model Selection]
+    
+    Q --> Dense[ChromaDB Dense Search]
+    Q --> Sparse[BM25 Search]
+    Dense --> RRF[Reciprocal Rank Fusion]
+    Sparse --> RRF
+    RRF --> Rerank[Cross-Encoder Reranker]
+    Rerank --> Context[Top-K Context]
+```
+
+### 7. Module Dependency Graph
+```mermaid
+graph TD
+    inference.py --> router.py
+    inference.py --> model_manager.py
+    inference.py --> retriever.py
+    inference.py --> tracker.py
+    inference.py --> budget.py
+    inference.py --> conversation.py
+    router.py --> classifier.py
+    classifier.py --> features.py
+    retriever.py --> vector_store.py
+    retriever.py --> embedder.py
+    retriever.py --> reranker.py
+    retriever.py --> cache.py
+```
+
+### 8. Database / Storage Diagram
+```mermaid
+graph TD
+    App --> Redis[(Redis)]
+    App --> DB[(SQL Database)]
+    App --> Vector[(ChromaDB)]
+    App --> FileSys[File System]
+    
+    Redis --> Budget[Budget Limits]
+    Redis --> Cache[Retrieval Cache]
+    Redis --> Mem[Session Memory]
+    
+    DB --> QL[QueryLog Table]
+    Vector --> Embed[Document Embeddings]
+    FileSys --> BM25[BM25 JSON]
+    FileSys --> Logs[running_logs.log]
+```
+
+### 9. Deployment Diagram
+```mermaid
+graph TD
+    User --> Nginx[Load Balancer]
+    Nginx --> Dashboard[Streamlit Container]
+    Nginx --> API[FastAPI Container]
+    
+    API --> Redis[Redis Container]
+    API --> Vols[Docker Volumes]
+    Dashboard --> API
+```
+
+### 10. Configuration Flow
+```mermaid
+graph TD
+    ENV[.env] --> API
+    ENV --> DB
+    YAML1[routing.yaml] --> Router
+    YAML1 --> Budget
+    YAML2[models.yaml] --> ModelManager
+```
+
+### 11. Error Handling Flow
+```mermaid
+graph TD
+    Try[Try API Call] --> Ratelimit{Rate Limited?}
+    Ratelimit -- Yes --> Retry[Exponential Backoff]
+    Retry --> Try
+    Ratelimit -- No --> APIError{Other Error?}
+    APIError -- Yes --> Fallback[Fallback to default model / raise 500]
+    APIError -- No --> Success[Return result]
+```
+
+### 12. Logging & Monitoring Flow
+```mermaid
+graph TD
+    App[Application code] --> PyLog[Python Logger]
+    PyLog --> JSON[JsonFormatter]
+    JSON --> Stdout[stdout]
+    JSON --> File[running_logs.log]
+    
+    App --> OTEL[OpenTelemetry Instrumentor]
+    OTEL --> OTLP[OTLP Exporter]
+```
+
+### 13. Cost Tracking Flow
+```mermaid
+graph TD
+    Req --> Est[estimate_query_cost]
+    Est --> Chk[check_budget]
+    Chk -- Pass --> Exec[Execute LLM]
+    Chk -- Fail --> Block[Reject or Fallback]
+    Exec --> Calc[Calculate Actual Cost]
+    Calc --> Log[log_query to DB]
+```
+
+### 14. Authentication & Authorization Flow
+```mermaid
+graph TD
+    Req[Incoming Request] --> Header[Extract X-API-Key]
+    Header --> Val{Compare Digest}
+    Val -- Match --> Proceed[Execute Logic]
+    Val -- Mismatch --> Reject[401 Unauthorized]
+```
+
+---
+
+---
+
 ## 12. Verification (Files Supporting Diagrams)
 - **Diagram 1 & 4**: `api/main.py`, `src/pipeline/inference.py`.
 - **Diagram 2 & 7**: OS directory traversal and import statements across `src/`.
