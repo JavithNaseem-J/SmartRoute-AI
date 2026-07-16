@@ -1,32 +1,19 @@
-# SmartRoute-AI: Architectural Documentation
+# ≡ƒÜÇ SmartRoute-AI
 
-## 1. Executive Summary
-SmartRoute-AI is a cost-optimized, production-ready Retrieval-Augmented Generation (RAG) system. Its primary innovation is an intelligent query router that classifies user queries by complexity using a LightGBM model and routes them to the most cost-effective Large Language Model (LLM) tier. The system employs a Hybrid Retrieval approach (BM25 + Dense ChromaDB) with Cross-Encoder re-ranking, and provides atomic budget tracking (via Redis) to prevent cost overruns. It exposes a FastAPI backend, a Streamlit dashboard, and is fully containerized via Docker Compose.
+### **AI-Powered Cost Optimization for LLM Inference at Scale**
 
-## 2. Repository Structure
-- `api/main.py`: FastAPI application, endpoints, and authentication middleware.
-- `app.py`: Streamlit frontend dashboard (deduced from `docker-compose.yml` and previous context).
-- `config/`: Contains YAML configuration for models (`models.yaml`) and routing logic/budgets (`routing.yaml`).
-- `src/pipeline/inference.py`: Core orchestration pipeline combining routing, retrieval, generation, and cost tracking.
-- `src/routing/`: Implements the ML-based router (`router.py`), LightGBM classifier (`classifier.py`), and feature extraction logic (`features.py`).
-- `src/retrieval/`: Handles hybrid search (`retriever.py`), ChromaDB wrapper (`vector_store.py`), document chunking (`chunking.py`), embeddings (`embedder.py`), cross-encoder (`reranker.py`), and caching (`cache.py`).
-- `src/models/`: Groq API integration (`groq_model.py`) and model registry (`model_manager.py`).
-- `src/cost/`: Database logging (`tracker.py`) and budget enforcement (`budget.py`).
-- `src/memory/`: Per-session conversation history (`conversation.py`).
-- `src/utils/`: Guardrails (`guardrails.py`), JSON logging (`logger.py`), and OpenTelemetry tracing (`tracing.py`).
-- `docker-compose.yml` / `Dockerfile` / `Dockerfile.api`: Deployment configuration.
-- `data/` and `logs/`: Persistent storage for DB, ChromaDB, and JSON logs.
+> **Intelligent query routing system that reduces LLM costs by ~70% while maintaining quality** through ML-based complexity classification, semantic feature engineering, and Reciprocal Rank Fusion (RRF) hybrid RAG retrieval.
 
 [Live Demo](https://smartroute-ai.streamlit.app)
 
 
 ---
 
-## 🎯 The Problem
+## ≡ƒÄ» The Problem
 
-**Challenge**: Teams waste 60–80% on LLM API costs by:
+**Challenge**: Teams waste 60ΓÇô80% on LLM API costs by:
 - Routing ALL queries to the most expensive model (GPT-4, Claude-3, Llama-70B)
-- No intelligence in model selection — "one size fits all"
+- No intelligence in model selection ΓÇö "one size fits all"
 - No cost tracking or budget guardrails
 - Retrieval systems that combine results naively (append, not rank)
 
@@ -34,123 +21,166 @@ SmartRoute-AI is a cost-optimized, production-ready Retrieval-Augmented Generati
 
 ---
 
-## ✨ Key Features
+## Γ£¿ Key Features
 
-### **1. Intelligent Query Routing** 🧠
+### **1. Intelligent Query Routing** ≡ƒºá
 - **LightGBM Classifier**: Predicts query complexity (simple / medium / complex)
-- **Semantic Features**: `SentenceTransformer` similarity against reference queries — not just word count
+- **Semantic Features**: `SentenceTransformer` similarity against reference queries ΓÇö not just word count
 - **Multi-Strategy**: `cost_optimized`, `quality_first`, `balanced` routing
 - **Confidence Escalation**: Routes to higher tier when classification confidence is low
 - **Budget-Aware**: Automatic fallback to cheapest model when daily limit is near
 
-### **2. Hybrid RAG with RRF** 📚
+### **2. Hybrid RAG with RRF** ≡ƒôÜ
 - **Dense Retrieval**: Sentence-BERT embeddings with ChromaDB
 - **Sparse Retrieval**: BM25 for exact keyword matching
-- **Reciprocal Rank Fusion**: Combines ranked lists by score — not naive append
+- **Reciprocal Rank Fusion**: Combines ranked lists by score ΓÇö not naive append
 - **Optimized Chunking**: Smart document splitting with overlap
 
-### **3. Real-Time Cost Analytics** 💰
+### **3. Real-Time Cost Analytics** ≡ƒÆ░
 - **Token-Level Tracking**: Precise cost calculation per query (input + output tokens)
 - **Query Hashing**: SHA-256 hash per query for deduplication and audit
-- **Budget Management**: Daily/weekly/monthly limits — checked directly against DB (no stale cache)
+- **Budget Management**: Daily/weekly/monthly limits ΓÇö checked directly against DB (no stale cache)
 - **Savings Analysis**: Real-time comparison vs. always-70B baseline
 
-### **4. Production-Ready Infrastructure** 🏗️
+### **4. Production-Ready Infrastructure** ≡ƒÅù∩╕Å
 - **FastAPI Backend**: RESTful API with rate limiting
 - **Streamlit Dashboard**: Interactive analytics UI
 - **Docker Containerized**: One-command deployment
-- **CI/CD Pipeline**: GitHub Actions → Docker Hub
+- **CI/CD Pipeline**: GitHub Actions ΓåÆ Docker Hub
 
 ---
 
-## 🏗️ Architecture
+## ≡ƒÅù∩╕Å Architecture
 
 ### **System Overview**
 
-## 3. Architecture Overview
-The system follows a microservice architecture (API, Dashboard, Redis). The backend operates synchronously for individual requests but supports batch concurrency via ThreadPoolExecutor. It emphasizes defensive design with prompt injection guardrails, constant-time API key validation, and fallback mechanisms for both models and databases.
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        UI[Streamlit Dashboard]
+        API[REST API Client]
+    end
+    
+    subgraph "Application Layer"
+        FastAPI[FastAPI Server<br/>Rate Limiting & CORS]
+        Pipeline[Inference Pipeline<br/>Orchestrator]
+    end
+    
+    subgraph "Intelligence Layer"
+        Router[Query Router<br/>LightGBM + Semantic Features]
+        Retriever[Document Retriever<br/>RRF Hybrid Search]
+        ModelMgr[Model Manager<br/>Groq API]
+    end
+    
+    subgraph "Data Layer"
+        ChromaDB[(ChromaDB<br/>Vector Store)]
+        SQLite[(SQLite<br/>Cost Tracking)]
+        Docs[Document<br/>Storage]
+    end
+    
+    subgraph "External Services"
+        Groq[Groq API<br/>LLaMA Models]
+    end
+    
+    UI --> Pipeline
+    API --> FastAPI
+    FastAPI --> Pipeline
+    
+    Pipeline --> Router
+    Pipeline --> Retriever
+    Pipeline --> ModelMgr
+    
+    Router -.->|Complexity| ModelMgr
+    Retriever --> ChromaDB
+    Retriever --> Docs
+    ModelMgr --> Groq
+    
+    Pipeline --> SQLite
+    
+    style Router fill:#4CAF50
+    style Retriever fill:#2196F3
+    style ModelMgr fill:#FF9800
+    style Pipeline fill:#9C27B0
+```
 
-## 4. Runtime Flow
-Application startup
-↓
-`api/main.py` initializes FastAPI, loads `InferencePipeline` (which loads router, retriever, models, tracker)
-↓
-User Request (`POST /query`)
-↓
-API endpoint (`require_api_key` validation)
-↓
-Validation (`validate_query` checks length and prompt injections)
-↓
-Routing (`QueryRouter.route()` classifies complexity using LightGBM and selects model)
-↓
-Budget Check (`BudgetManager.check_budget()` via Redis INCRBYFLOAT or SQLite fallback)
-↓
-Retrieval (`DocumentRetriever.retrieve()` executes BM25 + Dense search concurrently, applies RRF, and Cross-Encoder Re-ranking)
-↓
-Prompt Creation (System prompt + History + Context + Query)
-↓
-LLM (`GroqModel.generate()` or `generate_stream()`)
-↓
-Output parsing (Tokens counted via `tiktoken`)
-↓
-Logging (`CostTracker.log_query()` records cost and latency to DB)
-↓
-Response
+### **Query Processing Flow**
 
-## 5. Component Analysis
+```mermaid
+sequenceDiagram
+    participant User
+    participant Pipeline
+    participant Router
+    participant Retriever
+    participant ModelManager
+    participant CostTracker
+    participant Groq
 
-- **API (`api/main.py`)**: Exposes endpoints (`/query`, `/stats`, `/savings`, `/budget`, `/stream`). Enforces Rate Limiting (slowapi), CORS, Authentication, and Tracing.
-- **InferencePipeline (`src/pipeline/inference.py`)**: The central orchestrator. Inputs: query, strategy. Outputs: dict with answer, cost, routing info. Dependencies: Router, Retriever, ModelManager, CostTracker, BudgetManager, ConversationMemory.
-- **QueryRouter (`src/routing/router.py`)**: Uses `ComplexityClassifier` to determine if a query is simple, medium, or complex. Falls back to quality thresholds based on confidence.
-- **FeatureExtractor (`src/routing/features.py`)**: Extracts lexical (word count, etc.) and semantic (cosine similarity to reference queries via SentenceTransformer) features.
-- **DocumentRetriever (`src/retrieval/retriever.py`)**: Combines `BM25Retriever` and `VectorStore` (Chroma). Uses Reciprocal Rank Fusion (RRF) to merge results, then passes candidates to `DocumentReranker`.
-- **ModelManager & GroqModel (`src/models/`)**: Loads model configs, handles Groq API requests with exponential backoff for rate limits.
-- **CostTracker & BudgetManager (`src/cost/`)**: `CostTracker` logs every query using SQLAlchemy (WAL mode SQLite or Postgres). `BudgetManager` uses Redis for atomic limits to prevent race conditions.
-- **ConversationMemory (`src/memory/conversation.py`)**: Manages multi-turn history. Uses Redis for distributed environments or an in-memory dictionary.
-- **Guardrails (`src/utils/guardrails.py`)**: Regex-based prompt injection detection.
+    User->>Pipeline: Submit Query
+    
+    Pipeline->>Router: Route Query
+    Router->>Router: Extract Features<br/>(semantic + linguistic)
+    Router->>Router: LightGBM Classification
+    Router->>Router: Apply Strategy
+    Router-->>Pipeline: Routing Decision<br/>(model_id, complexity, confidence)
+    
+    Pipeline->>Pipeline: Check Budget (DB, no cache)
+    
+    alt Budget OK
+        Pipeline->>Retriever: Retrieve Context (if RAG)
+        Retriever->>Retriever: BM25 + Dense Search
+        Retriever->>Retriever: RRF Fusion ΓåÆ Top-K
+        Retriever-->>Pipeline: Ranked Chunks + Sources
+        Pipeline->>ModelManager: Generate Response
+        ModelManager->>Groq: API Call (llama-3.x-xB)
+        Groq-->>ModelManager: Response + Token Count
+        ModelManager-->>Pipeline: Answer + Metadata
+    else Budget Exceeded
+        Pipeline->>Pipeline: Fallback to 8B Model
+    end
+    
+    Pipeline->>CostTracker: Log (tokens, cost, hash, latency)
+    Pipeline-->>User: Response + Cost + Sources
+```
 
-## 6. API Analysis
+### **Routing Decision Logic**
 
-- **`GET /` & `GET /health`**: Health checks. Public, no auth required.
-- **`POST /query`**: 
-  - Request: `{query: str, strategy: str, use_retrieval: bool, session_id: str}`
-  - Response: `{answer, model_used, complexity, confidence, cost, latency, sources, success, error}`
-  - Flow: Validates API key -> `pipeline.run()` -> Returns result.
-- **`POST /query/stream`**: Same as `/query` but returns Server-Sent Events (SSE).
-- **`GET /stats`, `/savings`, `/budget`**: Retrieves financial and pipeline usage metrics.
-- **`DELETE /memory/{session_id}`**: Clears session history.
-
-## 7. AI Pipeline
-1. **Query Processing**: Sanitized, checked against injection patterns (`guardrails.py`).
-2. **Feature Extraction**: 10 lexical features + 3 semantic features extracted (`features.py`).
-3. **Classification**: LightGBM model predicts complexity (simple, medium, complex) (`classifier.py`).
-4. **Retrieval**: ThreadPoolExecutor runs BM25 and ChromaDB similarity search concurrently. Resulting documents merged via RRF (`retriever.py`).
-5. **Re-ranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` re-scores top merged candidates (`reranker.py`).
-6. **Prompt Construction**: Formatted with system instructions, session history, retrieved context, and the query.
-7. **LLM Invocation**: Sent to Groq API. Tokens counted using `tiktoken`.
-8. **Logging**: Full transaction logged to database.
-
-## 8. Data Flow
-- **User Input** -> Guardrails -> Memory Lookup -> Router -> Embedder (Query)
-- **Document Upload** (implied via indexer) -> Chunker -> Embedder -> ChromaDB + BM25 JSON
-- **Model Output** -> Token Counter -> Cost Calculator -> Cost DB -> User Response
-
-## 9. Dependency Analysis
-- **Frameworks**: FastAPI, Uvicorn, Streamlit.
-- **AI/ML**: langchain, sentence-transformers, lightgbm, scikit-learn, groq, tiktoken.
-- **Vector/DB**: chromadb, rank-bm25, sqlalchemy, redis.
-- **Tracing/Logging**: opentelemetry-sdk, python logging (JSON formatter).
-
-## 10. Configuration
-- **Environment Variables** (`.env`): `GROQ_API_KEY`, `SMARTROUTE_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
-- **`config/models.yaml`**: Defines tiers, costs, and context windows for models (e.g., `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`).
-- **`config/routing.yaml`**: Defines strategies (cost_optimized, quality_first, balanced), routing rules, quality thresholds, and budget limits.
+```mermaid
+graph TD
+    Query[Query Input] --> Extract[Feature Extraction<br/>13 features: semantic + linguistic]
+    Extract --> |Feature Vector| Classifier[LightGBM Classifier]
+    
+    Classifier --> |Probability Scores| Complexity{Predicted<br/>Complexity}
+    
+    Complexity -->|Simple<br/>P > 0.7| Simple[8B Model<br/>llama-3.1-8b]
+    Complexity -->|Medium<br/>P > 0.7| Medium[17B Model<br/>llama-3.3-17b]
+    Complexity -->|Complex<br/>P > 0.7| Complex[70B Model<br/>llama-3.1-70b]
+    Complexity -->|Low Confidence<br/>P < 0.7| Escalate[Route to Higher Tier]
+    
+    Simple --> Strategy{Routing<br/>Strategy}
+    Medium --> Strategy
+    Complex --> Strategy
+    Escalate --> Strategy
+    
+    Strategy -->|cost_optimized| CostCheck{Budget<br/>Available?}
+    Strategy -->|quality_first| UseComplex[Always 70B]
+    Strategy -->|balanced| UseBalanced[Balanced Selection]
+    
+    CostCheck -->|Yes| UseSelected[Use Selected Model]
+    CostCheck -->|No| Fallback[Fallback to 8B]
+    
+    UseSelected --> Groq[Groq API]
+    UseComplex --> Groq
+    UseBalanced --> Groq
+    Fallback --> Groq
+    
+    style Classifier fill:#4CAF50
+    style Strategy fill:#2196F3
+    style Groq fill:#FF6B6B
+```
 
 ---
 
-## 11. Mermaid Diagrams
-
-## 🚀 Quick Start (4 Paths)
+## ≡ƒÜÇ Quick Start (4 Paths)
 
 ### Path 1: Try It Now (5 minutes)
 **For**: Quick demo, no setup
@@ -173,9 +203,9 @@ Complex (routes to 70B):
 ```
 
 **Expected Routing:**
-- Simple → `llama-3.1-8b` (cost: ~$0.00002/query)
-- Medium → `llama-3.3-17b` (cost: ~$0.00008/query)
-- Complex → `llama-3.1-70b` (cost: ~$0.00050/query)
+- Simple ΓåÆ `llama-3.1-8b` (cost: ~$0.00002/query)
+- Medium ΓåÆ `llama-3.3-17b` (cost: ~$0.00008/query)
+- Complex ΓåÆ `llama-3.1-70b` (cost: ~$0.00050/query)
 
 ---
 
@@ -237,7 +267,7 @@ print(result)
 ### Path 3: Train Your Own Classifier (60 minutes)
 **For**: Customizing routing for your specific use case
 
-> ⚠️ **Warning**: The default classifier is trained on synthetic data. For production, train on real queries.
+> ΓÜá∩╕Å **Warning**: The default classifier is trained on synthetic data. For production, train on real queries.
 
 **Option A: Use MS MARCO Dataset (recommended)**
 ```bash
@@ -263,10 +293,10 @@ python scripts/train_classifier.py \
 ```
 
 **What Makes a Good Training Dataset:**
-- ✅ 1,000+ unique queries minimum
-- ✅ Balanced classes (~33% each)
-- ✅ Real user queries (not synthetic duplicates)
-- ❌ Don't duplicate queries — breaks train/test split
+- Γ£à 1,000+ unique queries minimum
+- Γ£à Balanced classes (~33% each)
+- Γ£à Real user queries (not synthetic duplicates)
+- Γ¥î Don't duplicate queries ΓÇö breaks train/test split
 
 ---
 
@@ -309,12 +339,12 @@ curl -X POST http://localhost:8000/query \
 docker-compose up --build
 
 # Or deploy to Render (render.yaml already configured)
-# New → Blueprint → Connect repo → Deploy
+# New ΓåÆ Blueprint ΓåÆ Connect repo ΓåÆ Deploy
 ```
 
 ---
 
-## 🎓 ML Engineering Deep-Dive
+## ≡ƒÄô ML Engineering Deep-Dive
 
 ### 1. Feature Engineering for Routing
 
@@ -333,28 +363,28 @@ docker-compose up --build
 | `is_analysis` | Binary | "analyze/evaluate/synthesize" = complex | "Evaluate the impact of..." |
 | `is_multipart` | Binary | Multiple questions in one | "Also, additionally..." |
 | `comma_count` | Numeric | Proxy for sentence complexity | Long lists of requirements |
-| `semantic_complexity` | Float | **Key**: cosine similarity to complex reference queries | "Explain quantum entanglement" → high |
-| `simple_similarity` | Float | Similarity to simple reference queries | "What is X?" → high |
-| `complex_similarity` | Float | Similarity to complex reference queries | "Analyze and synthesize..." → high |
+| `semantic_complexity` | Float | **Key**: cosine similarity to complex reference queries | "Explain quantum entanglement" ΓåÆ high |
+| `simple_similarity` | Float | Similarity to simple reference queries | "What is X?" ΓåÆ high |
+| `complex_similarity` | Float | Similarity to complex reference queries | "Analyze and synthesize..." ΓåÆ high |
 
 **Why semantic features matter:**
 
 ```python
 # Old approach (broken):
-# "Explain quantum entanglement" → word_count=3, no code → routes to 8B ❌
+# "Explain quantum entanglement" ΓåÆ word_count=3, no code ΓåÆ routes to 8B Γ¥î
 
 # New approach (fixed):
-# "Explain quantum entanglement" → semantic_complexity=0.42 → routes to 17B ✅
+# "Explain quantum entanglement" ΓåÆ semantic_complexity=0.42 ΓåÆ routes to 17B Γ£à
 # The model understands the MEANING, not just the length
 ```
 
 **Feature Importance (LightGBM SHAP):**
 ```
-1. semantic_complexity     (0.31) ← Semantic meaning of query
-2. requires_reasoning      (0.22) ← Keywords: why/how/analyze
-3. has_code                (0.18) ← Code blocks need 70B
-4. word_count              (0.15) ← Length correlates with complexity
-5. question_depth          (0.09) ← Multiple sub-questions
+1. semantic_complexity     (0.31) ΓåÉ Semantic meaning of query
+2. requires_reasoning      (0.22) ΓåÉ Keywords: why/how/analyze
+3. has_code                (0.18) ΓåÉ Code blocks need 70B
+4. word_count              (0.15) ΓåÉ Length correlates with complexity
+5. question_depth          (0.09) ΓåÉ Multiple sub-questions
 ```
 
 ---
@@ -366,7 +396,7 @@ docker-compose up --build
 **The Problem with Naive Hybrid Search:**
 ```python
 # Old approach (broken):
-combined = bm25_results[:5] + dense_results[:5]  # 10 docs, not ranked ❌
+combined = bm25_results[:5] + dense_results[:5]  # 10 docs, not ranked Γ¥î
 # BM25 might return 5 irrelevant docs, dense returns 5 great docs
 # User sees 10 docs with garbage mixed in
 ```
@@ -382,7 +412,7 @@ for rank, doc in enumerate(bm25_results):
 for rank, doc in enumerate(dense_results):
     scores[doc] += dense_weight * (1 / (rrf_constant + rank))
 
-# Sort ALL candidates by combined score → return top K
+# Sort ALL candidates by combined score ΓåÆ return top K
 top_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 ```
 
@@ -402,7 +432,7 @@ top_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
 | BM25 only | 0.65 | 0.71 | 45ms |
 | **Hybrid RRF (ours)** | **0.81** | **0.78** | 225ms |
 
-Hybrid is 12% better than the best single method — worth the 45ms extra latency.
+Hybrid is 12% better than the best single method ΓÇö worth the 45ms extra latency.
 
 ---
 
@@ -413,16 +443,16 @@ Hybrid is 12% better than the best single method — worth the 45ms extra latenc
 ```python
 # Old approach (dangerous):
 # Cache TTL = 60s
-# 10:00:00 - Cache: $9.80 spent ✅
-# 10:00:30 - Query costs $0.50 → Allowed (cache says $9.80) ✅
-# 10:00:45 - Another $0.50 → Allowed (cache still says $9.80) ✅
-# 10:01:00 - Cache refreshes → $10.80 spent ❌ OVER BUDGET
+# 10:00:00 - Cache: $9.80 spent Γ£à
+# 10:00:30 - Query costs $0.50 ΓåÆ Allowed (cache says $9.80) Γ£à
+# 10:00:45 - Another $0.50 ΓåÆ Allowed (cache still says $9.80) Γ£à
+# 10:01:00 - Cache refreshes ΓåÆ $10.80 spent Γ¥î OVER BUDGET
 ```
 
 ```python
 # New approach (safe):
 def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
-    # ALWAYS check DB directly — no cache on critical path
+    # ALWAYS check DB directly ΓÇö no cache on critical path
     daily_spent = self.tracker.get_statistics(days=1)['total_cost']
     
     if daily_spent + estimated_cost > self.limits['daily']:
@@ -437,7 +467,7 @@ Day 15 of month:
 - Daily spent: $9.85 (from DB, real-time)
 - Daily limit: $10.00
 - New query estimated: $0.50 (would use 70B)
-- Decision: Route to 8B instead (cost: $0.02) ✅
+- Decision: Route to 8B instead (cost: $0.02) Γ£à
 ```
 
 ---
@@ -456,14 +486,14 @@ CREATE TABLE query_logs (
     complexity TEXT,         -- simple/medium/complex
     input_tokens INTEGER,    -- ACTUAL tokens used (source of truth)
     output_tokens INTEGER,
-    cost FLOAT,              -- Calculated from tokens × price
+    cost FLOAT,              -- Calculated from tokens ├ù price
     latency FLOAT,
     success BOOLEAN
 );
 ```
 
 **Why Store Tokens, Not Just Cost:**
-- Token counts are ground truth — prices change over time
+- Token counts are ground truth ΓÇö prices change over time
 - Can recalculate historical costs with updated pricing
 - `query_hash` enables deduplication across sessions
 
@@ -483,7 +513,7 @@ CREATE TABLE query_logs (
 | Simple (33) | 33 | 0 | 100% |
 | Medium (35) | 31 | 4 | 88.6% |
 | Complex (32) | 29 | 3 | 90.6% |
-| **Overall** | **93** | **7** | **93%** ✅ |
+| **Overall** | **93** | **7** | **93%** Γ£à |
 
 **Mis-Routing Analysis:**
 
@@ -502,7 +532,7 @@ CREATE TABLE query_logs (
 
 **Planned Improvement:**
 ```python
-# In API response — collect feedback
+# In API response ΓÇö collect feedback
 {
   "answer": "...",
   "model_used": "llama-3.3-17b",
@@ -521,20 +551,20 @@ POST /feedback
 
 ---
 
-## 🐛 Known Issues & Limitations
+## ≡ƒÉ¢ Known Issues & Limitations
 
 ### Critical Issues (v1.0)
 
 1. **Classifier trained on synthetic data by default**
    - Current: Template-generated queries (varied, but not real user data)
    - Impact: Routing accuracy ~85% on real queries (vs ~92% with MS MARCO)
-   - Workaround: Run `python scripts/train_classifier.py` — it auto-downloads MS MARCO
+   - Workaround: Run `python scripts/train_classifier.py` ΓÇö it auto-downloads MS MARCO
    - Fix (v1.1): Ship pre-trained model in GitHub Releases
 
 2. **No confidence intervals for routing**
    - Current: Single classification (simple/medium/complex)
    - Impact: A query classified as "medium" with 51% confidence might be wrong
-   - Fix (v1.1): Add threshold — if confidence < 70%, escalate to higher model
+   - Fix (v1.1): Add threshold ΓÇö if confidence < 70%, escalate to higher model
 
 3. **RAG retrieval is sequential**
    - Current: BM25 and Dense search run sequentially
@@ -553,7 +583,7 @@ POST /feedback
 
 ---
 
-## 🔧 Advanced Configuration
+## ≡ƒöº Advanced Configuration
 
 ### Custom Routing Strategies
 
@@ -590,9 +620,9 @@ budgets:
 
 ---
 
-## 📚 API Documentation
+## ≡ƒôÜ API Documentation
 
-### **POST /query** — Process Query
+### **POST /query** ΓÇö Process Query
 ```json
 {
   "query": "Explain transformers in NLP",
@@ -614,17 +644,17 @@ budgets:
 }
 ```
 
-### **GET /stats?days=7** — Cost Analytics
-### **GET /budget** — Budget Status
+### **GET /stats?days=7** ΓÇö Cost Analytics
+### **GET /budget** ΓÇö Budget Status
 
 Full API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ---
 
-## 🛠️ Tech Stack
+## ≡ƒ¢á∩╕Å Tech Stack
 
 ### **Core ML/AI**
-- **LLM**: Groq API (LLaMA 3.1/3.3 — 8B/17B/70B)
+- **LLM**: Groq API (LLaMA 3.1/3.3 ΓÇö 8B/17B/70B)
 - **Embeddings**: Sentence-BERT (`all-MiniLM-L6-v2`)
 - **Classifier**: LightGBM (query complexity)
 - **Vector DB**: ChromaDB (HNSW index)
@@ -638,7 +668,7 @@ Full API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
 ### **Infrastructure**
 - **Containerization**: Docker, Docker Compose
-- **CI/CD**: GitHub Actions → Docker Hub
+- **CI/CD**: GitHub Actions ΓåÆ Docker Hub
 - **Deployment**: Render
 - **Monitoring**: Built-in cost/performance tracking
 
@@ -648,11 +678,11 @@ Full API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Horizontal**: Stateless design, easily load-balanced
 - **Caching**: Model caching, embedding reuse
 - **Async**: FastAPI async endpoints for concurrent requests
-- **Database**: SQLite → PostgreSQL for production scale
+- **Database**: SQLite ΓåÆ PostgreSQL for production scale
 
 ---
 
-## 🧪 Testing
+## ≡ƒº¬ Testing
 
 ```bash
 # Install dev dependencies
@@ -672,7 +702,7 @@ mypy src/
 
 ---
 
-## 🔒 Environment Variables
+## ≡ƒöÆ Environment Variables
 
 ```bash
 # Required
@@ -687,9 +717,114 @@ MONTHLY_BUDGET_LIMIT=100.00
 
 ---
 
-## 📄 License
+## ≡ƒôä License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License ΓÇö see [LICENSE](LICENSE) for details.
+
+---
+
+
+
+---
+
+## 📐 Architectural Deep-Dive
+
+## 2. Repository Structure
+- `api/main.py`: FastAPI application, endpoints, and authentication middleware.
+- `app.py`: Streamlit frontend dashboard (deduced from `docker-compose.yml` and previous context).
+- `config/`: Contains YAML configuration for models (`models.yaml`) and routing logic/budgets (`routing.yaml`).
+- `src/pipeline/inference.py`: Core orchestration pipeline combining routing, retrieval, generation, and cost tracking.
+- `src/routing/`: Implements the ML-based router (`router.py`), LightGBM classifier (`classifier.py`), and feature extraction logic (`features.py`).
+- `src/retrieval/`: Handles hybrid search (`retriever.py`), ChromaDB wrapper (`vector_store.py`), document chunking (`chunking.py`), embeddings (`embedder.py`), cross-encoder (`reranker.py`), and caching (`cache.py`).
+- `src/models/`: Groq API integration (`groq_model.py`) and model registry (`model_manager.py`).
+- `src/cost/`: Database logging (`tracker.py`) and budget enforcement (`budget.py`).
+- `src/memory/`: Per-session conversation history (`conversation.py`).
+- `src/utils/`: Guardrails (`guardrails.py`), JSON logging (`logger.py`), and OpenTelemetry tracing (`tracing.py`).
+- `docker-compose.yml` / `Dockerfile` / `Dockerfile.api`: Deployment configuration.
+- `data/` and `logs/`: Persistent storage for DB, ChromaDB, and JSON logs.
+
+## 3. Architecture Overview
+The system follows a microservice architecture (API, Dashboard, Redis). The backend operates synchronously for individual requests but supports batch concurrency via ThreadPoolExecutor. It emphasizes defensive design with prompt injection guardrails, constant-time API key validation, and fallback mechanisms for both models and databases.
+
+## 4. Runtime Flow
+Application startup
+Γåô
+`api/main.py` initializes FastAPI, loads `InferencePipeline` (which loads router, retriever, models, tracker)
+Γåô
+User Request (`POST /query`)
+Γåô
+API endpoint (`require_api_key` validation)
+Γåô
+Validation (`validate_query` checks length and prompt injections)
+Γåô
+Routing (`QueryRouter.route()` classifies complexity using LightGBM and selects model)
+Γåô
+Budget Check (`BudgetManager.check_budget()` via Redis INCRBYFLOAT or SQLite fallback)
+Γåô
+Retrieval (`DocumentRetriever.retrieve()` executes BM25 + Dense search concurrently, applies RRF, and Cross-Encoder Re-ranking)
+Γåô
+Prompt Creation (System prompt + History + Context + Query)
+Γåô
+LLM (`GroqModel.generate()` or `generate_stream()`)
+Γåô
+Output parsing (Tokens counted via `tiktoken`)
+Γåô
+Logging (`CostTracker.log_query()` records cost and latency to DB)
+Γåô
+Response
+
+## 5. Component Analysis
+
+- **API (`api/main.py`)**: Exposes endpoints (`/query`, `/stats`, `/savings`, `/budget`, `/stream`). Enforces Rate Limiting (slowapi), CORS, Authentication, and Tracing.
+- **InferencePipeline (`src/pipeline/inference.py`)**: The central orchestrator. Inputs: query, strategy. Outputs: dict with answer, cost, routing info. Dependencies: Router, Retriever, ModelManager, CostTracker, BudgetManager, ConversationMemory.
+- **QueryRouter (`src/routing/router.py`)**: Uses `ComplexityClassifier` to determine if a query is simple, medium, or complex. Falls back to quality thresholds based on confidence.
+- **FeatureExtractor (`src/routing/features.py`)**: Extracts lexical (word count, etc.) and semantic (cosine similarity to reference queries via SentenceTransformer) features.
+- **DocumentRetriever (`src/retrieval/retriever.py`)**: Combines `BM25Retriever` and `VectorStore` (Chroma). Uses Reciprocal Rank Fusion (RRF) to merge results, then passes candidates to `DocumentReranker`.
+- **ModelManager & GroqModel (`src/models/`)**: Loads model configs, handles Groq API requests with exponential backoff for rate limits.
+- **CostTracker & BudgetManager (`src/cost/`)**: `CostTracker` logs every query using SQLAlchemy (WAL mode SQLite or Postgres). `BudgetManager` uses Redis for atomic limits to prevent race conditions.
+- **ConversationMemory (`src/memory/conversation.py`)**: Manages multi-turn history. Uses Redis for distributed environments or an in-memory dictionary.
+- **Guardrails (`src/utils/guardrails.py`)**: Regex-based prompt injection detection.
+
+## 6. API Analysis
+
+- **`GET /` & `GET /health`**: Health checks. Public, no auth required.
+- **`POST /query`**: 
+  - Request: `{query: str, strategy: str, use_retrieval: bool, session_id: str}`
+  - Response: `{answer, model_used, complexity, confidence, cost, latency, sources, success, error}`
+  - Flow: Validates API key -> `pipeline.run()` -> Returns result.
+- **`POST /query/stream`**: Same as `/query` but returns Server-Sent Events (SSE).
+- **`GET /stats`, `/savings`, `/budget`**: Retrieves financial and pipeline usage metrics.
+- **`DELETE /memory/{session_id}`**: Clears session history.
+
+## 7. AI Pipeline
+1. **Query Processing**: Sanitized, checked against injection patterns (`guardrails.py`).
+2. **Feature Extraction**: 10 lexical features + 3 semantic features extracted (`features.py`).
+3. **Classification**: LightGBM model predicts complexity (simple, medium, complex) (`classifier.py`).
+4. **Retrieval**: ThreadPoolExecutor runs BM25 and ChromaDB similarity search concurrently. Resulting documents merged via RRF (`retriever.py`).
+5. **Re-ranking**: `cross-encoder/ms-marco-MiniLM-L-6-v2` re-scores top merged candidates (`reranker.py`).
+6. **Prompt Construction**: Formatted with system instructions, session history, retrieved context, and the query.
+7. **LLM Invocation**: Sent to Groq API. Tokens counted using `tiktoken`.
+8. **Logging**: Full transaction logged to database.
+
+## 8. Data Flow
+- **User Input** -> Guardrails -> Memory Lookup -> Router -> Embedder (Query)
+- **Document Upload** (implied via indexer) -> Chunker -> Embedder -> ChromaDB + BM25 JSON
+- **Model Output** -> Token Counter -> Cost Calculator -> Cost DB -> User Response
+
+## 9. Dependency Analysis
+- **Frameworks**: FastAPI, Uvicorn, Streamlit.
+- **AI/ML**: langchain, sentence-transformers, lightgbm, scikit-learn, groq, tiktoken.
+- **Vector/DB**: chromadb, rank-bm25, sqlalchemy, redis.
+- **Tracing/Logging**: opentelemetry-sdk, python logging (JSON formatter).
+
+## 10. Configuration
+- **Environment Variables** (`.env`): `GROQ_API_KEY`, `SMARTROUTE_API_KEY`, `DATABASE_URL`, `REDIS_URL`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- **`config/models.yaml`**: Defines tiers, costs, and context windows for models (e.g., `llama-3.1-8b-instant`, `llama-3.3-70b-versatile`).
+- **`config/routing.yaml`**: Defines strategies (cost_optimized, quality_first, balanced), routing rules, quality thresholds, and budget limits.
+
+---
+
+---
 
 ## 11. Mermaid Diagrams
 
@@ -893,19 +1028,6 @@ graph TD
 
 ---
 
-## 12. Verification (Files Supporting Diagrams)
-- **Diagram 1 & 4**: `api/main.py`, `src/pipeline/inference.py`.
-- **Diagram 2 & 7**: OS directory traversal and import statements across `src/`.
-- **Diagram 3 & 5**: `src/pipeline/inference.py`.
-- **Diagram 6**: `src/routing/classifier.py`, `src/routing/features.py`, `src/retrieval/retriever.py`, `src/retrieval/reranker.py`.
-- **Diagram 8**: `src/cost/tracker.py`, `src/memory/conversation.py`, `src/retrieval/cache.py`, `src/retrieval/vector_store.py`.
-- **Diagram 9**: `docker-compose.yml`, `Dockerfile.api`.
-- **Diagram 10**: `src/cost/budget.py`, `src/routing/router.py`, `src/models/model_manager.py`.
-- **Diagram 11**: `src/models/groq_model.py`.
-- **Diagram 12**: `src/utils/logger.py`, `src/utils/tracing.py`.
-- **Diagram 13**: `src/cost/budget.py`, `src/cost/tracker.py`, `src/pipeline/inference.py`.
-- **Diagram 14**: `api/main.py` (`require_api_key`).
-
 ## 13. Production Architecture Observations
 - **Concurrency**: Avoids `asyncio` for pipeline execution. Uses `run_in_executor` in FastAPI and `ThreadPoolExecutor` for hybrid search and batch inference. This circumvents strict async propagation requirements while maintaining API responsiveness.
 - **Thread Safety**: Uses atomic Redis operations (`INCRBYFLOAT`) for budget tracking and SQLite WAL mode / SessionMaker patterns for database concurrency.
@@ -920,3 +1042,6 @@ graph TD
 1. **Fully Async Pipeline**: Migrate `InferencePipeline`, `GroqModel`, and `VectorStore` to async interfaces to drastically improve vertical scaling.
 2. **PostgreSQL Migration**: Ensure production deployments strictly utilize PostgreSQL via `DATABASE_URL` instead of SQLite to completely eliminate write-locking risks under high QPS.
 3. **Model Decoupling**: Abstract `GroqModel` behind an interface (e.g., `BaseLLM`) to allow drop-in replacements like OpenAI, Anthropic, or local vLLM instances without refactoring the pipeline.
+
+---
+
