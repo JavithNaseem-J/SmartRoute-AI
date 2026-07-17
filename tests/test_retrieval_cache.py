@@ -1,14 +1,25 @@
 """
-Tests for RetrievalCache — in-memory LRU backend only.
-Redis backend is integration-tested separately when REDIS_URL is set.
+Tests for RetrievalCache — Upstash Redis backend (mocked).
 """
 import pytest
+from unittest.mock import patch
+import fakeredis
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+os.chdir(Path(__file__).parent.parent)
+
 from src.retrieval.cache import RetrievalCache
 
 
 @pytest.fixture
 def cache():
-    return RetrievalCache(max_size=3)
+    """Return a RetrievalCache with a mocked Redis connection."""
+    fake_redis = fakeredis.FakeStrictRedis(decode_responses=True)
+    with patch("src.retrieval.cache.sync_redis.from_url", return_value=fake_redis):
+        return RetrievalCache(ttl_seconds=3600)
 
 
 def test_miss_on_empty_cache(cache):
@@ -33,24 +44,6 @@ def test_normalization_case_insensitive(cache):
     # Uppercase + whitespace variant should still hit
     result = cache.get("  WHAT IS RAG?  ")
     assert result is not None, "Cache miss: normalization failed"
-
-
-def test_lru_eviction_at_max_size(cache):
-    """When max_size=3 is exceeded, the least-recently-used entry is evicted."""
-    cache.set("Q1", "A1", [])
-    cache.set("Q2", "A2", [])
-    cache.set("Q3", "A3", [])
-
-    # Access Q1 to mark it as recently used
-    cache.get("Q1")
-
-    # Adding Q4 should evict Q2 (the LRU entry, since Q1 was just accessed)
-    cache.set("Q4", "A4", [])
-
-    assert cache.get("Q1") is not None, "Q1 should still be cached (was recently accessed)"
-    assert cache.get("Q2") is None, "Q2 should have been evicted (LRU)"
-    assert cache.get("Q3") is not None
-    assert cache.get("Q4") is not None
 
 
 def test_clear_empties_cache(cache):

@@ -1,19 +1,10 @@
 """
-Smart Vector Store — auto-selects Qdrant Cloud or local ChromaDB.
+VectorStore — Qdrant Cloud only.
 
-Enterprise upgrade:
-- When QDRANT_URL + QDRANT_API_KEY are set, uses Qdrant Cloud (free 1GB cluster).
-  Qdrant is persistent in the cloud — documents survive container restarts.
-- Falls back to local ChromaDB when env vars are absent (development / offline).
+QDRANT_URL + QDRANT_API_KEY are REQUIRED. The app will refuse to start without them.
+No local ChromaDB fallback — this system runs in the cloud.
 
-Qdrant free tier: https://cloud.qdrant.io  (1 cluster, 1GB, forever free)
-
-Setup:
-  1. Create free cluster at https://cloud.qdrant.io
-  2. Copy "Cluster URL" and generate an API key.
-  3. Set in .env:
-       QDRANT_URL=https://xxxx.us-east4-0.gcp.cloud.qdrant.io
-       QDRANT_API_KEY=your-api-key-here
+Get your free Qdrant Cloud cluster at: https://cloud.qdrant.io
 """
 import json
 import os
@@ -21,155 +12,84 @@ from pathlib import Path
 from typing import List, Optional
 
 from langchain_core.documents import Document
+from langchain_qdrant import QdrantVectorStore as LCQdrant
+from qdrant_client import QdrantClient
+
 from src.utils.logger import logger
 from src.retrieval.embedder import Embedder
 
-# ── Qdrant availability check ─────────────────────────────────────────────────
-_QDRANT_AVAILABLE = False
-try:
-    from langchain_qdrant import QdrantVectorStore as LCQdrant
-    from qdrant_client import QdrantClient
-    _QDRANT_AVAILABLE = True
-except ImportError:
-    pass
-
-# ── ChromaDB (local fallback) ─────────────────────────────────────────────────
-from langchain_community.vectorstores import Chroma
+# BM25 documents are stored locally in the container's ephemeral disk.
+# Qdrant stores vectors permanently in the cloud; BM25 is rebuilt on restart.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+_BM25_PATH = _PROJECT_ROOT / "data" / "bm25_index.json"
 
 
 class VectorStore:
-    """Unified vector store — Qdrant Cloud in production, ChromaDB locally.
+    """Qdrant Cloud vector store.
 
-    The public API is identical regardless of the backend:
-        .create(documents)
-        .add_documents(documents)
-        .similarity_search(query, k)
-        .similarity_search_with_score(query, k)
-        .as_retriever(**kwargs)
-        .save_bm25_index(documents)   # always local JSON
-        .load_bm25_documents()        # always local JSON
-        .get_stats()
-        .is_ready  (property)
+    QDRANT_URL and QDRANT_API_KEY must be set.
+    Raises RuntimeError on startup if missing.
     """
 
     def __init__(
         self,
-        persist_dir: Path = Path("data/embeddings"),
+        persist_dir: Path = _PROJECT_ROOT / "data" / "embeddings",  # unused, kept for API compat
         collection_name: str = "smartroute_docs",
         embedder: Optional[Embedder] = None,
     ):
-        self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
         self.embedder = embedder or Embedder()
         self._vectordb = None
-        self._backend = "none"
 
         qdrant_url = os.getenv("QDRANT_URL")
         qdrant_key = os.getenv("QDRANT_API_KEY")
 
-        if qdrant_url and _QDRANT_AVAILABLE:
-            self._init_qdrant(qdrant_url, qdrant_key)
-        else:
-            if qdrant_url and not _QDRANT_AVAILABLE:
-                logger.warning(
-                    "QDRANT_URL is set but qdrant-client is not installed. "
-                    "Run: pip install qdrant-client langchain-qdrant. "
-                    "Falling back to ChromaDB."
-                )
-            self._init_chroma()
+        if not qdrant_url:
+            raise RuntimeError(
+                "QDRANT_URL is not set.\n"
+                "This app requires Qdrant Cloud for vector storage.\n"
+                "1. Create a free cluster at https://cloud.qdrant.io\n"
+                "2. Copy the Cluster URL and generate an API key.\n"
+                "3. Set QDRANT_URL=https://... and QDRANT_API_KEY=... in your env vars."
+            )
 
-    # ── Backend initialisation ────────────────────────────────────────────────
+        self._client = QdrantClient(url=qdrant_url, api_key=qdrant_key)
+        logger.info(f"VectorStore → Qdrant Cloud connected")
 
-    def _init_qdrant(self, url: str, api_key: Optional[str]) -> None:
-        """Connect to Qdrant Cloud and load the collection if it exists."""
-        try:
-            self._qdrant_client = QdrantClient(url=url, api_key=api_key)
-            existing = [c.name for c in self._qdrant_client.get_collections().collections]
-
-            if self.collection_name in existing:
+        # Load collection if it already exists with data
+        existing = [c.name for c in self._client.get_collections().collections]
+        if self.collection_name in existing:
+            count = self._client.count(self.collection_name).count
+            if count > 0:
                 self._vectordb = LCQdrant(
-                    client=self._qdrant_client,
+                    client=self._client,
                     collection_name=self.collection_name,
                     embeddings=self.embedder.embeddings,
                 )
-                count = self._qdrant_client.count(self.collection_name).count
-                if count > 0:
-                    logger.info(f"####### Qdrant Cloud loaded: {count} documents #######")
-                    self._backend = "qdrant"
-                else:
-                    self._vectordb = None
-                    logger.info("Qdrant collection is empty — awaiting first index.")
+                logger.info(f"####### Qdrant collection loaded: {count} documents #######")
             else:
-                logger.info(f"Qdrant collection '{self.collection_name}' not found — will create on first index.")
-                self._qdrant_client_ready = True
-                self._backend = "qdrant_empty"
-
-        except Exception as e:
-            logger.warning(f"Qdrant Cloud connection failed ({e}). Falling back to ChromaDB.")
-            self._init_chroma()
-
-    def _init_chroma(self) -> None:
-        """Load local ChromaDB if the persist directory exists."""
-        if not self.persist_dir.exists():
-            self._backend = "chroma_empty"
-            return
-        try:
-            self._vectordb = Chroma(
-                persist_directory=str(self.persist_dir),
-                embedding_function=self.embedder.embeddings,
-                collection_name=self.collection_name,
-            )
-            count = self._vectordb._collection.count()
-            if count > 0:
-                logger.info(f"####### ChromaDB loaded: {count} documents #######")
-                self._backend = "chroma"
-            else:
-                self._vectordb = None
-                self._backend = "chroma_empty"
-        except Exception as e:
-            logger.error(f"Failed to load ChromaDB: {e}")
-            self._vectordb = None
-            self._backend = "chroma_empty"
-
-    # ── Public API ────────────────────────────────────────────────────────────
+                logger.info("Qdrant collection exists but is empty — awaiting first index.")
+        else:
+            logger.info(f"Qdrant collection '{self.collection_name}' not found — will create on first index.")
 
     @property
     def is_ready(self) -> bool:
         return self._vectordb is not None
 
     def create(self, documents: List[Document]):
-        """Index documents. Creates Qdrant collection or ChromaDB on disk."""
-        logger.info(f"Indexing {len(documents)} documents → backend={self._backend} ...")
-
+        """Index documents into Qdrant Cloud."""
         qdrant_url = os.getenv("QDRANT_URL")
         qdrant_key = os.getenv("QDRANT_API_KEY")
-
-        if qdrant_url and _QDRANT_AVAILABLE and "qdrant" in self._backend:
-            try:
-                self._vectordb = LCQdrant.from_documents(
-                    documents=documents,
-                    embedding=self.embedder.embeddings,
-                    url=qdrant_url,
-                    api_key=qdrant_key,
-                    collection_name=self.collection_name,
-                    force_recreate=False,
-                )
-                self._backend = "qdrant"
-                logger.info("####### Qdrant Cloud index created #######")
-                return self._vectordb
-            except Exception as e:
-                logger.warning(f"Qdrant indexing failed ({e}). Falling back to ChromaDB.")
-
-        # ChromaDB fallback
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self._vectordb = Chroma.from_documents(
+        logger.info(f"Indexing {len(documents)} documents into Qdrant...")
+        self._vectordb = LCQdrant.from_documents(
             documents=documents,
             embedding=self.embedder.embeddings,
-            persist_directory=str(self.persist_dir),
+            url=qdrant_url,
+            api_key=qdrant_key,
             collection_name=self.collection_name,
+            force_recreate=False,
         )
-        self._backend = "chroma"
-        logger.info(f"####### ChromaDB index created at {self.persist_dir} #######")
+        logger.info("####### Qdrant index created #######")
         return self._vectordb
 
     def add_documents(self, documents: List[Document]) -> None:
@@ -177,7 +97,7 @@ class VectorStore:
             self.create(documents)
             return
         self._vectordb.add_documents(documents)
-        logger.info(f"Added {len(documents)} documents to {self._backend}")
+        logger.info(f"Added {len(documents)} documents to Qdrant")
 
     def similarity_search(self, query: str, k: int = 5) -> List[Document]:
         if not self._vectordb:
@@ -193,23 +113,25 @@ class VectorStore:
         return self._vectordb.as_retriever(**kwargs) if self._vectordb else None
 
     def save_bm25_index(self, documents: List[Document]) -> None:
-        """Save BM25 corpus as local JSON (always local — Qdrant doesn't store raw text)."""
-        self.persist_dir.mkdir(parents=True, exist_ok=True)
-        bm25_path = self.persist_dir / "bm25_index.json"
+        """Save BM25 corpus as local JSON in the container's temp storage.
+
+        Qdrant stores vectors permanently; BM25 is rebuilt from this file on restart.
+        In Render deployments, documents must be re-indexed after each restart.
+        """
+        _BM25_PATH.parent.mkdir(parents=True, exist_ok=True)
         serializable = [
             {"page_content": doc.page_content, "metadata": doc.metadata}
             for doc in documents
         ]
-        with open(bm25_path, "w", encoding="utf-8") as f:
+        with open(_BM25_PATH, "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False)
-        logger.info(f"####### BM25 index saved: {bm25_path} #######")
+        logger.info(f"BM25 corpus saved: {len(documents)} documents")
 
     def load_bm25_documents(self) -> Optional[List[Document]]:
-        bm25_path = self.persist_dir / "bm25_index.json"
-        if not bm25_path.exists():
+        if not _BM25_PATH.exists():
             return None
         try:
-            with open(bm25_path, "r", encoding="utf-8") as f:
+            with open(_BM25_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
             return [Document(page_content=d["page_content"], metadata=d.get("metadata", {})) for d in raw]
         except Exception:
@@ -217,16 +139,9 @@ class VectorStore:
 
     def get_stats(self) -> dict:
         if not self._vectordb:
-            return {"status": "not_initialized", "backend": self._backend, "document_count": 0}
+            return {"status": "not_initialized", "backend": "qdrant", "document_count": 0}
         try:
-            if self._backend == "qdrant":
-                count = self._qdrant_client.count(self.collection_name).count
-            else:
-                count = self._vectordb._collection.count()
-            return {
-                "status": "ready",
-                "backend": self._backend,
-                "document_count": count,
-            }
+            count = self._client.count(self.collection_name).count
+            return {"status": "ready", "backend": "qdrant", "document_count": count}
         except Exception as e:
-            return {"status": "error", "backend": self._backend, "error": str(e)}
+            return {"status": "error", "backend": "qdrant", "error": str(e)}

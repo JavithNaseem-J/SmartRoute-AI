@@ -9,15 +9,10 @@ from src.cost.tracker import CostTracker
 
 @pytest.fixture
 def tracker():
-    """Create tracker with temp database."""
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.db')
-    t = CostTracker(db_path=temp_file.name)
+    """Create CostTracker which will automatically use the dummy sqlite:///:memory: from conftest."""
+    t = CostTracker()
     yield t
-    t.close()   # disposes engine and connection pool (no persistent session to close)
-    try:
-        Path(temp_file.name).unlink(missing_ok=True)
-    except PermissionError:
-        pass
+    t.close()
 
 
 def test_tracker_logs_query(tracker):

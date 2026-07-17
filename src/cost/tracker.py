@@ -1,3 +1,11 @@
+"""
+CostTracker — Supabase PostgreSQL only.
+
+DATABASE_URL is REQUIRED. The app will refuse to start without it.
+No SQLite fallback — this system runs in the cloud, not on a local machine.
+
+Get your free Supabase PostgreSQL connection string at: https://supabase.com
+"""
 import json
 import os
 import hashlib
@@ -5,9 +13,9 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean, event, text
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+
+from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 from src.utils.logger import logger
 
@@ -15,14 +23,13 @@ Base = declarative_base()
 
 
 class QueryLog(Base):
-    """Database model for query logs"""
-    __tablename__ = 'query_logs'
-    
+    __tablename__ = "query_logs"
+
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
     query = Column(String, nullable=False)
-    query_hash = Column(String)  # New: for deduplication
-    query_length = Column(Integer)  # New: for debugging full size
+    query_hash = Column(String)
+    query_length = Column(Integer)
     model_id = Column(String, nullable=False)
     complexity = Column(String)
     strategy = Column(String)
@@ -34,57 +41,34 @@ class QueryLog(Base):
 
 
 class CostTracker:
-    """Track and analyze costs per query"""
+    """Cost tracker backed by Supabase PostgreSQL.
 
-    def __init__(self, db_path: str = "data/costs/usage.db"):
-        # Allow DATABASE_URL override for production PostgreSQL migration.
-        # When DATABASE_URL is set (e.g. postgresql://...), SQLite is bypassed entirely.
+    DATABASE_URL must be set. Raises RuntimeError on startup if missing.
+    """
+
+    def __init__(self):
         database_url = os.getenv("DATABASE_URL")
-
-        if database_url:
-            self.engine = create_engine(database_url)
-            logger.info(f"Cost tracker using external DB: {database_url.split('@')[-1]}")
-        else:
-            # SQLite path — development / single-node production
-            self.db_path = Path(db_path)
-            self.db_path.parent.mkdir(parents=True, exist_ok=True)
-            self.engine = create_engine(
-                f"sqlite:///{self.db_path}",
-                connect_args={"check_same_thread": False},
+        if not database_url:
+            raise RuntimeError(
+                "DATABASE_URL is not set.\n"
+                "This app requires a Supabase PostgreSQL database.\n"
+                "1. Create a free project at https://supabase.com\n"
+                "2. Go to Project Settings → Database → Connection string → URI\n"
+                "3. Set DATABASE_URL=postgresql://... in your .env or Render env vars."
             )
 
-            # Enable WAL mode: eliminates write-lock errors under concurrent access.
-            # WAL allows readers and one writer to proceed simultaneously.
-            # Must be set per-connection via an event listener.
-            @event.listens_for(self.engine, "connect")
-            def set_wal_mode(dbapi_conn, connection_record):
-                cursor = dbapi_conn.cursor()
-                cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.close()
-
-            logger.info(f"Cost tracker using SQLite (WAL mode): {self.db_path}")
-
-        Base.metadata.create_all(self.engine)
-
-        # Session factory — create a new session per DB operation (thread-safe).
-        # A single shared session (the previous pattern) is not thread-safe:
-        # multiple threads calling session.add() / session.commit() concurrently
-        # on the same session object causes data corruption and ProgrammingErrors.
+        self.engine = create_engine(
+            database_url,
+            pool_pre_ping=True,       # detect stale connections before using them
+            pool_recycle=300,         # recycle connections every 5 min (Supabase timeout)
+        )
         self._Session = sessionmaker(bind=self.engine)
-
-        # Schema is managed by Alembic (alembic/versions/).
-        # create_all() is safe for fresh installs (no-ops on existing tables).
-        # For upgrades on existing databases, run: `alembic upgrade head`
         Base.metadata.create_all(self.engine)
-    
+
+        logger.info(f"CostTracker → Supabase: {database_url.split('@')[-1]}")
+
     @contextmanager
     def _get_session(self):
-        """Context manager that provides a short-lived, thread-local session.
-
-        Pattern: one session per unit of work (one DB operation).
-        Session is committed on success and rolled back on any exception,
-        then always closed — releasing the connection back to the pool.
-        """
         session = self._Session()
         try:
             yield session
@@ -104,17 +88,13 @@ class CostTracker:
         output_tokens: int,
         cost: float,
         latency: float,
-        success: bool = True
+        success: bool = True,
     ):
-        """Log a query with its cost"""
-
         q_hash = hashlib.sha256(query.encode()).hexdigest()
-        q_len = len(query)
-
         log_entry = QueryLog(
             query=query[:200],
             query_hash=q_hash,
-            query_length=q_len,
+            query_length=len(query),
             model_id=model_id,
             complexity=complexity,
             strategy=strategy,
@@ -122,170 +102,105 @@ class CostTracker:
             output_tokens=output_tokens,
             cost=cost,
             latency=latency,
-            success=success
+            success=success,
         )
-
         with self._get_session() as session:
             session.add(log_entry)
             session.commit()
+        logger.info(f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}")
 
-        logger.info(
-            f"Logged query: {model_id}, "
-            f"cost=${cost:.4f}, "
-            f"tokens={input_tokens + output_tokens}"
-        )
-    
     def get_statistics(self, days: int = 1) -> Dict:
-        """Get cost statistics for last N days"""
-
         cutoff = datetime.utcnow() - timedelta(days=days)
-
         with self._get_session() as session:
-            logs = session.query(QueryLog).filter(
-                QueryLog.timestamp >= cutoff
-            ).all()
+            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
 
         if not logs:
             return {
-                'total_queries': 0,
-                'total_cost': 0.0,
-                'avg_cost_per_query': 0.0,
-                'total_input_tokens': 0,
-                'total_output_tokens': 0,
-                'avg_latency': 0.0,
-                'by_model': {},
-                'by_complexity': {},
-                'by_strategy': {}
+                "total_queries": 0,
+                "total_cost": 0.0,
+                "avg_cost_per_query": 0.0,
+                "total_input_tokens": 0,
+                "total_output_tokens": 0,
+                "avg_latency": 0.0,
+                "by_model": {},
+                "by_complexity": {},
+                "by_strategy": {},
             }
-        
-        # Calculate totals
+
         total_queries = len(logs)
-        total_cost = sum(log.cost for log in logs)
-        total_input_tokens = sum(log.input_tokens for log in logs)
-        total_output_tokens = sum(log.output_tokens for log in logs)
-        avg_latency = sum(log.latency for log in logs) / total_queries
-        
-        # Group by model
-        by_model = {}
+        total_cost = sum(l.cost for l in logs)
+        by_model, by_complexity, by_strategy = {}, {}, {}
+
         for log in logs:
-            if log.model_id not in by_model:
-                by_model[log.model_id] = {'count': 0, 'cost': 0.0}
-            by_model[log.model_id]['count'] += 1
-            by_model[log.model_id]['cost'] += log.cost
-        
-        # Add average cost per model
-        for model_id in by_model:
-            count = by_model[model_id]['count']
-            by_model[model_id]['avg_cost'] = by_model[model_id]['cost'] / count
-        
-        # Group by complexity
-        by_complexity = {}
-        for log in logs:
-            if log.complexity not in by_complexity:
-                by_complexity[log.complexity] = {'count': 0, 'cost': 0.0}
-            by_complexity[log.complexity]['count'] += 1
-            by_complexity[log.complexity]['cost'] += log.cost
-        
-        # Group by strategy
-        by_strategy = {}
-        for log in logs:
-            if log.strategy not in by_strategy:
-                by_strategy[log.strategy] = {'count': 0, 'cost': 0.0}
-            by_strategy[log.strategy]['count'] += 1
-            by_strategy[log.strategy]['cost'] += log.cost
-        
+            for key, bucket in [
+                (log.model_id, by_model),
+                (log.complexity, by_complexity),
+                (log.strategy, by_strategy),
+            ]:
+                if key not in bucket:
+                    bucket[key] = {"count": 0, "cost": 0.0}
+                bucket[key]["count"] += 1
+                bucket[key]["cost"] += log.cost
+
         return {
-            'total_queries': total_queries,
-            'total_cost': round(total_cost, 4),
-            'avg_cost_per_query': round(total_cost / total_queries, 4),
-            'total_input_tokens': total_input_tokens,
-            'total_output_tokens': total_output_tokens,
-            'avg_latency': round(avg_latency, 2),
-            'by_model': by_model,
-            'by_complexity': by_complexity,
-            'by_strategy': by_strategy
+            "total_queries": total_queries,
+            "total_cost": round(total_cost, 4),
+            "avg_cost_per_query": round(total_cost / total_queries, 4),
+            "total_input_tokens": sum(l.input_tokens for l in logs),
+            "total_output_tokens": sum(l.output_tokens for l in logs),
+            "avg_latency": round(sum(l.latency for l in logs) / total_queries, 2),
+            "by_model": by_model,
+            "by_complexity": by_complexity,
+            "by_strategy": by_strategy,
         }
-    
+
     def calculate_savings(self, days: int = 1, baseline_cost_per_query: float = 0.15) -> Dict:
-        """
-        Calculate savings vs baseline (all-GPT-4)
-        """
         stats = self.get_statistics(days)
-        total_queries = stats['total_queries']
-        actual_cost = stats['total_cost']
-        
+        total_queries = stats["total_queries"]
+        actual_cost = stats["total_cost"]
         if total_queries == 0:
-            return {
-                'baseline_cost': 0.0,
-                'actual_cost': 0.0,
-                'savings': 0.0,
-                'percentage': 0.0
-            }
-        
+            return {"baseline_cost": 0.0, "actual_cost": 0.0, "savings": 0.0, "percentage": 0.0}
         baseline_cost = total_queries * baseline_cost_per_query
         savings = baseline_cost - actual_cost
-        percentage = (savings / baseline_cost * 100) if baseline_cost > 0 else 0
-        
         return {
-            'baseline_cost': round(baseline_cost, 4),
-            'actual_cost': round(actual_cost, 4),
-            'savings': round(savings, 4),
-            'percentage': round(percentage, 2),
-            'queries': total_queries
+            "baseline_cost": round(baseline_cost, 4),
+            "actual_cost": round(actual_cost, 4),
+            "savings": round(savings, 4),
+            "percentage": round((savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2),
+            "queries": total_queries,
         }
-    
+
     def get_daily_breakdown(self, days: int = 7) -> Dict:
-        """Get daily cost breakdown"""
-
         cutoff = datetime.utcnow() - timedelta(days=days)
-
         with self._get_session() as session:
-            logs = session.query(QueryLog).filter(
-                QueryLog.timestamp >= cutoff
-            ).all()
-
-        daily_costs = {}
+            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
+        daily = {}
         for log in logs:
             date = log.timestamp.date().isoformat()
-            if date not in daily_costs:
-                daily_costs[date] = {'queries': 0, 'cost': 0.0}
-            daily_costs[date]['queries'] += 1
-            daily_costs[date]['cost'] += log.cost
-
-        return daily_costs
+            if date not in daily:
+                daily[date] = {"queries": 0, "cost": 0.0}
+            daily[date]["queries"] += 1
+            daily[date]["cost"] += log.cost
+        return daily
 
     def export_to_jsonl(self, output_path: Path, days: int = 30):
-        """Export logs to JSONL for analysis"""
-
         cutoff = datetime.utcnow() - timedelta(days=days)
-
         with self._get_session() as session:
-            logs = session.query(QueryLog).filter(
-                QueryLog.timestamp >= cutoff
-            ).all()
-
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-
-            with open(output_path, 'w') as f:
-                for log in logs:
-                    entry = {
-                        'timestamp': log.timestamp.isoformat(),
-                        'model_id': log.model_id,
-                        'complexity': log.complexity,
-                        'strategy': log.strategy,
-                        'input_tokens': log.input_tokens,
-                        'output_tokens': log.output_tokens,
-                        'cost': log.cost,
-                        'latency': log.latency,
-                        'success': log.success,
-                        'query_hash': log.query_hash,
-                        'query_length': log.query_length
-                    }
-                    f.write(json.dumps(entry) + '\n')
-
+            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
+            for log in logs:
+                f.write(json.dumps({
+                    "timestamp": log.timestamp.isoformat(),
+                    "model_id": log.model_id,
+                    "complexity": log.complexity,
+                    "cost": log.cost,
+                    "latency": log.latency,
+                    "success": log.success,
+                    "query_hash": log.query_hash,
+                }) + "\n")
         logger.info(f"Exported {len(logs)} logs to {output_path}")
 
     def close(self):
-        """Dispose the engine and its connection pool."""
         if self.engine:
             self.engine.dispose()

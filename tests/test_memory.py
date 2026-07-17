@@ -4,13 +4,25 @@ Redis backend is integration-tested separately when REDIS_URL is set.
 """
 import time
 import pytest
+import fakeredis
+from unittest.mock import patch
+import sys
+import os
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+os.chdir(Path(__file__).parent.parent)
+
 from src.memory.conversation import ConversationMemory
 
 
 @pytest.fixture
 def mem():
-    """Return a ConversationMemory with tight limits for testing."""
-    return ConversationMemory(max_turns=2, session_ttl=2)
+    """Return a ConversationMemory with a mocked Redis connection."""
+    fake_redis = fakeredis.FakeStrictRedis(decode_responses=True)
+    with patch("src.memory.conversation.sync_redis.from_url", return_value=fake_redis):
+        # session_ttl is mocked to 2 seconds for ttl test
+        return ConversationMemory(max_turns=2, session_ttl=2)
 
 
 def test_get_history_empty_session(mem):
