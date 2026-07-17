@@ -2,7 +2,7 @@ import pytest
 import sys
 import os
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, AsyncMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
@@ -13,10 +13,8 @@ def client():
     """Create test client with mocked pipeline."""
     from fastapi.testclient import TestClient
     import api.main as api_module
-    
-    # Mock the pipeline
-    mock_pipeline = MagicMock()
-    mock_pipeline.run.return_value = {
+
+    _MOCK_RESULT = {
         "answer": "Test answer",
         "model_used": "llama_3_1_8b",
         "complexity": "simple",
@@ -24,8 +22,13 @@ def client():
         "cost": 0.0,
         "latency": 0.5,
         "sources": [],
-        "success": True
+        "success": True,
+        "error": None,
     }
+
+    # pipeline.run is now async — must be AsyncMock so `await pipeline.run(...)` works.
+    mock_pipeline = MagicMock()
+    mock_pipeline.run = AsyncMock(return_value=_MOCK_RESULT)
     mock_pipeline.tracker.get_statistics.return_value = {"total_queries": 10}
     mock_pipeline.budget_manager.get_budget_status.return_value = {"daily": {"spent": 0}}
     
