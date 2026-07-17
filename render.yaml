@@ -1,0 +1,73 @@
+# render.yaml — One-click Render deployment blueprint
+#
+# How to deploy:
+#   1. Push this repo to GitHub (already done)
+#   2. Go to https://dashboard.render.com → New → Blueprint
+#   3. Connect your GitHub repo → Render auto-reads this file
+#   4. Add environment variables in the Render dashboard (or use render secrets)
+#   5. Click "Apply" — done!
+#
+# Free tier limits:
+#   - Web service: 750 hrs/month free (enough for 1 service running 24/7)
+#   - Spins down after 15min inactivity on free tier (cold start ~30s)
+#   - Upgrade to Starter ($7/mo) to keep it always-on
+
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────────────────────
+  - type: web
+    name: smartroute-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile.api
+    plan: free                        # upgrade to "starter" for always-on
+    region: singapore                 # closest to India — lowest latency
+    healthCheckPath: /health
+
+    envVars:
+      # ── Required ──────────────────────────────────────────────────────────────
+      - key: GROQ_API_KEY
+        sync: false                   # set manually in Render dashboard
+
+      - key: SMARTROUTE_API_KEY
+        sync: false                   # set manually in Render dashboard
+
+      # ── Database — Supabase ───────────────────────────────────────────────────
+      - key: DATABASE_URL
+        sync: false                   # paste Supabase connection string here
+
+      # ── Vector DB — Qdrant Cloud ──────────────────────────────────────────────
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+
+      # ── Redis — Upstash ───────────────────────────────────────────────────────
+      - key: REDIS_URL
+        sync: false                   # paste Upstash Redis URL here
+
+      # ── Runtime config ────────────────────────────────────────────────────────
+      - key: ENVIRONMENT
+        value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # ── CORS — add your Streamlit Cloud URL when it's deployed ────────────────
+      - key: ALLOWED_ORIGINS
+        value: "https://smartroute-ai.streamlit.app,http://localhost:8501"
+
+  # ── Streamlit Dashboard ──────────────────────────────────────────────────────
+  - type: web
+    name: smartroute-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
+
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: SMARTROUTE_API_KEY
+        sync: false
+      - key: API_URL
+        value: "https://smartroute-api.onrender.com"   # update with your API URL
+      - key: PORT
+        value: "8501"
