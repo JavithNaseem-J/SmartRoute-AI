@@ -39,3 +39,13 @@ def mock_redis():
     with patch("src.memory.conversation.sync_redis.from_url", return_value=fake_redis):
         with patch("src.cost.budget.sync_redis.from_url", return_value=fake_redis):
             yield fake_redis
+
+
+@pytest.fixture(autouse=True, scope="session")
+def setup_test_db():
+    """Create the SQLAlchemy schema in the SQLite in-memory database."""
+    from src.cost.tracker import Base, engine
+
+    Base.metadata.create_all(bind=engine)
+    yield
+    Base.metadata.drop_all(bind=engine)
