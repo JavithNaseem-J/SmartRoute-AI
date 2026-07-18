@@ -16,11 +16,13 @@ from pathlib import Path
 from typing import Dict
 
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.utils.logger import logger
 
-Base = declarative_base()
+
+class Base(DeclarativeBase):
+    pass
 
 
 class QueryLog(Base):
@@ -132,7 +134,9 @@ class CostTracker:
 
         total_queries = len(logs)
         total_cost = sum(entry.cost for entry in logs)
-        by_model, by_complexity, by_strategy = {}, {}, {}
+        by_model: Dict = {}
+        by_complexity: Dict = {}
+        by_strategy: Dict = {}
 
         for log in logs:
             for key, bucket in [

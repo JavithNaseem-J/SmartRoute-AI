@@ -6,6 +6,7 @@ No local ChromaDB fallback — this system runs in the cloud.
 
 Get your free Qdrant Cloud cluster at: https://cloud.qdrant.io
 """
+
 import json
 import os
 from pathlib import Path
@@ -33,7 +34,9 @@ class VectorStore:
 
     def __init__(
         self,
-        persist_dir: Path = _PROJECT_ROOT / "data" / "embeddings",  # unused, kept for API compat
+        persist_dir: Path = _PROJECT_ROOT
+        / "data"
+        / "embeddings",  # unused, kept for API compat
         collection_name: str = "smartroute_docs",
         embedder: Optional[Embedder] = None,
     ):
@@ -54,7 +57,7 @@ class VectorStore:
             )
 
         self._client = QdrantClient(url=qdrant_url, api_key=qdrant_key)
-        logger.info(f"VectorStore → Qdrant Cloud connected")
+        logger.info("VectorStore → Qdrant Cloud connected")
 
         # Load collection if it already exists with data
         existing = [c.name for c in self._client.get_collections().collections]
@@ -66,11 +69,17 @@ class VectorStore:
                     collection_name=self.collection_name,
                     embeddings=self.embedder.embeddings,
                 )
-                logger.info(f"####### Qdrant collection loaded: {count} documents #######")
+                logger.info(
+                    f"####### Qdrant collection loaded: {count} documents #######"
+                )
             else:
-                logger.info("Qdrant collection exists but is empty — awaiting first index.")
+                logger.info(
+                    "Qdrant collection exists but is empty — awaiting first index."
+                )
         else:
-            logger.info(f"Qdrant collection '{self.collection_name}' not found — will create on first index.")
+            logger.info(
+                f"Qdrant collection '{self.collection_name}' not found — will create on first index."
+            )
 
     @property
     def is_ready(self) -> bool:
@@ -102,12 +111,12 @@ class VectorStore:
     def similarity_search(self, query: str, k: int = 5) -> List[Document]:
         if not self._vectordb:
             return []
-        return self._vectordb.similarity_search(query, k=k)
+        return self._vectordb.similarity_search(query, k=k)  # type: ignore
 
     def similarity_search_with_score(self, query: str, k: int = 5) -> List[tuple]:
         if not self._vectordb:
             return []
-        return self._vectordb.similarity_search_with_score(query, k=k)
+        return self._vectordb.similarity_search_with_score(query, k=k)  # type: ignore
 
     def as_retriever(self, **kwargs):
         return self._vectordb.as_retriever(**kwargs) if self._vectordb else None
@@ -133,13 +142,20 @@ class VectorStore:
         try:
             with open(_BM25_PATH, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-            return [Document(page_content=d["page_content"], metadata=d.get("metadata", {})) for d in raw]
+            return [
+                Document(page_content=d["page_content"], metadata=d.get("metadata", {}))
+                for d in raw
+            ]
         except Exception:
             return None
 
     def get_stats(self) -> dict:
         if not self._vectordb:
-            return {"status": "not_initialized", "backend": "qdrant", "document_count": 0}
+            return {
+                "status": "not_initialized",
+                "backend": "qdrant",
+                "document_count": 0,
+            }
         try:
             count = self._client.count(self.collection_name).count
             return {"status": "ready", "backend": "qdrant", "document_count": count}

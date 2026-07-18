@@ -8,6 +8,7 @@ Enterprise upgrades:
 2. batch_run() uses asyncio.gather() — true parallelism, no thread pool needed.
 3. All hardcoded paths replaced with dynamic pathlib roots (Phase 4).
 """
+
 import asyncio
 import time
 from pathlib import Path
@@ -41,7 +42,9 @@ class InferencePipeline:
 
         # Phase 4: dynamic path — no more hardcoded relative strings
         if classifier_path is None:
-            classifier_path = _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
+            classifier_path = (
+                _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
+            )
 
         self.router = QueryRouter(
             routing_config_path=config_dir / "routing.yaml",
@@ -81,7 +84,9 @@ class InferencePipeline:
             query = validate_query(query)
         except GuardrailViolation as e:
             logger.warning(f"Query blocked by guardrails: {e}")
-            return self._error_response(str(e), "guardrail_violation", time.time() - start_time)
+            return self._error_response(
+                str(e), "guardrail_violation", time.time() - start_time
+            )
 
         try:
             # Step 1: Route
@@ -94,16 +99,21 @@ class InferencePipeline:
             )
 
             # Step 2: Budget check
-            estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
+            estimated_cost = self.budget_manager.estimate_query_cost(
+                model_id, len(query)
+            )
             can_afford, reason = self.budget_manager.check_budget(estimated_cost)
             if not can_afford:
-                logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
+                logger.warning(
+                    f"Budget exceeded ({reason}) — falling back to cheapest model"
+                )
                 model_id = "llama_3_1_8b"
                 routing_decision["model_id"] = model_id
                 routing_decision["reason"] = f"budget_{reason}"
 
             # Step 3: Retrieval (async-friendly — runs in threadpool via asyncio)
-            context, sources = "", []
+            context: str = ""
+            sources: list = []
             if use_retrieval:
                 logger.info("Retrieving context...")
                 # retriever.retrieve() is synchronous (ChromaDB) — run in executor

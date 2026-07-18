@@ -6,11 +6,11 @@ No in-memory fallback — this system runs in the cloud with multiple workers.
 
 Get your free Upstash Redis URL at: https://upstash.com
 """
+
 import json
 import os
 from typing import List, Dict
 
-from redis import asyncio as aioredis
 import redis as sync_redis
 
 from src.utils.logger import logger
@@ -90,6 +90,6 @@ class ConversationMemory:
 
     def session_exists(self, session_id: str) -> bool:
         try:
-            return self._redis.exists(self._key(session_id)) > 0
+            return bool(self._redis.exists(self._key(session_id)) > 0)
         except Exception:
             return False

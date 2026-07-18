@@ -5,6 +5,7 @@ Every LLM (Groq, OpenAI, Gemini, local vLLM) must implement this interface.
 The InferencePipeline only depends on BaseLLM — swapping providers requires
 zero changes to the pipeline or any other module.
 """
+
 from abc import ABC, abstractmethod
 from typing import AsyncIterator, Dict, List, Optional
 
@@ -40,7 +41,7 @@ class BaseLLM(ABC):
         """
 
     @abstractmethod
-    async def astream(
+    def astream(
         self,
         prompt: str,
         context: str = "",

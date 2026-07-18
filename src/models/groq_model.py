@@ -7,6 +7,7 @@ Key upgrades over the previous synchronous version:
 - Exponential backoff on RateLimitError uses `asyncio.sleep` (non-blocking).
 - Streaming is an async generator compatible with FastAPI's StreamingResponse.
 """
+
 import asyncio
 import os
 from typing import AsyncIterator, Dict, List, Optional
@@ -106,8 +107,10 @@ class GroqModel(BaseLLM):
 
             except RateLimitError:
                 if attempt < self.max_retries - 1:
-                    wait = 2 ** attempt  # 1s, 2s, 4s
-                    logger.warning(f"Groq rate-limited — retrying in {wait}s (attempt {attempt + 1})")
+                    wait = 2**attempt  # 1s, 2s, 4s
+                    logger.warning(
+                        f"Groq rate-limited — retrying in {wait}s (attempt {attempt + 1})"
+                    )
                     await asyncio.sleep(wait)  # non-blocking sleep
                 else:
                     logger.error("Groq rate limit exceeded after all retries")
@@ -116,6 +119,8 @@ class GroqModel(BaseLLM):
             except Exception as e:
                 logger.error(f"Groq API error: {e}")
                 raise
+
+        raise RuntimeError("max_retries must be > 0")
 
     async def astream(
         self,
@@ -147,6 +152,7 @@ class GroqModel(BaseLLM):
         """Estimate token count locally using tiktoken (no API call)."""
         try:
             import tiktoken
+
             enc = tiktoken.get_encoding("cl100k_base")
             return len(enc.encode(text))
         except ImportError:
@@ -155,8 +161,9 @@ class GroqModel(BaseLLM):
 
     def get_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Calculate actual cost in USD from real token counts."""
-        return (input_tokens / 1000) * self.cost_per_1k_input + \
-               (output_tokens / 1000) * self.cost_per_1k_output
+        return (input_tokens / 1000) * self.cost_per_1k_input + (
+            output_tokens / 1000
+        ) * self.cost_per_1k_output
 
     def get_info(self) -> Dict:
         return {

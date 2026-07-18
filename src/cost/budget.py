@@ -6,13 +6,13 @@ No SQLite/in-memory fallback — this system runs in the cloud.
 
 Get your free Upstash Redis URL at: https://upstash.com
 """
+
 import os
-import yaml
+import yaml  # type: ignore
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Tuple
 
-from redis import asyncio as aioredis
 import redis as sync_redis
 
 from src.cost.tracker import CostTracker
@@ -50,10 +50,10 @@ class BudgetManager:
             redis_url,
             decode_responses=True,
             socket_connect_timeout=5,
-            ssl_cert_reqs=None,   # required for Upstash TLS
+            ssl_cert_reqs=None,  # required for Upstash TLS
         )
         self._redis.ping()  # fail fast if Redis is unreachable
-        logger.info(f"BudgetManager → Upstash Redis connected")
+        logger.info("BudgetManager → Upstash Redis connected")
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -64,7 +64,9 @@ class BudgetManager:
             "monthly": budgets.get("monthly", 200.0),
         }
         self.alert_threshold = budgets.get("alert_threshold", 0.8)
-        logger.info(f"BudgetManager: daily=${self.limits['daily']}, weekly=${self.limits['weekly']}")
+        logger.info(
+            f"BudgetManager: daily=${self.limits['daily']}, weekly=${self.limits['weekly']}"
+        )
 
     def _redis_key(self, period: str) -> str:
         today = datetime.utcnow().strftime("%Y-%m-%d")
@@ -84,7 +86,9 @@ class BudgetManager:
 
             if new_total > self.limits["daily"]:
                 self._redis.incrbyfloat(key, -estimated_cost)  # roll back
-                logger.warning(f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}")
+                logger.warning(
+                    f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}"
+                )
                 return False, "daily_limit_exceeded"
 
             return True, "within_budget"
@@ -138,15 +142,18 @@ class BudgetManager:
         model_config_path: Path = _PROJECT_ROOT / "config" / "models.yaml",
     ) -> float:
         try:
-            import yaml
+            import yaml  # type: ignore
+
             with open(model_config_path, "r") as f:
                 config = yaml.safe_load(f)
             if model_id in config.get("groq_models", {}):
                 cfg = config["groq_models"][model_id]
                 estimated_input = query_length // 4
                 estimated_output = 500
-                return (estimated_input / 1000) * cfg.get("cost_per_1k_input", 0.001) + \
-                       (estimated_output / 1000) * cfg.get("cost_per_1k_output", 0.002)
+                return float(
+                    (estimated_input / 1000) * cfg.get("cost_per_1k_input", 0.001)
+                    + (estimated_output / 1000) * cfg.get("cost_per_1k_output", 0.002)
+                )
         except Exception:
             pass
         return 0.05
