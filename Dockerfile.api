@@ -23,12 +23,12 @@ RUN useradd --create-home --shell /bin/bash appuser && \
     chown -R appuser:appuser /app
 USER appuser
 
-RUN mkdir -p data/documents data/embeddings data/costs models/classifiers logs
+RUN mkdir -p data/documents data/embeddings models/classifiers logs
 
 EXPOSE 8000
 
-# /health is unauthenticated — safe for Docker and k8s probes
+# /health is unauthenticated — safe for Docker probes
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD curl -f http://localhost:8000/health || exit 1
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 2"]

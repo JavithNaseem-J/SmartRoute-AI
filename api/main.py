@@ -7,6 +7,7 @@ Startup order:
   3. Serve traffic        — all endpoints are async and non-blocking
 """
 
+import asyncio
 import os
 import secrets
 import sys
@@ -247,8 +248,6 @@ async def query_stream(
             model_id = routing_decision["model_id"]
 
             # Retrieve context (run blocking call in executor)
-            import asyncio
-
             context = ""
             if query_request.use_retrieval:
                 loop = asyncio.get_event_loop()

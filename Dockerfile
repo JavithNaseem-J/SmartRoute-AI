@@ -31,7 +31,7 @@ RUN useradd --create-home --shell /bin/bash appuser && \
 USER appuser
 
 # Create necessary directories
-RUN mkdir -p data/documents data/embeddings data/costs models/classifiers
+RUN mkdir -p data/documents data/embeddings models/classifiers
 
 # Expose Streamlit port
 EXPOSE 8501

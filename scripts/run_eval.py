@@ -1,28 +1,12 @@
-"""
-Offline RAGAS evaluation script.
-
-Run this after indexing documents to measure RAG quality:
-
-    python scripts/run_eval.py
-
-The script uses a built-in set of logistics/routing questions.
-Add your own domain-specific questions to the EVAL_SAMPLES list below.
-
-Requirements:
-    pip install ragas datasets
-    (all cloud env vars must be set in .env)
-"""
-
 from __future__ import annotations
 
 import asyncio
 import sys
 from pathlib import Path
 
-# Make project root importable
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from dotenv import load_dotenv  # noqa: E402
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -30,7 +14,6 @@ from src.evaluation.ragas_eval import EvalReport, EvalSample, RagasEvaluator  # 
 from src.pipeline.inference import InferencePipeline  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
-# ─────────────────────────────────────────────────────────────────────────────
 # Edit this list to add your own domain-specific evaluation questions.
 # ground_truth = the ideal answer you expect from a well-functioning RAG system.
 # ─────────────────────────────────────────────────────────────────────────────

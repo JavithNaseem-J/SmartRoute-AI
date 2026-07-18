@@ -21,10 +21,6 @@ services:
     plan: free                        # upgrade to "starter" for always-on
     region: singapore                 # closest to India — lowest latency
     healthCheckPath: /health
-    # Runs BEFORE the new container starts serving traffic.
-    # Alembic applies any pending migrations atomically — safe for zero-downtime deploys.
-    preDeployCommand: "alembic upgrade head"
-
     envVars:
       # ── Required ──────────────────────────────────────────────────────────────
       - key: GROQ_API_KEY
@@ -63,7 +59,6 @@ services:
       # 3. Paste them below — LangFuse receives all LLM traces automatically
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
         value: "https://cloud.langfuse.com/api/public/otel"  # LangFuse OTEL ingest
-        sync: false
       - key: LANGFUSE_PUBLIC_KEY
         sync: false
       - key: LANGFUSE_SECRET_KEY
@@ -84,7 +79,13 @@ services:
         sync: false
       - key: SMARTROUTE_API_KEY
         sync: false
-      - key: API_URL
-        value: "https://smartroute-api.onrender.com"   # update with your API URL
+      - key: DATABASE_URL
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: REDIS_URL
+        sync: false
       - key: PORT
         value: "8501"

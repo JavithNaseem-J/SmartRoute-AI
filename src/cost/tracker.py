@@ -1,12 +1,3 @@
-"""
-CostTracker — Supabase PostgreSQL only.
-
-DATABASE_URL is REQUIRED. The app will refuse to start without it.
-No SQLite fallback — this system runs in the cloud, not on a local machine.
-
-Get your free Supabase PostgreSQL connection string at: https://supabase.com
-"""
-
 import json
 import os
 import hashlib
