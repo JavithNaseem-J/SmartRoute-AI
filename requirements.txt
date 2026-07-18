@@ -26,10 +26,10 @@ streamlit>=1.31.0
 plotly>=5.18.0
 pandas>=2.1.4
 
-# ── Database (Supabase-compatible) ────────────────────────────────────────────
+# ── Database (Supabase + Alembic) ────────────────────────────────────────────
 sqlalchemy>=2.0.25
-asyncpg>=0.29.0                # async PostgreSQL driver for Supabase (Phase 3)
-aiosqlite>=0.20.0              # async SQLite driver for local dev (Phase 3)
+asyncpg>=0.29.0                # async PostgreSQL driver for Supabase
+alembic>=1.13.0                # database schema migrations
 python-dotenv>=1.0.0
 
 # ── Redis (Upstash-compatible) ────────────────────────────────────────────────
@@ -39,3 +39,14 @@ redis>=5.0.0                   # includes redis.asyncio for Upstash (Phase 3)
 pyyaml>=6.0.1
 tqdm>=4.66.1
 numpy>=1.26.0
+
+# ── Observability (OpenTelemetry + LangFuse) ──────────────────────────────────
+opentelemetry-sdk>=1.24.0
+opentelemetry-instrumentation-fastapi>=0.45b0
+opentelemetry-exporter-otlp-proto-grpc>=1.24.0
+opentelemetry-exporter-otlp-proto-http>=1.24.0   # required for LangFuse
+
+# ── Evaluation (RAGAS — offline eval only, not needed in production) ──────────
+# Install separately for eval runs: pip install ragas datasets
+# ragas>=0.1.7
+# datasets>=2.18.0

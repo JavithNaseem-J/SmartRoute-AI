@@ -6,13 +6,14 @@ No SQLite fallback — this system runs in the cloud, not on a local machine.
 
 Get your free Supabase PostgreSQL connection string at: https://supabase.com
 """
+
 import json
 import os
 import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict
 
 from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -59,12 +60,12 @@ class CostTracker:
 
         self.engine = create_engine(
             database_url,
-            pool_pre_ping=True,       # detect stale connections before using them
-            pool_recycle=300,         # recycle connections every 5 min (Supabase timeout)
+            pool_pre_ping=True,  # detect stale connections before using them
+            pool_recycle=300,  # recycle connections every 5 min (Supabase timeout)
         )
         self._Session = sessionmaker(bind=self.engine)
-        Base.metadata.create_all(self.engine)
-
+        # NOTE: Schema is managed by Alembic migrations, not create_all().
+        # Run `alembic upgrade head` before starting the app (render.yaml does this).
         logger.info(f"CostTracker → Supabase: {database_url.split('@')[-1]}")
 
     @contextmanager
@@ -107,7 +108,9 @@ class CostTracker:
         with self._get_session() as session:
             session.add(log_entry)
             session.commit()
-        logger.info(f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}")
+        logger.info(
+            f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}"
+        )
 
     def get_statistics(self, days: int = 1) -> Dict:
         cutoff = datetime.utcnow() - timedelta(days=days)
@@ -128,7 +131,7 @@ class CostTracker:
             }
 
         total_queries = len(logs)
-        total_cost = sum(l.cost for l in logs)
+        total_cost = sum(entry.cost for entry in logs)
         by_model, by_complexity, by_strategy = {}, {}, {}
 
         for log in logs:
@@ -146,27 +149,38 @@ class CostTracker:
             "total_queries": total_queries,
             "total_cost": round(total_cost, 4),
             "avg_cost_per_query": round(total_cost / total_queries, 4),
-            "total_input_tokens": sum(l.input_tokens for l in logs),
-            "total_output_tokens": sum(l.output_tokens for l in logs),
-            "avg_latency": round(sum(l.latency for l in logs) / total_queries, 2),
+            "total_input_tokens": sum(entry.input_tokens for entry in logs),
+            "total_output_tokens": sum(entry.output_tokens for entry in logs),
+            "avg_latency": round(
+                sum(entry.latency for entry in logs) / total_queries, 2
+            ),
             "by_model": by_model,
             "by_complexity": by_complexity,
             "by_strategy": by_strategy,
         }
 
-    def calculate_savings(self, days: int = 1, baseline_cost_per_query: float = 0.15) -> Dict:
+    def calculate_savings(
+        self, days: int = 1, baseline_cost_per_query: float = 0.15
+    ) -> Dict:
         stats = self.get_statistics(days)
         total_queries = stats["total_queries"]
         actual_cost = stats["total_cost"]
         if total_queries == 0:
-            return {"baseline_cost": 0.0, "actual_cost": 0.0, "savings": 0.0, "percentage": 0.0}
+            return {
+                "baseline_cost": 0.0,
+                "actual_cost": 0.0,
+                "savings": 0.0,
+                "percentage": 0.0,
+            }
         baseline_cost = total_queries * baseline_cost_per_query
         savings = baseline_cost - actual_cost
         return {
             "baseline_cost": round(baseline_cost, 4),
             "actual_cost": round(actual_cost, 4),
             "savings": round(savings, 4),
-            "percentage": round((savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2),
+            "percentage": round(
+                (savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2
+            ),
             "queries": total_queries,
         }
 
@@ -190,15 +204,20 @@ class CostTracker:
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
             for log in logs:
-                f.write(json.dumps({
-                    "timestamp": log.timestamp.isoformat(),
-                    "model_id": log.model_id,
-                    "complexity": log.complexity,
-                    "cost": log.cost,
-                    "latency": log.latency,
-                    "success": log.success,
-                    "query_hash": log.query_hash,
-                }) + "\n")
+                f.write(
+                    json.dumps(
+                        {
+                            "timestamp": log.timestamp.isoformat(),
+                            "model_id": log.model_id,
+                            "complexity": log.complexity,
+                            "cost": log.cost,
+                            "latency": log.latency,
+                            "success": log.success,
+                            "query_hash": log.query_hash,
+                        }
+                    )
+                    + "\n"
+                )
         logger.info(f"Exported {len(logs)} logs to {output_path}")
 
     def close(self):

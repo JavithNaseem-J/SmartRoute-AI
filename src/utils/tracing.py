@@ -1,17 +1,17 @@
 """
-OpenTelemetry tracing setup for SmartRoute-AI.
+OpenTelemetry tracing — supports both generic OTLP backends and LangFuse.
 
-Instruments FastAPI requests automatically (spans per endpoint).
-Exports traces to an OTLP-compatible backend (Jaeger, Tempo, Datadog, etc.)
-when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+LangFuse uses HTTP/protobuf (not gRPC), so we auto-detect the endpoint
+and pick the right exporter. This means a single env var configures everything:
 
-Falls back to a no-op (zero overhead) when the env var is absent or
-opentelemetry packages are not installed.
+    OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
+    LANGFUSE_PUBLIC_KEY=pk-lf-...
+    LANGFUSE_SECRET_KEY=sk-lf-...
 
-Usage:
-    from src.utils.tracing import setup_tracing
-    setup_tracing(app)   # call once after creating the FastAPI app
+Falls back to a no-op when the env var is absent.
 """
+
+import base64
 import os
 import logging
 
@@ -19,55 +19,76 @@ logger = logging.getLogger("SmartRouteAILogger")
 
 try:
     from opentelemetry import trace
+    from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.sdk.resources import Resource
     from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-    from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 
     _OTEL_AVAILABLE = True
 except ImportError:
     _OTEL_AVAILABLE = False
 
 
-def setup_tracing(app=None, engine=None) -> None:
-    """Configure OpenTelemetry tracing.
+def _build_exporter(endpoint: str):
+    """Return the right OTEL exporter based on the endpoint URL.
 
-    Args:
-        app: FastAPI application instance (instruments all HTTP requests).
-        engine: SQLAlchemy engine (instruments all DB queries).
+    LangFuse uses HTTP/protobuf; most self-hosted backends use gRPC.
+    We detect LangFuse by checking for 'langfuse' in the URL.
+    """
+    is_langfuse = "langfuse" in endpoint.lower()
+
+    if is_langfuse:
+        # LangFuse requires HTTP Basic Auth encoded as a header.
+        # Public key = username, Secret key = password.
+        pub = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+        sec = os.getenv("LANGFUSE_SECRET_KEY", "")
+        token = base64.b64encode(f"{pub}:{sec}".encode()).decode()
+        headers = {"Authorization": f"Basic {token}"}
+
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPExporter,
+        )
+
+        return HTTPExporter(endpoint=f"{endpoint}/v1/traces", headers=headers)
+    else:
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+            OTLPSpanExporter as GRPCExporter,
+        )
+
+        return GRPCExporter(endpoint=endpoint)
+
+
+def setup_tracing(app=None) -> None:
+    """Configure OTEL tracing and instrument FastAPI.
+
+    Call once after creating the FastAPI app instance.
+    No-op if OTEL_EXPORTER_OTLP_ENDPOINT is not set.
     """
     endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
-
     if not endpoint:
-        logger.info("Tracing: OTEL_EXPORTER_OTLP_ENDPOINT not set — tracing disabled.")
+        logger.info("Tracing disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable.")
         return
 
     if not _OTEL_AVAILABLE:
         logger.warning(
-            "Tracing: opentelemetry packages not installed. "
-            "Install with: pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi "
-            "opentelemetry-instrumentation-sqlalchemy opentelemetry-exporter-otlp-proto-grpc"
+            "opentelemetry packages not installed. "
+            "Run: pip install opentelemetry-sdk opentelemetry-instrumentation-fastapi "
+            "opentelemetry-exporter-otlp-proto-http opentelemetry-exporter-otlp-proto-grpc"
         )
         return
 
-    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-
-    resource = Resource.create({
-        "service.name": os.getenv("OTEL_SERVICE_NAME", "smartroute-ai"),
-        "service.version": "1.0.0",
-        "deployment.environment": os.getenv("ENVIRONMENT", "production"),
-    })
+    resource = Resource.create(
+        {
+            "service.name": os.getenv("OTEL_SERVICE_NAME", "smartroute-ai"),
+            "service.version": "2.1.0",
+            "deployment.environment": os.getenv("ENVIRONMENT", "production"),
+        }
+    )
 
     provider = TracerProvider(resource=resource)
-    exporter = OTLPSpanExporter(endpoint=endpoint)
-    provider.add_span_processor(BatchSpanProcessor(exporter))
+    provider.add_span_processor(BatchSpanProcessor(_build_exporter(endpoint)))
     trace.set_tracer_provider(provider)
 
     if app is not None:
         FastAPIInstrumentor.instrument_app(app)
-        logger.info(f"Tracing: FastAPI instrumented → {endpoint}")
-
-    if engine is not None:
-        SQLAlchemyInstrumentor().instrument(engine=engine)
-        logger.info("Tracing: SQLAlchemy instrumented")
+        logger.info(f"Tracing → {endpoint}")
