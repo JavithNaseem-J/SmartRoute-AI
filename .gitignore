@@ -205,7 +205,20 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+# ── Tool caches (never commit these) ─────────────────────────────────────────
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# ── Project runtime data ───────────────────────────────────────────────────────
 data/
 logs/
+# keep placeholder files that preserve empty dirs in git
+!data/**/.gitkeep
+!logs/.gitkeep
+
+# ── Scripts not relevant to production ────────────────────────────────────────
 scripts/benchmark_cost_savings.py
-/CHANGELOG.md
+
+# ── uv lock file (auto-generated, noisy in diffs) ──────────────────────────────
+uv.lock

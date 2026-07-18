@@ -1,6 +1,6 @@
 {
-  "name": "Python 3",
-  "image": "mcr.microsoft.com/devcontainers/python:1-3.11-bookworm",
+  "name": "SmartRoute-AI",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.10-bookworm",
   "customizations": {
     "codespaces": {
       "openFiles": [
@@ -9,24 +9,31 @@
       ]
     },
     "vscode": {
-      "settings": {},
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python"
+      },
       "extensions": [
         "ms-python.python",
-        "ms-python.vscode-pylance"
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "tamasfe.even-better-toml"
       ]
     }
   },
-  "updateContentCommand": "[ -f packages.txt ] && sudo apt update && sudo apt upgrade -y && sudo xargs apt install -y <packages.txt; [ -f requirements.txt ] && pip3 install --user -r requirements.txt; pip3 install --user streamlit; echo '✅ Packages installed and Requirements met'",
+  "updateContentCommand": "pip install -r requirements.txt -r requirements-dev.txt",
   "postAttachCommand": {
-    "server": "streamlit run app.py --server.enableCORS false --server.enableXsrfProtection false"
+    "api": "uvicorn api.main:app --reload --host 0.0.0.0 --port 8000",
+    "dashboard": "streamlit run app.py --server.port 8501 --server.headless true"
   },
   "portsAttributes": {
+    "8000": {
+      "label": "FastAPI Backend",
+      "onAutoForward": "notify"
+    },
     "8501": {
-      "label": "Application",
+      "label": "Streamlit Dashboard",
       "onAutoForward": "openPreview"
     }
   },
-  "forwardPorts": [
-    8501
-  ]
+  "forwardPorts": [8000, 8501]
 }
