@@ -1,9 +1,9 @@
-import streamlit as st
-import plotly.express as px
-import pandas as pd
 from pathlib import Path
-from dotenv import load_dotenv
 
+import pandas as pd
+import plotly.express as px
+import streamlit as st
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -67,18 +67,14 @@ with st.sidebar:
         st.rerun()
 
 # Main tabs
-tab1, tab2, tab3 = st.tabs(
-    ["💬 Query Interface", "📊 Cost Analytics", "💰 Budget Status"]
-)
+tab1, tab2, tab3 = st.tabs(["💬 Query Interface", "📊 Cost Analytics", "💰 Budget Status"])
 
 # Tab 1: Query Interface
 with tab1:
     # Check if documents are already uploaded
     docs_dir = Path("data/documents")
     existing_docs = list(docs_dir.glob("**/*.*")) if docs_dir.exists() else []
-    doc_files = [
-        f for f in existing_docs if f.suffix.lower() in [".pdf", ".txt", ".md"]
-    ]
+    doc_files = [f for f in existing_docs if f.suffix.lower() in [".pdf", ".txt", ".md"]]
 
     # RAG Mode Section - Only show if RAG is enabled
     if use_retrieval:
@@ -173,9 +169,7 @@ with tab1:
     st.header("Ask a Question❓")
 
     if use_retrieval and not st.session_state.get("docs_processed", False):
-        st.warning(
-            "⚠️ Please upload documents first to use RAG mode, or disable RAG in sidebar."
-        )
+        st.warning("⚠️ Please upload documents first to use RAG mode, or disable RAG in sidebar.")
 
     query = st.text_area(
         "Your Question",
@@ -192,9 +186,7 @@ with tab1:
 
     if ask_button and query and ready:
         with st.spinner("Processing..."):
-            result = pipeline.run(
-                query=query, strategy=strategy, use_retrieval=use_retrieval
-            )
+            result = pipeline.run(query=query, strategy=strategy, use_retrieval=use_retrieval)
 
         if result["success"]:
             st.success("✓ Answer generated")
@@ -330,9 +322,7 @@ with tab3:
             progress = min(data["percentage"] / 100, 1.0)
 
             if data["alert"]:
-                st.warning(
-                    f"⚠️ {period.capitalize()} budget at {data['percentage']:.1f}%"
-                )
+                st.warning(f"⚠️ {period.capitalize()} budget at {data['percentage']:.1f}%")
 
             st.progress(progress)
 

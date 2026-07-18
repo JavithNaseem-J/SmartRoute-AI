@@ -1,6 +1,7 @@
-import yaml
 from pathlib import Path
 from typing import Dict
+
+import yaml
 
 from src.models.base import BaseLLM
 from src.models.groq_model import GroqModel

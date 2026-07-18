@@ -2,18 +2,20 @@
 Tests for ConversationMemory — in-memory backend only.
 Redis backend is integration-tested separately when REDIS_URL is set.
 """
-import time
-import pytest
-import fakeredis
-from unittest.mock import patch
-import sys
+
 import os
+import sys
+import time
 from pathlib import Path
+from unittest.mock import patch
+
+import fakeredis
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
 
-from src.memory.conversation import ConversationMemory
+from src.memory.conversation import ConversationMemory  # noqa: E402
 
 
 @pytest.fixture

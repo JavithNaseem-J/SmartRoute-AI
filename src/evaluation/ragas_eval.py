@@ -97,9 +97,7 @@ class RagasEvaluator:
 
     def __init__(self, pipeline) -> None:
         if not _RAGAS_AVAILABLE:
-            raise RuntimeError(
-                "RAGAS is not installed. Run: pip install ragas datasets"
-            )
+            raise RuntimeError("RAGAS is not installed. Run: pip install ragas datasets")
         self.pipeline = pipeline
 
     async def _run_single(self, sample: EvalSample) -> EvalSample:
@@ -114,9 +112,7 @@ class RagasEvaluator:
             # Extract the raw context chunks used during retrieval
             context_text, _ = self.pipeline.retriever.retrieve(sample.question)
             # Split into individual chunks (separated by double newline in retriever)
-            sample.contexts = [
-                c.strip() for c in context_text.split("\n\n") if c.strip()
-            ]
+            sample.contexts = [c.strip() for c in context_text.split("\n\n") if c.strip()]
 
         except Exception as exc:
             logger.warning(f"Eval sample failed: {exc}")

@@ -1,5 +1,7 @@
 from typing import List
+
 from langchain_community.embeddings import HuggingFaceEmbeddings
+
 from src.utils.logger import logger
 
 

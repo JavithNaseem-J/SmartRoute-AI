@@ -1,7 +1,7 @@
-import pytest
-import tempfile
-from pathlib import Path
 import sys
+from pathlib import Path
+
+import pytest
 
 sys.path.append(str(Path(__file__).parent.parent))
 from src.cost.tracker import CostTracker
@@ -26,11 +26,11 @@ def test_tracker_logs_query(tracker):
         output_tokens=50,
         cost=0.0,
         latency=0.5,
-        success=True
+        success=True,
     )
-    
+
     stats = tracker.get_statistics(days=1)
-    assert stats['total_queries'] == 1
+    assert stats["total_queries"] == 1
 
 
 def test_tracker_statistics(tracker):
@@ -46,14 +46,14 @@ def test_tracker_statistics(tracker):
             output_tokens=50,
             cost=0.01,
             latency=1.0,
-            success=True
+            success=True,
         )
-    
+
     stats = tracker.get_statistics(days=1)
-    
-    assert stats['total_queries'] == 3
-    assert stats['total_cost'] == 0.03
-    assert stats['by_model']['llama_3_1_8b']['count'] == 2
+
+    assert stats["total_queries"] == 3
+    assert stats["total_cost"] == 0.03
+    assert stats["by_model"]["llama_3_1_8b"]["count"] == 2
 
 
 def test_tracker_savings(tracker):
@@ -68,11 +68,11 @@ def test_tracker_savings(tracker):
             output_tokens=50,
             cost=0.0,  # Free with Groq
             latency=1.0,
-            success=True
+            success=True,
         )
-    
+
     savings = tracker.calculate_savings(days=1, baseline_cost_per_query=0.10)
-    
-    assert savings['baseline_cost'] == 0.50
-    assert savings['actual_cost'] == 0.0
-    assert savings['percentage'] == 100 
+
+    assert savings["baseline_cost"] == 0.50
+    assert savings["actual_cost"] == 0.0
+    assert savings["percentage"] == 100

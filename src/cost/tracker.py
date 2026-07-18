@@ -1,12 +1,12 @@
+import hashlib
 import json
 import os
-import hashlib
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict
 
-from sqlalchemy import create_engine, Column, Integer, Float, String, DateTime, Boolean
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.utils.logger import logger
@@ -101,9 +101,7 @@ class CostTracker:
         with self._get_session() as session:
             session.add(log_entry)
             session.commit()
-        logger.info(
-            f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}"
-        )
+        logger.info(f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}")
 
     def get_statistics(self, days: int = 1) -> Dict:
         cutoff = datetime.utcnow() - timedelta(days=days)
@@ -146,17 +144,13 @@ class CostTracker:
             "avg_cost_per_query": round(total_cost / total_queries, 4),
             "total_input_tokens": sum(entry.input_tokens for entry in logs),
             "total_output_tokens": sum(entry.output_tokens for entry in logs),
-            "avg_latency": round(
-                sum(entry.latency for entry in logs) / total_queries, 2
-            ),
+            "avg_latency": round(sum(entry.latency for entry in logs) / total_queries, 2),
             "by_model": by_model,
             "by_complexity": by_complexity,
             "by_strategy": by_strategy,
         }
 
-    def calculate_savings(
-        self, days: int = 1, baseline_cost_per_query: float = 0.15
-    ) -> Dict:
+    def calculate_savings(self, days: int = 1, baseline_cost_per_query: float = 0.15) -> Dict:
         stats = self.get_statistics(days)
         total_queries = stats["total_queries"]
         actual_cost = stats["total_cost"]
@@ -173,9 +167,7 @@ class CostTracker:
             "baseline_cost": round(baseline_cost, 4),
             "actual_cost": round(actual_cost, 4),
             "savings": round(savings, 4),
-            "percentage": round(
-                (savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2
-            ),
+            "percentage": round((savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2),
             "queries": total_queries,
         }
 

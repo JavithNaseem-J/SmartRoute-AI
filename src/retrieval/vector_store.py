@@ -16,8 +16,8 @@ from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore as LCQdrant
 from qdrant_client import QdrantClient
 
-from src.utils.logger import logger
 from src.retrieval.embedder import Embedder
+from src.utils.logger import logger
 
 # BM25 documents are stored locally in the container's ephemeral disk.
 # Qdrant stores vectors permanently in the cloud; BM25 is rebuilt on restart.
@@ -34,9 +34,7 @@ class VectorStore:
 
     def __init__(
         self,
-        persist_dir: Path = _PROJECT_ROOT
-        / "data"
-        / "embeddings",  # unused, kept for API compat
+        persist_dir: Path = _PROJECT_ROOT / "data" / "embeddings",  # unused, kept for API compat
         collection_name: str = "smartroute_docs",
         embedder: Optional[Embedder] = None,
     ):
@@ -69,13 +67,9 @@ class VectorStore:
                     collection_name=self.collection_name,
                     embeddings=self.embedder.embeddings,
                 )
-                logger.info(
-                    f"####### Qdrant collection loaded: {count} documents #######"
-                )
+                logger.info(f"####### Qdrant collection loaded: {count} documents #######")
             else:
-                logger.info(
-                    "Qdrant collection exists but is empty — awaiting first index."
-                )
+                logger.info("Qdrant collection exists but is empty — awaiting first index.")
         else:
             logger.info(
                 f"Qdrant collection '{self.collection_name}' not found — will create on first index."
@@ -129,8 +123,7 @@ class VectorStore:
         """
         _BM25_PATH.parent.mkdir(parents=True, exist_ok=True)
         serializable = [
-            {"page_content": doc.page_content, "metadata": doc.metadata}
-            for doc in documents
+            {"page_content": doc.page_content, "metadata": doc.metadata} for doc in documents
         ]
         with open(_BM25_PATH, "w", encoding="utf-8") as f:
             json.dump(serializable, f, ensure_ascii=False)

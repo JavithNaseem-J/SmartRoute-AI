@@ -32,9 +32,7 @@ class InferencePipeline:
         logger.info("Initializing inference pipeline...")
 
         if classifier_path is None:
-            classifier_path = (
-                _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
-            )
+            classifier_path = _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
 
         self.router = QueryRouter(
             routing_config_path=config_dir / "routing.yaml",
@@ -68,9 +66,7 @@ class InferencePipeline:
             query = validate_query(query)
         except GuardrailViolation as e:
             logger.warning(f"Query blocked by guardrails: {e}")
-            return self._error_response(
-                str(e), "guardrail_violation", time.time() - start_time
-            )
+            return self._error_response(str(e), "guardrail_violation", time.time() - start_time)
 
         try:
             # Route
@@ -83,14 +79,10 @@ class InferencePipeline:
             )
 
             # Budget check
-            estimated_cost = self.budget_manager.estimate_query_cost(
-                model_id, len(query)
-            )
+            estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
             can_afford, reason = self.budget_manager.check_budget(estimated_cost)
             if not can_afford:
-                logger.warning(
-                    f"Budget exceeded ({reason}) — falling back to cheapest model"
-                )
+                logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
                 model_id = "llama_3_1_8b"
                 routing_decision["model_id"] = model_id
                 routing_decision["reason"] = f"budget_{reason}"
@@ -100,9 +92,7 @@ class InferencePipeline:
             sources: list = []
             if use_retrieval:
                 loop = asyncio.get_event_loop()
-                context, sources = await loop.run_in_executor(
-                    None, self.retriever.retrieve, query
-                )
+                context, sources = await loop.run_in_executor(None, self.retriever.retrieve, query)
                 logger.info(f"Retrieved {len(sources)} sources")
 
             # Generate
@@ -185,10 +175,7 @@ class InferencePipeline:
         if not queries:
             return []
         logger.info(f"Batch processing {len(queries)} queries...")
-        tasks = [
-            self.run(query=q, strategy=strategy, use_retrieval=use_retrieval)
-            for q in queries
-        ]
+        tasks = [self.run(query=q, strategy=strategy, use_retrieval=use_retrieval) for q in queries]
         return list(await asyncio.gather(*tasks))
 
     def get_statistics(self, days: int = 1) -> Dict:

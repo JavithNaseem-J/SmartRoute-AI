@@ -6,12 +6,14 @@ REDIS_URL is REQUIRED. The app will refuse to start without it.
 
 Get your free Upstash Redis URL at: https://upstash.com
 """
-import os
-import json
+
 import hashlib
-from typing import Tuple, List, Optional
+import json
+import os
+from typing import List, Optional, Tuple
 
 import redis as sync_redis
+
 from src.utils.logger import logger
 
 
@@ -34,9 +36,9 @@ class RetrievalCache:
                 "2. Copy the Redis URL (starts with rediss://).\n"
                 "3. Set REDIS_URL=rediss://... in your .env or Render env vars."
             )
-        
+
         self._redis = sync_redis.from_url(
-            redis_url, 
+            redis_url,
             decode_responses=True,
             socket_connect_timeout=5,
             ssl_cert_reqs=None,
@@ -47,7 +49,7 @@ class RetrievalCache:
     def _hash_query(self, query: str) -> str:
         """Create a deterministic hash for the query."""
         normalized = query.strip().lower()
-        return hashlib.sha256(normalized.encode('utf-8')).hexdigest()
+        return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
 
     def get(self, query: str) -> Optional[Tuple[str, List[str]]]:
         """Get cached retrieval results if available."""
@@ -75,9 +77,11 @@ class RetrievalCache:
     def clear(self) -> None:
         """Clear the cache (useful after adding new documents)."""
         try:
-            cursor = '0'
+            cursor = "0"
             while cursor != 0:
-                cursor, keys = self._redis.scan(cursor=cursor, match="smartroute:retrieval:*", count=100)
+                cursor, keys = self._redis.scan(
+                    cursor=cursor, match="smartroute:retrieval:*", count=100
+                )
                 if keys:
                     self._redis.delete(*keys)
         except Exception as e:

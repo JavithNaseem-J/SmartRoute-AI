@@ -1,4 +1,5 @@
 import re
+
 from src.utils.logger import logger
 
 # Common prompt injection trigger phrases.

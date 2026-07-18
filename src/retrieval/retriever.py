@@ -1,12 +1,14 @@
-from pathlib import Path
-from typing import List, Tuple, Optional
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import List, Optional, Tuple
+
 from langchain_community.retrievers import BM25Retriever
-from src.utils.logger import logger
-from src.retrieval.vector_store import VectorStore
-from src.retrieval.embedder import Embedder
+
 from src.retrieval.cache import RetrievalCache
+from src.retrieval.embedder import Embedder
 from src.retrieval.reranker import DocumentReranker
+from src.retrieval.vector_store import VectorStore
+from src.utils.logger import logger
 
 
 class DocumentRetriever:
@@ -66,9 +68,7 @@ class DocumentRetriever:
     def _setup_hybrid_retriever(self) -> None:
         """Setup hybrid retriever combining BM25 and dense search."""
         if self.vector_store.is_ready:
-            self.dense_retriever = self.vector_store.as_retriever(
-                search_kwargs={"k": self.top_k}
-            )
+            self.dense_retriever = self.vector_store.as_retriever(search_kwargs={"k": self.top_k})
 
             if self.bm25_retriever:
                 logger.info(
@@ -131,9 +131,7 @@ class DocumentRetriever:
         # Run BM25 and dense retrieval in parallel
         with ThreadPoolExecutor(max_workers=2) as executor:
             bm25_future = (
-                executor.submit(self.bm25_retriever.invoke, query)
-                if self.bm25_retriever
-                else None
+                executor.submit(self.bm25_retriever.invoke, query) if self.bm25_retriever else None
             )
             dense_future = executor.submit(
                 self.vector_store.similarity_search, query, self.top_k * 2
@@ -149,16 +147,12 @@ class DocumentRetriever:
         for rank, doc in enumerate(bm25_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] += self.bm25_weight * (
-                1 / (rrf_constant + rank)
-            )
+            scores[doc.page_content]["score"] += self.bm25_weight * (1 / (rrf_constant + rank))
 
         for rank, doc in enumerate(dense_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] += self.dense_weight * (
-                1 / (rrf_constant + rank)
-            )
+            scores[doc.page_content]["score"] += self.dense_weight * (1 / (rrf_constant + rank))
 
         sorted_results = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
         # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
@@ -187,9 +181,7 @@ class DocumentRetriever:
         results = self.vector_store.similarity_search_with_score(query, k=self.top_k)
 
         # Filter by max distance
-        filtered = [
-            (doc, score) for doc, score in results if score <= self.max_distance
-        ]
+        filtered = [(doc, score) for doc, score in results if score <= self.max_distance]
 
         if not filtered:
             logger.info(f"No documents below distance threshold {self.max_distance}")
@@ -202,9 +194,7 @@ class DocumentRetriever:
             # Convert L2 distance to relevance score (0-1)
             relevance = max(0, 1 - (score / 2))
 
-            context_parts.append(
-                f"[Source {i+1}, Relevance: {relevance:.2f}]\n{doc.page_content}"
-            )
+            context_parts.append(f"[Source {i+1}, Relevance: {relevance:.2f}]\n{doc.page_content}")
             source = doc.metadata.get("source", "Unknown")
             sources.append(f"Source {i+1}: {source}")
 

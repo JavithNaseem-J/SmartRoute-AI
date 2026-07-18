@@ -7,10 +7,12 @@ don't raise RuntimeError during test collection.
 
 The real cloud connections are mocked globally using autouse fixtures.
 """
+
 import os
-import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 import fakeredis
+import pytest
 
 # ── Inject fake cloud env vars before any import tries to connect ─────────────
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")

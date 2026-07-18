@@ -1,8 +1,9 @@
-import pytest
-import sys
 import os
+import sys
 from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
@@ -12,6 +13,7 @@ os.chdir(Path(__file__).parent.parent)
 def client():
     """Create test client with mocked pipeline."""
     from fastapi.testclient import TestClient
+
     import api.main as api_module
 
     _MOCK_RESULT = {
@@ -31,12 +33,12 @@ def client():
     mock_pipeline.run = AsyncMock(return_value=_MOCK_RESULT)
     mock_pipeline.tracker.get_statistics.return_value = {"total_queries": 10}
     mock_pipeline.budget_manager.get_budget_status.return_value = {"daily": {"spent": 0}}
-    
+
     original = api_module.pipeline
     api_module.pipeline = mock_pipeline
-    
+
     yield TestClient(api_module.app)
-    
+
     api_module.pipeline = original
 
 
@@ -60,11 +62,7 @@ def test_query_requires_auth(client):
 
 def test_query_with_auth(client, api_key):
     """Test query endpoint with valid API key."""
-    response = client.post(
-        "/query",
-        json={"query": "What is AI?"},
-        headers={"X-API-Key": api_key}
-    )
+    response = client.post("/query", json={"query": "What is AI?"}, headers={"X-API-Key": api_key})
     assert response.status_code == 200
     assert response.json()["success"] is True
 

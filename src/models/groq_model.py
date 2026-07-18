@@ -65,7 +65,9 @@ class GroqModel(BaseLLM):
             )
             user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
         else:
-            system_msg = "You are a helpful AI assistant. Answer questions accurately and concisely."
+            system_msg = (
+                "You are a helpful AI assistant. Answer questions accurately and concisely."
+            )
             user_msg = prompt
 
         return [

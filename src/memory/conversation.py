@@ -9,7 +9,7 @@ Get your free Upstash Redis URL at: https://upstash.com
 
 import json
 import os
-from typing import List, Dict
+from typing import Dict, List
 
 import redis as sync_redis
 

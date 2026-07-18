@@ -12,17 +12,17 @@ Falls back to a no-op when the env var is absent.
 """
 
 import base64
-import os
 import logging
+import os
 
 logger = logging.getLogger("SmartRouteAILogger")
 
 try:
     from opentelemetry import trace
+    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
     from opentelemetry.sdk.resources import Resource
     from opentelemetry.sdk.trace import TracerProvider
     from opentelemetry.sdk.trace.export import BatchSpanProcessor
-    from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
     _OTEL_AVAILABLE = True
 except ImportError:

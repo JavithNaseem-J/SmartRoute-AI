@@ -8,12 +8,12 @@ Get your free Upstash Redis URL at: https://upstash.com
 """
 
 import os
-import yaml  # type: ignore
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 from typing import Dict, Tuple
 
 import redis as sync_redis
+import yaml  # type: ignore
 
 from src.cost.tracker import CostTracker
 from src.utils.logger import logger
@@ -86,9 +86,7 @@ class BudgetManager:
 
             if new_total > self.limits["daily"]:
                 self._redis.incrbyfloat(key, -estimated_cost)  # roll back
-                logger.warning(
-                    f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}"
-                )
+                logger.warning(f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}")
                 return False, "daily_limit_exceeded"
 
             return True, "within_budget"

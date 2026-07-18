@@ -1,9 +1,11 @@
+from pathlib import Path
+from typing import Optional, Tuple
+
 import joblib
 import numpy as np
-from pathlib import Path
-from typing import Tuple, Optional
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
+
 from src.routing.features import FeatureExtractor
 
 

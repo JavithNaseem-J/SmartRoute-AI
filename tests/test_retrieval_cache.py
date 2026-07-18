@@ -1,17 +1,19 @@
 """
 Tests for RetrievalCache — Upstash Redis backend (mocked).
 """
-import pytest
-from unittest.mock import patch
-import fakeredis
-import sys
+
 import os
+import sys
 from pathlib import Path
+from unittest.mock import patch
+
+import fakeredis
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 os.chdir(Path(__file__).parent.parent)
 
-from src.retrieval.cache import RetrievalCache
+from src.retrieval.cache import RetrievalCache  # noqa: E402
 
 
 @pytest.fixture
