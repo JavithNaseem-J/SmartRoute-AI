@@ -15,14 +15,14 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Optional
 
 import uvicorn
-from fastapi import APIRouter, FastAPI, HTTPException, Request, Depends
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from src.pipeline.inference import InferencePipeline
 from src.utils.guardrails import GuardrailViolation, validate_query
@@ -114,6 +114,13 @@ app.add_middleware(
 
 setup_tracing(app)
 
+
+@app.get("/health", tags=["system"])
+async def health_check():
+    """Unauthenticated health probe for Docker and Render."""
+    return {"status": "ok", "pipeline": "ready" if pipeline else "starting"}
+
+
 # ── Authentication ────────────────────────────────────────────────────────────
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
@@ -136,9 +143,7 @@ class QueryRequest(BaseModel):
         None, description="Routing strategy: cost_optimized | quality_first | balanced"
     )
     use_retrieval: bool = Field(True, description="Enable RAG retrieval")
-    session_id: Optional[str] = Field(
-        None, description="Session ID for multi-turn conversation"
-    )
+    session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversation")
 
 
 class QueryResponse(BaseModel):
@@ -251,9 +256,7 @@ async def query_stream(
             context = ""
             if query_request.use_retrieval:
                 loop = asyncio.get_event_loop()
-                context, _ = await loop.run_in_executor(
-                    None, pipeline.retriever.retrieve, query
-                )
+                context, _ = await loop.run_in_executor(None, pipeline.retriever.retrieve, query)
 
             model = pipeline.model_manager.load_model(model_id)
             history = (
@@ -348,9 +351,7 @@ app.include_router(v1)
 # Will be removed in v2. Clients should migrate to /v1/* routes.
 
 
-@app.post(
-    "/query", response_model=QueryResponse, deprecated=True, include_in_schema=False
-)
+@app.post("/query", response_model=QueryResponse, deprecated=True, include_in_schema=False)
 @limiter.limit("30/minute")
 async def query_legacy(
     request: Request, query_request: QueryRequest, _: str = Depends(require_api_key)
@@ -360,9 +361,7 @@ async def query_legacy(
 
 @app.get("/stats", deprecated=True, include_in_schema=False)
 @limiter.limit("60/minute")
-async def get_stats_legacy(
-    request: Request, days: int = 1, _: str = Depends(require_api_key)
-):
+async def get_stats_legacy(request: Request, days: int = 1, _: str = Depends(require_api_key)):
     return await get_stats(request, days, _)
 
 
