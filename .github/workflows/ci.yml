@@ -83,12 +83,17 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install --system -r requirements.txt
-          uv pip install --system pytest pytest-cov httpx
+          uv pip install --system pytest pytest-cov pytest-asyncio httpx fakeredis
 
       - name: Run tests with coverage
         env:
           SMARTROUTE_API_KEY: test-key-ci
           GROQ_API_KEY: dummy-for-ci
+          # Cloud services are mocked in conftest.py — no real credentials needed
+          DATABASE_URL: sqlite:///:memory:
+          REDIS_URL: rediss://default:test@test.upstash.io:6379
+          QDRANT_URL: https://test.qdrant.io
+          QDRANT_API_KEY: test-key
         run: |
           pytest tests/ -v \
             --cov=src --cov=api \

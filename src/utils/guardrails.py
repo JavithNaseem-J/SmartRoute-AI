@@ -2,7 +2,7 @@ import re
 from src.utils.logger import logger
 
 # Common prompt injection trigger phrases.
-# This list is not exhaustive \u2014 it catches the most common patterns.
+# This list is not exhaustive it catches the most common patterns.
 _INJECTION_PATTERNS = [
     r"ignore\s+(all\s+)?previous\s+instructions?",
     r"disregard\s+(all\s+)?previous",
@@ -10,10 +10,10 @@ _INJECTION_PATTERNS = [
     r"you\s+are\s+now\s+(?:a\s+)?(?:an?\s+)?(?:different|new|another)",
     r"act\s+as\s+(?:a\s+)?(?:an?\s+)?(?!assistant|helpful)",  # "act as a hacker" not "act as a helpful assistant"
     r"(do\s+not|don'?t)\s+follow\s+(your\s+)?instructions?",
-    r"system\s*:\s*you\s+are",       # Fake system prompt injection
-    r"<\|system\|>",                  # Token injection (Llama template)
-    r"\[INST\]",                      # Llama instruction injection
-    r"###\s*instruction",             # Alpaca-style instruction injection
+    r"system\s*:\s*you\s+are",  # Fake system prompt injection
+    r"<\|system\|>",  # Token injection (Llama template)
+    r"\[INST\]",  # Llama instruction injection
+    r"###\s*instruction",  # Alpaca-style instruction injection
     r"print\s+your\s+(system\s+)?prompt",
     r"reveal\s+(your\s+)?(system\s+)?prompt",
     r"what\s+(are\s+your|is\s+your)\s+(system\s+)?instructions?",
@@ -27,6 +27,7 @@ _MAX_QUERY_LENGTH = 500
 
 class GuardrailViolation(ValueError):
     """Raised when a query violates input guardrails."""
+
     pass
 
 

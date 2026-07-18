@@ -1,15 +1,17 @@
 """
-FastAPI application — enterprise async edition.
+SmartRoute-AI — FastAPI entry point.
 
-Key upgrades:
-- /query and /query/stream are now `async def` — they await the pipeline directly.
-  No more run_in_executor wrapper needed because the pipeline is fully async.
-- /query/stream uses an async generator for true non-blocking SSE streaming.
-- Removed the broken /strategy endpoint (update_strategy was deleted in cleanup).
+Startup order:
+  1. validate_env()       — fail fast if any required env var is missing
+  2. InferencePipeline()  — connect to Qdrant, Supabase, Upstash
+  3. Serve traffic        — all endpoints are async and non-blocking
 """
+
 import os
 import secrets
-from pathlib import Path
+import sys
+from contextlib import asynccontextmanager
+from typing import AsyncIterator, List, Optional
 
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request, Depends
@@ -17,14 +19,71 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
-from typing import AsyncIterator, List, Optional
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
 from src.pipeline.inference import InferencePipeline
+from src.utils.guardrails import GuardrailViolation, validate_query
 from src.utils.logger import logger
-from src.utils.guardrails import validate_query, GuardrailViolation
+from src.utils.tracing import setup_tracing
+
+# ── Startup: env-var validation ───────────────────────────────────────────────
+
+_REQUIRED_ENV_VARS = [
+    ("DATABASE_URL", "Supabase PostgreSQL  → https://supabase.com"),
+    ("REDIS_URL", "Upstash Redis        → https://upstash.com"),
+    ("QDRANT_URL", "Qdrant Cloud         → https://cloud.qdrant.io"),
+    ("QDRANT_API_KEY", "Qdrant Cloud         → https://cloud.qdrant.io"),
+    ("GROQ_API_KEY", "Groq LLM             → https://console.groq.com"),
+]
+
+
+def validate_env() -> None:
+    """Fail immediately on startup if any required credential is absent.
+
+    This surfaces missing config before the server binds to a port,
+    preventing confusing 500 errors at request time.
+    """
+    missing = [(var, hint) for var, hint in _REQUIRED_ENV_VARS if not os.getenv(var)]
+    if not missing:
+        return
+
+    lines = [
+        "\n" + "=" * 60,
+        "STARTUP FAILED — missing required environment variables:",
+        "=" * 60,
+    ]
+    for var, hint in missing:
+        lines.append(f"  ❌  {var}")
+        lines.append(f"       Get it from: {hint}")
+    lines += [
+        "=" * 60,
+        "Set these in your .env file or Render environment variables.\n",
+    ]
+    logger.error("\n".join(lines))
+    sys.exit(1)
+
+
+# ── Application lifespan ──────────────────────────────────────────────────────
+
+pipeline: Optional[InferencePipeline] = None
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Runs validate_env + pipeline init before serving; disposes on shutdown."""
+    global pipeline
+    validate_env()
+    try:
+        pipeline = InferencePipeline()
+        logger.info("Pipeline initialised — all cloud services connected.")
+    except Exception as exc:
+        logger.error(f"Pipeline init failed: {exc}")
+        sys.exit(1)  # crash loudly; Render will restart and show the error
+    yield
+    logger.info("Shutting down SmartRoute-AI.")
+
 
 # Rate limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -33,6 +92,7 @@ app = FastAPI(
     title="SmartRoute-AI API",
     description="Cost-optimised async RAG with intelligent LLM routing",
     version="2.0.0",
+    lifespan=lifespan,  # replaces deprecated @app.on_event("startup")
 )
 
 app.state.limiter = limiter
@@ -51,16 +111,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialise pipeline once at startup
-try:
-    pipeline = InferencePipeline()
-    logger.info("####### Pipeline initialised (async) #######")
-except Exception as e:
-    logger.error(f"Failed to initialise pipeline: {e}")
-    pipeline = None
-
-# OpenTelemetry tracing — no-op when OTEL_EXPORTER_OTLP_ENDPOINT is not set
-from src.utils.tracing import setup_tracing
 setup_tracing(app)
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -77,6 +127,7 @@ def require_api_key(api_key: Optional[str] = Depends(_api_key_header)) -> str:
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
+
 
 class QueryRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=500, description="User query")
@@ -102,6 +153,7 @@ class QueryResponse(BaseModel):
 
 
 # ── Public endpoints ──────────────────────────────────────────────────────────
+
 
 @app.get("/")
 async def root():
@@ -136,6 +188,7 @@ async def health():
 
 
 # ── Protected endpoints ───────────────────────────────────────────────────────
+
 
 @app.post("/query", response_model=QueryResponse)
 @limiter.limit("30/minute")
@@ -186,6 +239,7 @@ async def query_stream(
 
             # Retrieve context (run blocking call in executor)
             import asyncio
+
             context = ""
             if query_request.use_retrieval:
                 loop = asyncio.get_event_loop()
