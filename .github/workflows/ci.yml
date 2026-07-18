@@ -30,6 +30,33 @@ jobs:
           uv pip install --system ruff
           ruff check src/ api/ tests/ --output-format=github
 
+  # ── Type checking ─────────────────────────────────────────────────────────────
+  type-check:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          uv pip install --system -r requirements.txt
+          uv pip install --system mypy types-redis types-PyYAML
+
+      - name: Run mypy
+        run: |
+          mypy src/ api/ \
+            --ignore-missing-imports \
+            --no-strict-optional \
+            --warn-return-any \
+            --show-error-codes
+
   # ── Security scan ─────────────────────────────────────────────────────────────
   security:
     name: Security (bandit + pip-audit)

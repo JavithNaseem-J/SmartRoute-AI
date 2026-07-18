@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Optional
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.security import APIKeyHeader
@@ -161,13 +161,16 @@ async def root():
         "status": "healthy" if pipeline else "degraded",
         "service": "SmartRoute-AI",
         "version": "2.0.0",
+        # All business endpoints live under /v1 — keeps API evolvable
         "endpoints": {
-            "query": "/query",
-            "stream": "/query/stream",
-            "stats": "/stats",
-            "savings": "/savings",
-            "budget": "/budget",
+            "query": "/v1/query",
+            "stream": "/v1/query/stream",
+            "stats": "/v1/stats",
+            "savings": "/v1/savings",
+            "budget": "/v1/budget",
+            "models": "/v1/models",
             "health": "/health",
+            "docs": "/docs",
         },
     }
 
@@ -178,6 +181,7 @@ async def health():
         raise HTTPException(status_code=503, detail="Pipeline not initialised")
     return {
         "status": "healthy",
+        "version": "2.0.0",
         "components": {
             "router": "ok" if pipeline.router else "error",
             "model_manager": "ok" if pipeline.model_manager else "error",
@@ -187,10 +191,15 @@ async def health():
     }
 
 
-# ── Protected endpoints ───────────────────────────────────────────────────────
+# ── Versioned router ──────────────────────────────────────────────────────
+#
+# All business endpoints go on v1_router so we can introduce /v2 later
+# without touching existing client code. The prefix is injected at mount time.
+
+v1 = APIRouter(prefix="/v1", tags=["v1"])
 
 
-@app.post("/query", response_model=QueryResponse)
+@v1.post("/query", response_model=QueryResponse)
 @limiter.limit("30/minute")
 async def query(
     request: Request,
@@ -213,7 +222,7 @@ async def query(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/query/stream")
+@v1.post("/query/stream")
 @limiter.limit("30/minute")
 async def query_stream(
     request: Request,
@@ -254,7 +263,6 @@ async def query_stream(
                 else []
             )
 
-            # Stream tokens from the async generator
             async for chunk in model.astream(
                 prompt=query,
                 context=context,
@@ -277,7 +285,7 @@ async def query_stream(
     )
 
 
-@app.get("/stats")
+@v1.get("/stats")
 @limiter.limit("60/minute")
 async def get_stats(
     request: Request,
@@ -289,7 +297,7 @@ async def get_stats(
     return pipeline.tracker.get_statistics(days=days)
 
 
-@app.get("/savings")
+@v1.get("/savings")
 @limiter.limit("60/minute")
 async def get_savings(
     request: Request,
@@ -301,7 +309,7 @@ async def get_savings(
     return pipeline.tracker.calculate_savings(days=days)
 
 
-@app.get("/budget")
+@v1.get("/budget")
 @limiter.limit("60/minute")
 async def get_budget(
     request: Request,
@@ -312,7 +320,7 @@ async def get_budget(
     return pipeline.budget_manager.get_budget_status()
 
 
-@app.get("/models")
+@v1.get("/models")
 async def list_models(_: str = Depends(require_api_key)):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
@@ -322,13 +330,47 @@ async def list_models(_: str = Depends(require_api_key)):
     }
 
 
-@app.delete("/memory/{session_id}")
+@v1.delete("/memory/{session_id}")
 async def clear_memory(session_id: str, _: str = Depends(require_api_key)):
     """Clear conversation history for a session."""
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
     pipeline.memory.clear(session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+# Mount versioned router — all /v1/* routes are now live
+app.include_router(v1)
+
+
+# ── Legacy unversioned routes (deprecated) ────────────────────────────────────
+#
+# Kept only to avoid breaking existing integrations during transition.
+# Will be removed in v2. Clients should migrate to /v1/* routes.
+
+
+@app.post(
+    "/query", response_model=QueryResponse, deprecated=True, include_in_schema=False
+)
+@limiter.limit("30/minute")
+async def query_legacy(
+    request: Request, query_request: QueryRequest, _: str = Depends(require_api_key)
+):
+    return await query(request, query_request, _)
+
+
+@app.get("/stats", deprecated=True, include_in_schema=False)
+@limiter.limit("60/minute")
+async def get_stats_legacy(
+    request: Request, days: int = 1, _: str = Depends(require_api_key)
+):
+    return await get_stats(request, days, _)
+
+
+@app.get("/budget", deprecated=True, include_in_schema=False)
+@limiter.limit("60/minute")
+async def get_budget_legacy(request: Request, _: str = Depends(require_api_key)):
+    return await get_budget(request, _)
 
 
 if __name__ == "__main__":
