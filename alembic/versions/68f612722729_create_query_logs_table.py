@@ -1,4 +1,4 @@
-"""initial schema — create query_logs table
+"""create query_logs table
 
 Revision ID: 68f612722729
 Revises:
