@@ -142,6 +142,7 @@ class FeatureExtractor:
             [self._lexical_vector(q) for q in queries], dtype=np.float32
         )  # shape: (n, 10)
 
+        semantic: np.ndarray
         if not self.has_model or not self.ref_embeddings:
             # Pad semantic columns with zeros
             semantic = np.zeros((n, 3), dtype=np.float32)
