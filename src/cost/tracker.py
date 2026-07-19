@@ -57,6 +57,8 @@ class CostTracker:
             pool_recycle=300,  # recycle connections every 5 min (Supabase timeout)
         )
         self._Session = sessionmaker(bind=self.engine)
+        if database_url == "sqlite:///:memory:":
+            Base.metadata.create_all(bind=self.engine)
         # NOTE: Schema is managed by Alembic migrations, not create_all().
         # Run `alembic upgrade head` before starting the app (render.yaml does this).
         logger.info(f"CostTracker → Supabase: {database_url.split('@')[-1]}")

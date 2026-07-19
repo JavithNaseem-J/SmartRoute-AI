@@ -44,8 +44,10 @@ def mock_redis():
 @pytest.fixture(autouse=True, scope="session")
 def setup_test_db():
     """Create the SQLAlchemy schema in the SQLite in-memory database."""
-    from src.cost.tracker import Base, engine
+    from src.cost.tracker import Base, CostTracker
 
-    Base.metadata.create_all(bind=engine)
+    tracker = CostTracker()
+    Base.metadata.create_all(bind=tracker.engine)
     yield
-    Base.metadata.drop_all(bind=engine)
+    Base.metadata.drop_all(bind=tracker.engine)
+    tracker.close()
