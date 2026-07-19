@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional, cast
 
 from src.utils.logger import logger
 
@@ -154,12 +154,13 @@ class RagasEvaluator:
             dataset,
             metrics=[faithfulness, answer_relevancy, context_recall, context_precision],
         )
+        scores_map = cast(dict[str, Any], scores)
 
         report = EvalReport(
-            faithfulness=float(scores["faithfulness"]),
-            answer_relevancy=float(scores["answer_relevancy"]),
-            context_recall=float(scores["context_recall"]),
-            context_precision=float(scores["context_precision"]),
+            faithfulness=float(scores_map["faithfulness"]),
+            answer_relevancy=float(scores_map["answer_relevancy"]),
+            context_recall=float(scores_map["context_recall"]),
+            context_precision=float(scores_map["context_precision"]),
             sample_count=len(completed),
             failed_samples=failed,
         )
