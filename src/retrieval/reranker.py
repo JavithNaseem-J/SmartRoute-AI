@@ -45,6 +45,7 @@ class DocumentReranker:
         pairs = [[query, doc.page_content] for doc in documents]
 
         try:
+            assert self._model is not None  # is_ready guarantees this
             scores = self._model.predict(pairs)
 
             # Combine docs with scores and sort descending

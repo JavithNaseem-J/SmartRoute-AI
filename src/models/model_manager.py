@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Dict
 
-import yaml
+import yaml  # type: ignore[import-untyped]
 
 from src.models.base import BaseLLM
 from src.models.groq_model import GroqModel

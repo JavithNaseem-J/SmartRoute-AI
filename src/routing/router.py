@@ -4,6 +4,7 @@ from typing import Dict, Optional
 import yaml  # type: ignore
 
 from src.routing.classifier import ComplexityClassifier
+from src.utils.guardrails import validate_query
 from src.utils.logger import logger
 
 
@@ -32,6 +33,8 @@ class QueryRouter:
         strategy: Optional[str] = None,
         user_context: Optional[Dict] = None,
     ) -> Dict:
+        validate_query(query)
+
         # Use default strategy if not specified
         strategy = strategy or self.default_strategy
 

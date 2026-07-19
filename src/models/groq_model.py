@@ -89,6 +89,10 @@ class GroqModel(BaseLLM):
         history: Optional[List[Dict]] = None,
     ) -> Dict:
         """Non-streaming async generation with exponential backoff on rate limits."""
+        from src.utils.guardrails import validate_query
+
+        validate_query(prompt)
+
         messages = self._build_messages(prompt, context, history)
         max_tok = max_tokens or self.max_tokens
         temp = temperature if temperature is not None else self.temperature
@@ -133,6 +137,10 @@ class GroqModel(BaseLLM):
         history: Optional[List[Dict]] = None,
     ) -> AsyncIterator[str]:
         """Async token streaming — yields chunks as they arrive from Groq."""
+        from src.utils.guardrails import validate_query
+
+        validate_query(prompt)
+
         messages = self._build_messages(prompt, context, history)
         max_tok = max_tokens or self.max_tokens
         temp = temperature if temperature is not None else self.temperature

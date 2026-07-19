@@ -93,6 +93,10 @@ class DocumentRetriever:
         self.cache.clear()
 
     def retrieve(self, query: str) -> Tuple[str, List[str]]:
+        from src.utils.guardrails import validate_query
+
+        validate_query(query)
+
         if not self.vector_store.is_ready:
             logger.warning("No vector store available")
             return "", []
@@ -147,16 +151,24 @@ class DocumentRetriever:
         for rank, doc in enumerate(bm25_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] += self.bm25_weight * (1 / (rrf_constant + rank))
+            scores[doc.page_content]["score"] = float(
+                scores[doc.page_content]["score"]
+            ) + self.bm25_weight * (1 / (rrf_constant + rank))
 
         for rank, doc in enumerate(dense_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] += self.dense_weight * (1 / (rrf_constant + rank))
+            scores[doc.page_content]["score"] = float(
+                scores[doc.page_content]["score"]
+            ) + self.dense_weight * (1 / (rrf_constant + rank))
 
-        sorted_results = sorted(scores.values(), key=lambda x: x["score"], reverse=True)
+        sorted_results = sorted(scores.values(), key=lambda x: float(x["score"]), reverse=True)  # type: ignore[arg-type]
         # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
-        candidate_docs = [item["doc"] for item in sorted_results[: self.top_k * 2]]
+        from langchain_core.documents import Document as LCDocument
+
+        candidate_docs: List[LCDocument] = [
+            item["doc"] for item in sorted_results[: self.top_k * 2]
+        ]  # type: ignore[misc]
 
         # Re-rank candidates against the query
         top_docs = self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
