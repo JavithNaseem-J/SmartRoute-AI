@@ -162,7 +162,7 @@ class FeatureExtractor:
 
             semantic = np.stack([complex_max - simple_max, simple_max, complex_max], axis=1).astype(
                 np.float32
-            )  # shape: (n, 3)
+            )  # type: ignore[assignment]  # shape: (n, 3)
 
         return np.concatenate([lexical, semantic], axis=1)  # (n, 13)
 

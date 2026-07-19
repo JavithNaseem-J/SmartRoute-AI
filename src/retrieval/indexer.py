@@ -57,8 +57,8 @@ class DocumentIndexer:
             loader = DirectoryLoader(
                 str(docs_dir),
                 glob=glob_pattern,
-                loader_cls=loader_cls,
-                show_progress=True,  # type: ignore[arg-type]
+                loader_cls=loader_cls,  # type: ignore[arg-type]
+                show_progress=True,
             )
 
             try:

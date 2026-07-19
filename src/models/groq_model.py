@@ -148,7 +148,7 @@ class GroqModel(BaseLLM):
         from groq import AsyncStream
         from groq.types.chat import ChatCompletionChunk
 
-        stream: AsyncStream[ChatCompletionChunk] = await self.client.chat.completions.create(
+        stream: AsyncStream[ChatCompletionChunk] = await self.client.chat.completions.create(  # type: ignore[assignment]
             model=self.model_id,
             messages=messages,  # type: ignore[arg-type]
             max_tokens=max_tok,

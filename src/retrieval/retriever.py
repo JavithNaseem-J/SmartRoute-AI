@@ -168,12 +168,13 @@ class DocumentRetriever:
             reverse=True,
         )
         # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
+        from typing import cast
+
         from langchain_core.documents import Document as LCDocument
 
-        candidate_docs: list[LCDocument] = [
-            item["doc"]
-            for item in sorted_results[: self.top_k * 2]  # type: ignore[misc]
-        ]
+        candidate_docs = cast(
+            list[LCDocument], [item["doc"] for item in sorted_results[: self.top_k * 2]]
+        )
 
         # Re-rank candidates against the query
         top_docs = self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
