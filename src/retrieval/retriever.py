@@ -1,14 +1,20 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, TypedDict
 
 from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
 
 from src.retrieval.cache import RetrievalCache
 from src.retrieval.embedder import Embedder
 from src.retrieval.reranker import DocumentReranker
 from src.retrieval.vector_store import VectorStore
 from src.utils.logger import logger
+
+
+class _ScoredDoc(TypedDict):
+    doc: Document
+    score: float
 
 
 class DocumentRetriever:
@@ -142,7 +148,7 @@ class DocumentRetriever:
 
         # Reciprocal Rank Fusion — unchanged from original
         rrf_constant = 60
-        scores = {}
+        scores: Dict[str, _ScoredDoc] = {}
 
         for rank, doc in enumerate(bm25_results):
             if doc.page_content not in scores:

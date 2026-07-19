@@ -77,12 +77,14 @@ class RetrievalCache:
     def clear(self) -> None:
         """Clear the cache (useful after adding new documents)."""
         try:
-            cursor = "0"
-            while cursor != 0:
+            cursor = 0
+            while True:
                 cursor, keys = self._redis.scan(
                     cursor=cursor, match="smartroute:retrieval:*", count=100
                 )
                 if keys:
                     self._redis.delete(*keys)
+                if cursor == 0:
+                    break
         except Exception as e:
             logger.warning(f"RetrievalCache clear failed: {e}")

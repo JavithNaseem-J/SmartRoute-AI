@@ -2,6 +2,7 @@ import re
 from typing import Dict, List
 
 import numpy as np
+from numpy.typing import NDArray
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -144,7 +145,7 @@ class FeatureExtractor:
 
         if not self.has_model or not self.ref_embeddings:
             # Pad semantic columns with zeros
-            semantic = np.zeros((n, 3), dtype=np.float32)
+            semantic: NDArray[np.float32] = np.zeros((n, 3), dtype=np.float32)
         else:
             logger.info(
                 f"Encoding {n} queries with SentenceTransformer (batch_size={batch_size})..."

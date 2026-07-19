@@ -10,7 +10,7 @@ Key upgrades over the previous synchronous version:
 
 import asyncio
 import os
-from typing import AsyncIterator, Dict, List, Optional
+from typing import Any, AsyncIterator, Dict, List, Optional, cast
 
 from groq import AsyncGroq, RateLimitError
 
@@ -97,7 +97,7 @@ class GroqModel(BaseLLM):
             try:
                 response = await self.client.chat.completions.create(
                     model=self.model_id,
-                    messages=messages,
+                    messages=cast(Any, messages),
                     max_tokens=max_tok,
                     temperature=temp,
                 )
@@ -139,13 +139,13 @@ class GroqModel(BaseLLM):
 
         stream = await self.client.chat.completions.create(
             model=self.model_id,
-            messages=messages,
+            messages=cast(Any, messages),
             max_tokens=max_tok,
             temperature=temp,
             stream=True,
         )
 
-        async for chunk in stream:
+        async for chunk in cast(AsyncIterator[Any], stream):
             delta = chunk.choices[0].delta.content
             if delta:
                 yield delta
