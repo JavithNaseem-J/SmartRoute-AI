@@ -101,7 +101,7 @@ class GroqModel(BaseLLM):
             try:
                 response = await self.client.chat.completions.create(
                     model=self.model_id,
-                    messages=messages,
+                    messages=messages,  # type: ignore[arg-type]
                     max_tokens=max_tok,
                     temperature=temp,
                 )
@@ -145,9 +145,12 @@ class GroqModel(BaseLLM):
         max_tok = max_tokens or self.max_tokens
         temp = temperature if temperature is not None else self.temperature
 
-        stream = await self.client.chat.completions.create(
+        from groq import AsyncStream
+        from groq.types.chat import ChatCompletionChunk
+
+        stream: AsyncStream[ChatCompletionChunk] = await self.client.chat.completions.create(
             model=self.model_id,
-            messages=messages,
+            messages=messages,  # type: ignore[arg-type]
             max_tokens=max_tok,
             temperature=temp,
             stream=True,

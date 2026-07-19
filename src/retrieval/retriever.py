@@ -144,31 +144,36 @@ class DocumentRetriever:
             bm25_results = bm25_future.result() if bm25_future else []
             dense_results = dense_future.result()
 
-        # Reciprocal Rank Fusion — unchanged from original
+        # Reciprocal Rank Fusion
         rrf_constant = 60
-        scores = {}
+        scores: dict[str, dict[str, object]] = {}
 
         for rank, doc in enumerate(bm25_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
             scores[doc.page_content]["score"] = float(
-                scores[doc.page_content]["score"]
+                scores[doc.page_content]["score"]  # type: ignore[arg-type]
             ) + self.bm25_weight * (1 / (rrf_constant + rank))
 
         for rank, doc in enumerate(dense_results):
             if doc.page_content not in scores:
                 scores[doc.page_content] = {"doc": doc, "score": 0.0}
             scores[doc.page_content]["score"] = float(
-                scores[doc.page_content]["score"]
+                scores[doc.page_content]["score"]  # type: ignore[arg-type]
             ) + self.dense_weight * (1 / (rrf_constant + rank))
 
-        sorted_results = sorted(scores.values(), key=lambda x: float(x["score"]), reverse=True)  # type: ignore[arg-type]
+        sorted_results = sorted(
+            scores.values(),
+            key=lambda x: float(x["score"]),  # type: ignore[arg-type]
+            reverse=True,
+        )
         # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
         from langchain_core.documents import Document as LCDocument
 
-        candidate_docs: List[LCDocument] = [
-            item["doc"] for item in sorted_results[: self.top_k * 2]
-        ]  # type: ignore[misc]
+        candidate_docs: list[LCDocument] = [
+            item["doc"]
+            for item in sorted_results[: self.top_k * 2]  # type: ignore[misc]
+        ]
 
         # Re-rank candidates against the query
         top_docs = self.reranker.rerank(query, candidate_docs, top_k=self.top_k)

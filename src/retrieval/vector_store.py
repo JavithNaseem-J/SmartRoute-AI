@@ -65,7 +65,7 @@ class VectorStore:
                 self._vectordb = LCQdrant(
                     client=self._client,
                     collection_name=self.collection_name,
-                    embeddings=self.embedder.embeddings,
+                    embedding=self.embedder.embeddings,
                 )
                 logger.info(f"####### Qdrant collection loaded: {count} documents #######")
             else:

@@ -156,10 +156,10 @@ class RagasEvaluator:
         )
 
         report = EvalReport(
-            faithfulness=float(scores["faithfulness"]),
-            answer_relevancy=float(scores["answer_relevancy"]),
-            context_recall=float(scores["context_recall"]),
-            context_precision=float(scores["context_precision"]),
+            faithfulness=float(scores["faithfulness"]),  # type: ignore[index,arg-type]
+            answer_relevancy=float(scores["answer_relevancy"]),  # type: ignore[index,arg-type]
+            context_recall=float(scores["context_recall"]),  # type: ignore[index,arg-type]
+            context_precision=float(scores["context_precision"]),  # type: ignore[index,arg-type]
             sample_count=len(completed),
             failed_samples=failed,
         )

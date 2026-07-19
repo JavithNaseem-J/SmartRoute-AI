@@ -157,8 +157,8 @@ class FeatureExtractor:
             simple_sims = cosine_similarity(embeddings, self.ref_embeddings["simple"])  # (n, 5)
             complex_sims = cosine_similarity(embeddings, self.ref_embeddings["complex"])  # (n, 5)
 
-            simple_max = simple_sims.max(axis=1)  # (n,)
-            complex_max = complex_sims.max(axis=1)  # (n,)
+            simple_max: np.ndarray = simple_sims.max(axis=1)  # type: ignore[assignment]  # (n,)
+            complex_max: np.ndarray = complex_sims.max(axis=1)  # type: ignore[assignment]  # (n,)
 
             semantic = np.stack([complex_max - simple_max, simple_max, complex_max], axis=1).astype(
                 np.float32
