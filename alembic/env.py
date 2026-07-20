@@ -18,6 +18,8 @@ config = context.config
 # Override sqlalchemy.url with DATABASE_URL env var when present
 database_url = os.getenv("DATABASE_URL")
 if database_url:
+    # Escape '%' to bypass configparser's interpolation syntax, solving the ValueError
+    database_url = database_url.replace("%", "%%")
     config.set_main_option("sqlalchemy.url", database_url)
 
 if config.config_file_name is not None:
