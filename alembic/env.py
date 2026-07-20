@@ -18,26 +18,6 @@ config = context.config
 # Override sqlalchemy.url with DATABASE_URL env var when present
 database_url = os.getenv("DATABASE_URL", "")
 if database_url:
-    # ── Supabase Transaction Pooler → Direct Connection conversion ────────────
-    # Alembic requires a direct/session-mode connection for DDL migrations.
-    # Transaction pooler (port 6543, pooler host) does NOT support DDL.
-    # We auto-convert the pooler URL to the direct Supabase host URL.
-    #   FROM: postgresql://postgres.XXXX:pwd@aws-0-*.pooler.supabase.com:6543/postgres
-    #   TO:   postgresql://postgres:pwd@db.XXXX.supabase.co:5432/postgres
-    if ".pooler.supabase.com" in database_url and ":6543/" in database_url:
-        import re
-
-        # Extract project ref from the username (postgres.PROJECT_REF)
-        match = re.search(r"postgres\.([a-z]+):", database_url)
-        if match:
-            project_ref = match.group(1)
-            # Rebuild URL pointing at the direct DB host
-            database_url = re.sub(
-                r"postgres\.[a-z]+:([^@]+)@[^/]+:\d+/",
-                rf"postgres:\1@db.{project_ref}.supabase.co:5432/",
-                database_url,
-            )
-
     # Escape '%' to bypass configparser's interpolation syntax
     database_url = database_url.replace("%", "%%")
     config.set_main_option("sqlalchemy.url", database_url)
