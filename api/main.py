@@ -37,6 +37,7 @@ _REQUIRED_ENV_VARS = [
     ("QDRANT_URL", "Qdrant Cloud         → https://cloud.qdrant.io"),
     ("QDRANT_API_KEY", "Qdrant Cloud         → https://cloud.qdrant.io"),
     ("GROQ_API_KEY", "Groq LLM             → https://console.groq.com"),
+    ("HF_TOKEN", "HuggingFace API      → https://huggingface.co/settings/tokens"),
 ]
 
 

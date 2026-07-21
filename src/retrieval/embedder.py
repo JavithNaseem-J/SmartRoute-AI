@@ -1,6 +1,8 @@
+import os
 from typing import List
 
-from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
+from langchain_core.embeddings import Embeddings
 
 from src.utils.logger import logger
 
@@ -16,16 +18,27 @@ class Embedder:
         self.device = device
         self.normalize = normalize
 
-        logger.info(f"Loading embedding model: {model_name}")
-        self._embeddings = HuggingFaceEmbeddings(
-            model_name=model_name,
-            model_kwargs={"device": device},
-            encode_kwargs={"normalize_embeddings": normalize},
+        hf_token = os.getenv("HF_TOKEN")
+
+        if not hf_token:
+            logger.error("HF_TOKEN environment variable is missing!")
+            raise ValueError(
+                "HF_TOKEN is required for HuggingFaceInferenceAPIEmbeddings. Please add it to your .env file or Render Environment."
+            )
+
+        self._embeddings: Embeddings
+
+        logger.info(
+            f"Using HuggingFace Inference API for embeddings (Memory Optimized): {model_name}"
         )
+        self._embeddings = HuggingFaceInferenceAPIEmbeddings(
+            api_key=hf_token, model_name=model_name
+        )
+
         logger.info("####### Embedder initialized #######")
 
     @property
-    def embeddings(self) -> HuggingFaceEmbeddings:
+    def embeddings(self) -> Embeddings:
         """Get the underlying embeddings object for LangChain compatibility."""
         return self._embeddings
 

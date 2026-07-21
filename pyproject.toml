@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     # LLM & Routing
     "groq>=0.9.0",
-    "sentence-transformers>=2.3.0",
     "lightgbm>=4.0.0",
     "scikit-learn>=1.4.0",
     "tiktoken>=0.7.0",
