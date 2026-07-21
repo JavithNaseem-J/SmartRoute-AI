@@ -3,6 +3,7 @@ from typing import List
 
 from langchain_community.embeddings import HuggingFaceInferenceAPIEmbeddings
 from langchain_core.embeddings import Embeddings
+from pydantic import SecretStr
 
 from src.utils.logger import logger
 
@@ -32,7 +33,7 @@ class Embedder:
             f"Using HuggingFace Inference API for embeddings (Memory Optimized): {model_name}"
         )
         self._embeddings = HuggingFaceInferenceAPIEmbeddings(
-            api_key=hf_token, model_name=model_name
+            api_key=SecretStr(hf_token), model_name=model_name
         )
 
         logger.info("####### Embedder initialized #######")

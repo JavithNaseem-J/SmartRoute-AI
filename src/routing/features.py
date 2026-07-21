@@ -2,7 +2,13 @@ import re
 from typing import Dict, List
 
 import numpy as np
-from sentence_transformers import SentenceTransformer
+
+try:
+    from sentence_transformers import SentenceTransformer
+
+    _HAS_SENTENCE_TRANSFORMERS = True
+except ImportError:
+    _HAS_SENTENCE_TRANSFORMERS = False
 from sklearn.metrics.pairwise import cosine_similarity
 
 from src.utils.logger import logger
@@ -72,11 +78,15 @@ class FeatureExtractor:
             "critique",
         }
 
-        try:
-            self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
-            self.has_model = True
-        except Exception as e:
-            logger.warning(f"Could not load SentenceTransformer: {e}")
+        if _HAS_SENTENCE_TRANSFORMERS:
+            try:
+                self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
+                self.has_model = True
+            except Exception as e:
+                logger.warning(f"Could not load SentenceTransformer: {e}")
+                self.has_model = False
+        else:
+            logger.info("SentenceTransformer not installed, Semantic complexity routing disabled.")
             self.has_model = False
 
         self.reference_queries = {
