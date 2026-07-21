@@ -9,6 +9,7 @@ on:
 env:
   IMAGE_NAME: smartrouteai
   PYTHON_VERSION: "3.10"
+  HF_TOKEN: "dummy_hf_token_for_ci_tests"
 
 jobs:
   # ── Lint ─────────────────────────────────────────────────────────────────────
