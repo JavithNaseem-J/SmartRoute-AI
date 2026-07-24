@@ -3,14 +3,7 @@ from typing import Dict, List
 
 import numpy as np
 
-try:
-    from sentence_transformers import SentenceTransformer
-
-    _HAS_SENTENCE_TRANSFORMERS = True
-except ImportError:
-    _HAS_SENTENCE_TRANSFORMERS = False
-from sklearn.metrics.pairwise import cosine_similarity
-
+from src.core.dependencies import get_embeddings
 from src.utils.logger import logger
 
 
@@ -28,9 +21,12 @@ class FeatureExtractor:
         "requires_reasoning",
         "is_analysis",
         "comma_count",
+        "logic_operator_count",
+        "symbol_density",
         # Semantic features
         "semantic_complexity",
         "simple_similarity",
+        "medium_similarity",
         "complex_similarity",
     ]
 
@@ -78,103 +74,123 @@ class FeatureExtractor:
             "critique",
         }
 
-        if _HAS_SENTENCE_TRANSFORMERS:
-            try:
-                self.embedder = SentenceTransformer("all-MiniLM-L6-v2")
-                self.has_model = True
-            except Exception as e:
-                logger.warning(f"Could not load SentenceTransformer: {e}")
-                self.has_model = False
-        else:
-            logger.info("SentenceTransformer not installed, Semantic complexity routing disabled.")
+        try:
+            self.embedder = get_embeddings()
+            self.has_model = True
+        except Exception as e:
+            logger.warning(f"Could not load HuggingFaceEndpointEmbeddings: {e}")
             self.has_model = False
 
-        self.reference_queries = {
-            "simple": [
-                "What is X?",
-                "Define Y",
-                "Who is Z?",
-                "Simple definition of A",
-                "List the B",
-            ],
-            "complex": [
-                "Analyze the impact of...",
-                "Compare and contrast...",
-                "Evaluate the effectiveness of...",
-                "Synthesize findings from...",
-                "Critique the methodology of...",
-            ],
-        }
+        try:
+            from pathlib import Path
 
-        # Pre-compute reference embeddings once at init
-        if self.has_model:
-            self.ref_embeddings = {
-                k: self.embedder.encode(v, show_progress_bar=False)
-                for k, v in self.reference_queries.items()
-            }
-        else:
-            self.ref_embeddings = {}
+            import yaml
+
+            config_path = Path(__file__).parent.parent.parent / "config" / "routing.yaml"
+            with open(config_path, "r") as f:
+                self.reference_queries = yaml.safe_load(f).get("reference_queries", {})
+        except Exception as e:
+            logger.warning(f"Could not load reference_queries from config: {e}")
+            self.reference_queries = {}
+
+        # Reference embeddings are computed lazily on first async call to avoid
+        # blocking the event loop with a synchronous HTTP call at startup.
+        self.ref_embeddings: dict = {}
+        self._ref_embeddings_ready = False
+
+    def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+        """Compute max cosine similarity of a (N, D) against b (M, D). Returns (N,)."""
+        # a: (N, D), b: (M, D) -> dot: (N, M)
+        dot = np.dot(a, b.T)
+        norm_a = np.linalg.norm(a, axis=1, keepdims=True)  # (N, 1)
+        norm_b = np.linalg.norm(b, axis=1, keepdims=True).T  # (1, M)
+        sims = dot / (norm_a * norm_b + 1e-10)
+        return sims.max(axis=1)  # (N,)
 
     # ------------------------------------------------------------------
     # Single-query extraction (used at inference time)
     # ------------------------------------------------------------------
-    def extract(self, query: str) -> Dict:
+    async def extract(self, query: str) -> Dict:
         """Extract features including semantic complexity for a single query."""
-        features = self._extract_lexical(query)
+        # Reuse batch_extract_vectors to avoid math duplication
+        vectors = await self.batch_extract_vectors([query])
+        vector = vectors[0]
 
-        if self.has_model and self.ref_embeddings:
-            emb = self.embedder.encode(query, show_progress_bar=False)
-            simple_sim = float(np.max(cosine_similarity([emb], self.ref_embeddings["simple"])[0]))
-            complex_sim = float(np.max(cosine_similarity([emb], self.ref_embeddings["complex"])[0]))
-            features["semantic_complexity"] = complex_sim - simple_sim
-            features["simple_similarity"] = simple_sim
-            features["complex_similarity"] = complex_sim
-        else:
-            features["semantic_complexity"] = 0.0
-            features["simple_similarity"] = 0.0
-            features["complex_similarity"] = 0.0
-
+        # Reconstruct the feature dictionary matching FEATURE_ORDER
+        features = {}
+        for i, feat in enumerate(self.FEATURE_ORDER):
+            val = vector[i]
+            # Convert bool/int features back for backward compatibility
+            if feat in [
+                "has_code",
+                "has_technical_terms",
+                "has_numbers",
+                "is_multipart",
+                "requires_reasoning",
+                "is_analysis",
+            ]:
+                features[feat] = bool(val)
+            elif feat in [
+                "word_count",
+                "sentence_count",
+                "question_depth",
+                "comma_count",
+                "logic_operator_count",
+            ]:
+                features[feat] = int(val)
+            else:
+                features[feat] = float(val)
         return features
 
     # ------------------------------------------------------------------
-    # Batch extraction (used at training time — much faster)
+    # Batch extraction (used at training time & extraction)
     # ------------------------------------------------------------------
-    def batch_extract_vectors(self, queries: List[str], batch_size: int = 256) -> np.ndarray:
+    async def batch_extract_vectors(self, queries: List[str]) -> np.ndarray:
         """
         Extract feature vectors for a list of queries efficiently.
-        Encodes ALL queries in a single batched call to SentenceTransformer
-        instead of one-by-one, which is 50-100x faster for large datasets.
+        Encodes ALL queries in a single batched call to the Inference API.
         """
         n = len(queries)
+
+        # --- Lazy async init of reference embeddings (runs once, non-blocking) ---
+        if self.has_model and self.reference_queries and not self._ref_embeddings_ready:
+            for k, texts in self.reference_queries.items():
+                try:
+                    flat_embeddings = await self.embedder.aembed_documents(texts)
+                    self.ref_embeddings[k] = np.array(flat_embeddings, dtype=np.float32)
+                except Exception as e:
+                    logger.warning(f"Failed to fetch reference embeddings for {k}: {e}")
+                    self.ref_embeddings[k] = np.zeros((1, 384), dtype=np.float32)
+            self._ref_embeddings_ready = True
 
         # --- Lexical features (fast, no model needed) ---
         lexical = np.array(
             [self._lexical_vector(q) for q in queries], dtype=np.float32
-        )  # shape: (n, 10)
+        )  # shape: (n, 12)
 
         if not self.has_model or not self.ref_embeddings:
             # Pad semantic columns with zeros
-            semantic = np.zeros((n, 3), dtype=np.float32)
+            semantic = np.zeros((n, 4), dtype=np.float32)
         else:
-            logger.info(
-                f"Encoding {n} queries with SentenceTransformer (batch_size={batch_size})..."
-            )
-            # Single batched encode call — this is the key fix
-            embeddings = self.embedder.encode(
-                queries, batch_size=batch_size, show_progress_bar=True, convert_to_numpy=True
-            )  # shape: (n, 384)
+            try:
+                # Async network call for embeddings
+                embeddings_list = await self.embedder.aembed_documents(queries)
+                embeddings = np.array(embeddings_list, dtype=np.float32)  # shape: (n, 384)
 
-            simple_sims = cosine_similarity(embeddings, self.ref_embeddings["simple"])  # (n, 5)
-            complex_sims = cosine_similarity(embeddings, self.ref_embeddings["complex"])  # (n, 5)
+                simple_max = self._cosine_similarity_max(embeddings, self.ref_embeddings["simple"])
+                medium_max = self._cosine_similarity_max(embeddings, self.ref_embeddings["medium"])
+                complex_max = self._cosine_similarity_max(
+                    embeddings, self.ref_embeddings["complex"]
+                )
 
-            simple_max: np.ndarray = simple_sims.max(axis=1)  # type: ignore[assignment]  # (n,)
-            complex_max: np.ndarray = complex_sims.max(axis=1)  # type: ignore[assignment]  # (n,)
+                semantic = np.stack(
+                    [complex_max - simple_max, simple_max, medium_max, complex_max], axis=1
+                ).astype(np.float32)  # shape: (n, 4)
+            except Exception as e:
+                logger.error(f"Failed to fetch embeddings from API: {e}")
+                semantic = np.zeros((n, 4), dtype=np.float32)
 
-            semantic = np.stack([complex_max - simple_max, simple_max, complex_max], axis=1).astype(
-                np.float32
-            )  # type: ignore[assignment]  # shape: (n, 3)
-
-        return np.concatenate([lexical, semantic], axis=1)  # (n, 13)
+        return np.concatenate([lexical, semantic], axis=1)  # (n, 16)
 
     # ------------------------------------------------------------------
     # Helpers
@@ -184,6 +200,13 @@ class FeatureExtractor:
         query_lower = query.lower()
         words = query.split()
         word_set = set(query_lower.split())
+
+        logic_ops = {"if", "then", "and", "or", "else", "not", "when", "assume", "given"}
+        logic_operator_count = sum(1 for w in word_set if w in logic_ops)
+
+        # Count non-alphanumeric and non-space characters
+        symbol_count = len(re.findall(r"[^\w\s]", query))
+        symbol_density = symbol_count / max(len(query), 1)
 
         return {
             "word_count": len(words),
@@ -197,15 +220,17 @@ class FeatureExtractor:
             "requires_reasoning": bool(word_set & self.reasoning_keywords),
             "is_analysis": bool(word_set & self.analysis_keywords),
             "comma_count": query.count(","),
+            "logic_operator_count": logic_operator_count,
+            "symbol_density": symbol_density,
         }
 
     def _lexical_vector(self, query: str) -> np.ndarray:
-        """Return lexical features as a float32 array (10 values)."""
+        """Return lexical features as a float32 array (12 values)."""
         f = self._extract_lexical(query)
         return np.array(
             [
                 float(f[k]) if not isinstance(f[k], bool) else float(f[k])
-                for k in self.FEATURE_ORDER[:10]
+                for k in self.FEATURE_ORDER[:12]
             ],
             dtype=np.float32,
         )

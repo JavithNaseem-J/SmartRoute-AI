@@ -39,21 +39,6 @@ class DocumentChunker:
         logger.info(f"Created {len(chunks)} chunks from {len(documents)} documents")
         return chunks
 
-    def chunk_text(self, text: str, metadata: Optional[dict] = None) -> List[Document]:
-        """
-        Split a single text string into chunks.
-
-        Args:
-            text: Text to chunk
-            metadata: Optional metadata to attach to chunks
-
-        Returns:
-            List of Document chunks
-        """
-        texts = self.text_splitter.split_text(text)
-        documents = [Document(page_content=t, metadata=metadata or {}) for t in texts]
-        return documents
-
     def get_config(self) -> dict:
         """Get chunker configuration."""
         return {

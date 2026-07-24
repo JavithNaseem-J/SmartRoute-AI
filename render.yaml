@@ -20,10 +20,11 @@ services:
     dockerfilePath: ./Dockerfile.api
     plan: free                        # upgrade to "starter" for always-on
     region: singapore                 # closest to India — lowest latency
+    preDeployCommand: "alembic upgrade head"
     healthCheckPath: /health
     envVars:
       # ── Required ──────────────────────────────────────────────────────────────
-      - key: GROQ_API_KEY
+      - key: NVIDIA_API_KEY
         sync: false                   # set manually in Render dashboard
 
       - key: SMARTROUTE_API_KEY

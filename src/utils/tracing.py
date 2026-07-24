@@ -1,17 +1,12 @@
 """
-OpenTelemetry tracing — supports both generic OTLP backends and LangFuse.
+OpenTelemetry tracing — supports generic OTLP backends.
 
-LangFuse uses HTTP/protobuf (not gRPC), so we auto-detect the endpoint
-and pick the right exporter. This means a single env var configures everything:
+Set OTEL_EXPORTER_OTLP_PROTOCOL to "http/protobuf" or "grpc" (default).
+Authentication can be configured natively via OTEL_EXPORTER_OTLP_HEADERS.
 
-    OTEL_EXPORTER_OTLP_ENDPOINT=https://cloud.langfuse.com/api/public/otel
-    LANGFUSE_PUBLIC_KEY=pk-lf-...
-    LANGFUSE_SECRET_KEY=sk-lf-...
-
-Falls back to a no-op when the env var is absent.
+Falls back to a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is absent.
 """
 
-import base64
 import logging
 import os
 
@@ -30,26 +25,15 @@ except ImportError:
 
 
 def _build_exporter(endpoint: str):
-    """Return the right OTEL exporter based on the endpoint URL.
+    """Return the right OTEL exporter based on the OTEL_EXPORTER_OTLP_PROTOCOL."""
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
-    LangFuse uses HTTP/protobuf; most self-hosted backends use gRPC.
-    We detect LangFuse by checking for 'langfuse' in the URL.
-    """
-    is_langfuse = "langfuse" in endpoint.lower()
-
-    if is_langfuse:
-        # LangFuse requires HTTP Basic Auth encoded as a header.
-        # Public key = username, Secret key = password.
-        pub = os.getenv("LANGFUSE_PUBLIC_KEY", "")
-        sec = os.getenv("LANGFUSE_SECRET_KEY", "")
-        token = base64.b64encode(f"{pub}:{sec}".encode()).decode()
-        headers = {"Authorization": f"Basic {token}"}
-
+    if protocol == "http/protobuf":
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter as HTTPExporter,
         )
 
-        return HTTPExporter(endpoint=f"{endpoint}/v1/traces", headers=headers)
+        return HTTPExporter(endpoint=endpoint)
     else:
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter as GRPCExporter,

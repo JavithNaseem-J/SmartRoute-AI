@@ -3,15 +3,18 @@ from typing import Dict, Optional
 
 import yaml  # type: ignore
 
+from src.routing.base_classifier import BaseClassifier
 from src.routing.classifier import ComplexityClassifier
-from src.utils.guardrails import validate_query
+from src.routing.heuristic_classifier import HeuristicClassifier
+from src.routing.llm_classifier import LLMClassifier
 from src.utils.logger import logger
 
 
 class QueryRouter:
     """
     Intelligent query router
-    Routes queries to cost-effective models based on complexity
+    Routes queries to cost-effective models based on complexity.
+    Now supports pluggable classifiers (Heuristic, LLM, ML).
     """
 
     def __init__(self, routing_config_path: Path, classifier_path: Optional[Path] = None):
@@ -19,22 +22,36 @@ class QueryRouter:
         with open(routing_config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
+        # Determine active classifier from config
+        class_config = self.config.get("classification", {})
+        self.active_classifier_name = class_config.get("active_classifier", "heuristic")
+
         # Initialize classifier
-        self.classifier = ComplexityClassifier(classifier_path)
+        self.classifier: BaseClassifier
+        if self.active_classifier_name == "ml":
+            logger.info("Initializing ML Classifier (Legacy)")
+            self.classifier = ComplexityClassifier(classifier_path)
+        elif self.active_classifier_name == "llm":
+            model_id = class_config.get("llm_classifier", {}).get(
+                "model", "nvidia/nemotron-nano-9b-v2:free"
+            )
+            logger.info(f"Initializing LLM Classifier with model {model_id}")
+            self.classifier = LLMClassifier(model_id=model_id)
+        else:
+            logger.info("Initializing Heuristic Classifier (Zero-latency)")
+            self.classifier = HeuristicClassifier()
 
         # Set default strategy
-        self.default_strategy = self.config["default_strategy"]
+        self.default_strategy = self.config.get("default_strategy", "cost_optimized")
 
         logger.info(f"Router initialized with strategy: {self.default_strategy}")
 
-    def route(
+    async def route(
         self,
         query: str,
         strategy: Optional[str] = None,
         user_context: Optional[Dict] = None,
     ) -> Dict:
-        validate_query(query)
-
         # Use default strategy if not specified
         strategy = strategy or self.default_strategy
 
@@ -42,8 +59,8 @@ class QueryRouter:
             logger.warning(f"Unknown strategy {strategy}, using {self.default_strategy}")
             strategy = self.default_strategy
 
-        # Classify query complexity
-        complexity, confidence = self.classifier.predict(query)
+        # Classify query complexity (async)
+        complexity, confidence = await self.classifier.predict(query)
 
         logger.info(f"Query classified as {complexity} " f"(confidence: {confidence:.2f})")
 
@@ -81,4 +98,5 @@ class QueryRouter:
             "strategy": strategy,
             "reason": reason,
             "query_length": len(query.split()),
+            "classifier_used": self.active_classifier_name,
         }

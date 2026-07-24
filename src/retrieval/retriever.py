@@ -1,18 +1,19 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
+from qdrant_client import models
 
-from src.retrieval.cache import RetrievalCache
-from src.retrieval.embedder import Embedder
+from src.core.dependencies import get_embeddings, get_qdrant_client
 from src.retrieval.reranker import DocumentReranker
-from src.retrieval.vector_store import VectorStore
 from src.utils.logger import logger
+
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 class DocumentRetriever:
-    """Handles document retrieval with dense, BM25, and hybrid search."""
+    """Handles document retrieval with Qdrant native hybrid search."""
 
     def __init__(
         self,
@@ -20,164 +21,121 @@ class DocumentRetriever:
         collection_name: str = "smartroute_docs",
         top_k: int = 5,
         max_distance: float = 1.5,
-        bm25_weight: float = 0.4,
-        dense_weight: float = 0.6,
     ):
         self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
         self.top_k = top_k
         self.max_distance = max_distance
-        self.bm25_weight = bm25_weight
-        self.dense_weight = dense_weight
 
         # Initialize components
-        self.embedder = Embedder()
-        self.vector_store = VectorStore(
-            persist_dir=persist_dir,
-            collection_name=collection_name,
-            embedder=self.embedder,
-        )
+        self.embeddings = get_embeddings()
+        self.qdrant = get_qdrant_client()
 
-        # BM25 retriever
-        self.bm25_retriever: Optional[BM25Retriever] = None
-        self.dense_retriever = None
-
-        # Load indexes
-        self._load_bm25_index()
-        self._setup_hybrid_retriever()
-
-        # Cache for retrieval results
-        self.cache = RetrievalCache()
+        try:
+            self.qdrant.set_sparse_model("prithivida/Splade_PP_en_v1")
+        except Exception as e:
+            logger.warning(f"Could not set sparse model, sparse vectors will be disabled: {e}")
 
         # Re-ranker for post-retrieval relevance filtering
         self.reranker = DocumentReranker()
 
         logger.info("####### DocumentRetriever initialized #######")
 
-    def _load_bm25_index(self) -> None:
-        """Load BM25 index from saved documents."""
-        docs = self.vector_store.load_bm25_documents()
-        if docs:
-            self.bm25_retriever = BM25Retriever.from_documents(docs)
-            # Fetch more candidates for re-ranking
-            self.bm25_retriever.k = self.top_k * 2
-            logger.info(f"####### BM25 index loaded: {len(docs)} documents #######")
-        else:
-            logger.warning("No BM25 index found - hybrid search unavailable")
+    async def ensure_ready(self):
+        self.dense_ready = await self.qdrant.collection_exists(self.collection_name)
 
-    def _setup_hybrid_retriever(self) -> None:
-        """Setup hybrid retriever combining BM25 and dense search."""
-        if self.vector_store.is_ready:
-            self.dense_retriever = self.vector_store.as_retriever(search_kwargs={"k": self.top_k})
-
-            if self.bm25_retriever:
-                logger.info(
-                    f"####### Hybrid retriever ready "
-                    f"(BM25: {self.bm25_weight}, Dense: {self.dense_weight}) #######"
-                )
-            else:
-                logger.info("Using dense-only retrieval (BM25 not available)")
-        else:
-            logger.warning("No retrieval indexes available")
-
-    def reload(self) -> None:
+    async def reload(self) -> None:
         """Reload all indexes (call after new documents are added)."""
         logger.info("Reloading retrieval indexes...")
-        self.vector_store = VectorStore(
-            persist_dir=self.persist_dir,
-            collection_name=self.collection_name,
-            embedder=self.embedder,
-        )
-        self._load_bm25_index()
-        self._setup_hybrid_retriever()
-        self.cache.clear()
+        await self.ensure_ready()
 
-    def retrieve(self, query: str) -> Tuple[str, List[str]]:
-        from src.utils.guardrails import validate_query
+    async def _search_qdrant(self, query: str, k: int) -> List[Tuple[Document, float]]:
+        """Perform native hybrid search using Qdrant client (RRF)."""
+        vector = await self.embeddings.aembed_query(query)
 
-        validate_query(query)
+        try:
+            # Check if fastembed sparse model is loaded
+            sparse_supported = (
+                hasattr(self.qdrant, "_sparse_embedding_model")
+                and self.qdrant._sparse_embedding_model is not None
+            )
 
-        if not self.vector_store.is_ready:
+            if sparse_supported:
+                # Qdrant client native method for generating sparse queries
+                sparse_vector = next(self.qdrant._sparse_embedding_model.query_embed(query))
+
+                prefetch = [
+                    models.Prefetch(
+                        query=vector,
+                        using="dense",
+                        limit=k,
+                    ),
+                    models.Prefetch(
+                        query=models.SparseVector(
+                            indices=sparse_vector.indices.tolist(),
+                            values=sparse_vector.values.tolist(),
+                        ),
+                        using="sparse",
+                        limit=k,
+                    ),
+                ]
+
+                results = await self.qdrant.query_points(
+                    collection_name=self.collection_name,
+                    prefetch=prefetch,
+                    query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    limit=k,
+                    with_payload=True,
+                )
+                results = results.points
+            else:
+                results = await self.qdrant.search(
+                    collection_name=self.collection_name,
+                    query_vector=("dense", vector),
+                    limit=k,
+                    with_payload=True,
+                )
+
+            return [
+                (
+                    Document(
+                        page_content=r.payload.get("page_content", ""),
+                        metadata=r.payload.get("metadata", {}),
+                    ),
+                    r.score,
+                )
+                for r in results
+            ]
+        except Exception as e:
+            logger.error(f"Qdrant search failed: {e}")
+            return []
+
+    async def retrieve(self, query: str) -> Tuple[str, List[str]]:
+        if not hasattr(self, "dense_ready"):
+            await self.ensure_ready()
+
+        if not self.dense_ready:
             logger.warning("No vector store available")
             return "", []
 
-        # 1. Check cache first
-        cached = self.cache.get(query)
-        if cached:
-            logger.info(f"Retrieval cache hit for query: {query[:30]}...")
-            return cached
-
-        # 2. Execute retrieval
         try:
-            if self.bm25_retriever and self.dense_retriever:
-                context, sources = self._retrieve_hybrid(query)
-            else:
-                context, sources = self._retrieve_dense(query)
-
-            # 3. Cache the result
-            if context:
-                self.cache.set(query, context, sources)
-
+            context, sources = await self._retrieve_hybrid(query)
             return context, sources
         except Exception as e:
-            logger.error(f"Retrieval failed: {e}")
+            logger.error(f"Retrieval failed: {e}", exc_info=True)
             return "", []
 
-    def _retrieve_hybrid(self, query: str) -> Tuple[str, List[str]]:
-        """Retrieve using hybrid BM25 + dense search with RRF Fusion.
+    async def _retrieve_hybrid(self, query: str) -> Tuple[str, List[str]]:
+        """Retrieve using native Qdrant hybrid search with RRF Fusion."""
+        logger.info("Using native Qdrant hybrid search")
 
-        BM25 and dense retrieval are independent — neither result depends on the
-        other. They are submitted to a ThreadPoolExecutor and run concurrently.
-        Total retrieval time = max(bm25_time, dense_time) instead of their sum.
-        """
-        logger.info("Using hybrid search (BM25 + Dense + RRF)")
+        # Fetch top_k * 2 candidates from Qdrant
+        results = await self._search_qdrant(query, self.top_k * 2)
 
-        # Run BM25 and dense retrieval in parallel
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            bm25_future = (
-                executor.submit(self.bm25_retriever.invoke, query) if self.bm25_retriever else None
-            )
-            dense_future = executor.submit(
-                self.vector_store.similarity_search, query, self.top_k * 2
-            )
-
-            bm25_results = bm25_future.result() if bm25_future else []
-            dense_results = dense_future.result()
-
-        # Reciprocal Rank Fusion
-        rrf_constant = 60
-        scores: dict[str, dict[str, object]] = {}
-
-        for rank, doc in enumerate(bm25_results):
-            if doc.page_content not in scores:
-                scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] = float(
-                scores[doc.page_content]["score"]  # type: ignore[arg-type]
-            ) + self.bm25_weight * (1 / (rrf_constant + rank))
-
-        for rank, doc in enumerate(dense_results):
-            if doc.page_content not in scores:
-                scores[doc.page_content] = {"doc": doc, "score": 0.0}
-            scores[doc.page_content]["score"] = float(
-                scores[doc.page_content]["score"]  # type: ignore[arg-type]
-            ) + self.dense_weight * (1 / (rrf_constant + rank))
-
-        sorted_results = sorted(
-            scores.values(),
-            key=lambda x: float(x["score"]),  # type: ignore[arg-type]
-            reverse=True,
-        )
-        # We fetch top_k * 2 candidates from RRF, then pass them to the re-ranker
-        from typing import cast
-
-        from langchain_core.documents import Document as LCDocument
-
-        candidate_docs = cast(
-            list[LCDocument], [item["doc"] for item in sorted_results[: self.top_k * 2]]
-        )
+        candidate_docs = [doc for doc, _ in results]
 
         # Re-rank candidates against the query
-        top_docs = self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
+        top_docs = await self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
 
         context_parts = []
         sources = []
@@ -192,57 +150,26 @@ class DocumentRetriever:
         context = "\n\n".join(context_parts)
         return context, sources
 
-    def _retrieve_dense(self, query: str) -> Tuple[str, List[str]]:
-        """Retrieve using dense semantic search with score filtering."""
-        logger.info("Using dense-only search")
-
-        results = self.vector_store.similarity_search_with_score(query, k=self.top_k)
-
-        # Filter by max distance
-        filtered = [(doc, score) for doc, score in results if score <= self.max_distance]
-
-        if not filtered:
-            logger.info(f"No documents below distance threshold {self.max_distance}")
-            return "", []
-
-        context_parts = []
-        sources = []
-
-        for i, (doc, score) in enumerate(filtered):
-            # Convert L2 distance to relevance score (0-1)
-            relevance = max(0, 1 - (score / 2))
-
-            context_parts.append(f"[Source {i+1}, Relevance: {relevance:.2f}]\n{doc.page_content}")
-            source = doc.metadata.get("source", "Unknown")
-            sources.append(f"Source {i+1}: {source}")
-
-        logger.info(f"Dense search retrieved {len(filtered)} documents")
-
-        context = "\n\n".join(context_parts)
-        return context, sources
-
     @property
     def retrieval_mode(self) -> str:
         """Get current retrieval mode."""
-        if self.bm25_retriever and self.dense_retriever:
-            return "hybrid"
-        elif self.vector_store.is_ready:
-            return "dense_only"
-        else:
-            return "unavailable"
+        dense = getattr(self, "dense_ready", False)
+        return "native_hybrid" if dense else "unavailable"
 
-    def get_stats(self) -> dict:
+    async def get_stats(self) -> dict:
         """Get retriever statistics."""
+        dense = getattr(self, "dense_ready", False)
+        qdrant_count = 0
+        if dense:
+            try:
+                qdrant_count = (await self.qdrant.count(self.collection_name)).count
+            except Exception:
+                pass
+
         return {
-            "status": "loaded" if self.vector_store.is_ready else "not_loaded",
+            "status": "loaded" if dense else "not_loaded",
             "retrieval_mode": self.retrieval_mode,
             "top_k": self.top_k,
             "max_distance": self.max_distance,
-            "bm25_weight": self.bm25_weight
-            if (self.bm25_retriever and self.dense_retriever)
-            else None,
-            "dense_weight": self.dense_weight
-            if (self.bm25_retriever and self.dense_retriever)
-            else None,
-            "vector_store": self.vector_store.get_stats(),
+            "vector_store": {"document_count": qdrant_count},
         }

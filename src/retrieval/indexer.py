@@ -1,17 +1,20 @@
+import asyncio
+import uuid
 from pathlib import Path
 from typing import List, Optional
 
 from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
 from langchain_core.documents import Document
+from qdrant_client import models
 
+from src.core.dependencies import get_embeddings, get_qdrant_client
 from src.retrieval.chunking import DocumentChunker
-from src.retrieval.embedder import Embedder
-from src.retrieval.vector_store import VectorStore
+from src.retrieval.retriever import DocumentRetriever
 from src.utils.logger import logger
 
 
 class DocumentIndexer:
-    """Orchestrates document loading, chunking, and indexing."""
+    """Orchestrates document loading, chunking, and indexing into Qdrant."""
 
     def __init__(
         self,
@@ -19,18 +22,37 @@ class DocumentIndexer:
         collection_name: str = "smartroute_docs",
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        embedder: Optional[Embedder] = None,
     ):
         self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
 
-        self.embedder = embedder or Embedder()
+        self.embeddings = get_embeddings()
+        self.qdrant = get_qdrant_client()
         self.chunker = DocumentChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-        self.vector_store = VectorStore(
-            persist_dir=persist_dir, collection_name=collection_name, embedder=self.embedder
-        )
+
+        try:
+            self.qdrant.set_sparse_model("prithivida/Splade_PP_en_v1")
+        except Exception as e:
+            logger.warning(f"Could not set sparse model, sparse vectors will be disabled: {e}")
+
+        self.retriever = DocumentRetriever(persist_dir=persist_dir, collection_name=collection_name)
 
         logger.info(f"DocumentIndexer initialized: {collection_name}")
+
+    async def _ensure_collection(self, vector_size: int):
+        """Ensure collection exists with both dense and sparse configurations."""
+        exists = await self.qdrant.collection_exists(self.collection_name)
+        if not exists:
+            vectors_config = {
+                "dense": models.VectorParams(size=vector_size, distance=models.Distance.COSINE)
+            }
+            sparse_vectors_config = {"sparse": models.SparseVectorParams()}
+            await self.qdrant.create_collection(
+                collection_name=self.collection_name,
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_vectors_config,
+            )
+            logger.info(f"Created new collection: {self.collection_name}")
 
     def load_documents(
         self,
@@ -50,7 +72,6 @@ class DocumentIndexer:
 
         for file_type in file_types:
             if file_type not in loader_map:
-                logger.warning(f"Unknown file type: {file_type}")
                 continue
 
             loader_cls, glob_pattern = loader_map[file_type]
@@ -63,61 +84,86 @@ class DocumentIndexer:
 
             try:
                 docs = loader.load()
-                logger.info(f"Loaded {len(docs)} {file_type.upper()} files")
                 all_docs.extend(docs)
             except Exception as e:
                 logger.warning(f"Error loading {file_type} files: {e}")
 
         return all_docs
 
-    def index_documents(self, documents: List[Document], save_bm25: bool = True) -> None:
+    def index_documents(self, documents: List[Document]) -> None:
         """Index documents into vector store."""
         if not documents:
-            logger.warning("No documents to index")
             return
 
         chunks = self.chunker.chunk_documents(documents)
         logger.info(f"Chunked into {len(chunks)} chunks")
 
-        self.vector_store.create(chunks)
-
-        if save_bm25:
-            self.vector_store.save_bm25_index(chunks)
+        asyncio.run(self._async_add_documents(chunks))
 
     def index_directory(
         self,
         docs_dir: Path,
         file_types: Optional[List[str]] = None,
-        save_bm25: bool = True,
     ) -> None:
         """Load and index all documents from a directory."""
-        logger.info(f"Indexing documents from {docs_dir}")
-
         documents = self.load_documents(docs_dir, file_types)
-
         if not documents:
-            logger.warning("No documents found!")
             return
+        self.index_documents(documents)
 
-        self.index_documents(documents, save_bm25)
-        logger.info("Successfully indexed documents")
-
-    def add_documents(self, documents: List[Document], update_bm25: bool = True) -> None:
+    def add_documents(self, documents: List[Document]) -> None:
         """Add documents to existing index."""
         chunks = self.chunker.chunk_documents(documents)
-        self.vector_store.add_documents(chunks)
+        asyncio.run(self._async_add_documents(chunks))
 
-        if update_bm25:
-            existing_docs = self.vector_store.load_bm25_documents() or []
-            all_docs = existing_docs + chunks
-            self.vector_store.save_bm25_index(all_docs)
+    async def _async_add_documents(self, chunks: List[Document]):
+        texts = [doc.page_content for doc in chunks]
 
+        # 1. Generate Dense Vectors
+        dense_vectors = await self.embeddings.aembed_documents(texts)
+
+        # Ensure collection exists with proper schema
+        if dense_vectors:
+            await self._ensure_collection(len(dense_vectors[0]))
+
+        # 2. Generate Sparse Vectors if available
+        sparse_supported = (
+            hasattr(self.qdrant, "_sparse_embedding_model")
+            and self.qdrant._sparse_embedding_model is not None
+        )
+        if sparse_supported:
+            sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)
+            sparse_vectors_list = list(sparse_vectors_generator)
+
+            points = [
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={
+                        "dense": d_vec,
+                        "sparse": models.SparseVector(
+                            indices=s_vec.indices.tolist(),
+                            values=s_vec.values.tolist(),
+                        ),
+                    },
+                    payload={"page_content": doc.page_content, "metadata": doc.metadata},
+                )
+                for doc, d_vec, s_vec in zip(chunks, dense_vectors, sparse_vectors_list)
+            ]
+        else:
+            points = [
+                models.PointStruct(
+                    id=str(uuid.uuid4()),
+                    vector={"dense": vec},
+                    payload={"page_content": doc.page_content, "metadata": doc.metadata},
+                )
+                for doc, vec in zip(chunks, dense_vectors)
+            ]
+
+        await self.qdrant.upsert(collection_name=self.collection_name, points=points)
         logger.info(f"Added {len(chunks)} document chunks to index")
 
     def get_stats(self) -> dict:
         """Get indexer statistics."""
         return {
-            "vector_store": self.vector_store.get_stats(),
             "chunker": self.chunker.get_config(),
-            "embedder": self.embedder.get_config(),
         }

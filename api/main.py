@@ -1,43 +1,34 @@
-"""
-SmartRoute-AI — FastAPI entry point.
-
-Startup order:
-  1. validate_env()       — fail fast if any required env var is missing
-  2. InferencePipeline()  — connect to Qdrant, Supabase, Upstash
-  3. Serve traffic        — all endpoints are async and non-blocking
-"""
-
 import asyncio
 import os
-import secrets
 import sys
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, List, Optional
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from src.pipeline.inference import InferencePipeline
-from src.utils.guardrails import GuardrailViolation, validate_query
 from src.utils.logger import logger
 from src.utils.tracing import setup_tracing
 
-# ── Startup: env-var validation ───────────────────────────────────────────────
+#  validation
 
 _REQUIRED_ENV_VARS = [
-    ("DATABASE_URL", "Supabase PostgreSQL  → https://supabase.com"),
-    ("REDIS_URL", "Upstash Redis        → https://upstash.com"),
-    ("QDRANT_URL", "Qdrant Cloud         → https://cloud.qdrant.io"),
-    ("QDRANT_API_KEY", "Qdrant Cloud         → https://cloud.qdrant.io"),
-    ("GROQ_API_KEY", "Groq LLM             → https://console.groq.com"),
-    ("HF_TOKEN", "HuggingFace API      → https://huggingface.co/settings/tokens"),
+    ("DATABASE_URL", "Supabase PostgreSQL  -> https://supabase.com"),
+    ("REDIS_URL", "Upstash Redis        -> https://upstash.com"),
+    ("QDRANT_URL", "Qdrant Cloud         -> https://cloud.qdrant.io"),
+    ("QDRANT_API_KEY", "Qdrant Cloud         -> https://cloud.qdrant.io"),
+    ("HF_TOKEN", "HuggingFace API      -> https://huggingface.co/settings/tokens"),
 ]
 
 
@@ -57,8 +48,8 @@ def validate_env() -> None:
         "=" * 60,
     ]
     for var, hint in missing:
-        lines.append(f"  ❌  {var}")
-        lines.append(f"       Get it from: {hint}")
+        lines.append(f"  [MISSING]  {var}")
+        lines.append(f"             Get it from: {hint}")
     lines += [
         "=" * 60,
         "Set these in your .env file or Render environment variables.\n",
@@ -67,7 +58,7 @@ def validate_env() -> None:
     sys.exit(1)
 
 
-# ── Application lifespan ──────────────────────────────────────────────────────
+#  Application lifespan
 
 pipeline: Optional[InferencePipeline] = None
 
@@ -79,7 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     validate_env()
     try:
         pipeline = InferencePipeline()
-        logger.info("Pipeline initialised — all cloud services connected.")
+        logger.info("Pipeline initialised - all cloud services connected.")
     except Exception as exc:
         logger.error(f"Pipeline init failed: {exc}")
         sys.exit(1)  # crash loudly; Render will restart and show the error
@@ -118,21 +109,72 @@ setup_tracing(app)
 
 @app.get("/health", tags=["system"])
 async def health_check():
-    """Unauthenticated health probe for Docker and Render."""
-    return {"status": "ok", "pipeline": "ready" if pipeline else "starting"}
+    """Unauthenticated health probe for Docker, Render, and load balancers.
+
+    Always returns 200 so Docker probes don't restart the container during
+    the 60-second pipeline startup. Returns component detail once ready.
+    """
+    if not pipeline:
+        return {"status": "starting", "pipeline": "initializing"}
+
+    components = {
+        "router": "ok" if pipeline.router else "error",
+        "model_manager": "ok" if pipeline.model_manager else "error",
+        "retriever": "ok" if pipeline.retriever else "error",
+        "cost_tracker": "ok" if pipeline.tracker else "error",
+        "redis": "error",
+        "qdrant": "error",
+        "postgres": "error",
+    }
+
+    try:
+        from src.core.dependencies import get_redis_client
+
+        redis_client = get_redis_client()
+        if await redis_client.ping():
+            components["redis"] = "ok"
+    except Exception as e:
+        components["redis"] = f"error: {str(e)}"
+
+    try:
+        from src.core.dependencies import get_qdrant_client
+
+        qdrant_client = get_qdrant_client()
+        await qdrant_client.get_collections()
+        components["qdrant"] = "ok"
+    except Exception as e:
+        components["qdrant"] = f"error: {str(e)}"
+
+    try:
+        if pipeline.tracker and pipeline.tracker.engine:
+            import asyncio
+
+            from sqlalchemy import text
+
+            def ping_db():
+                with pipeline.tracker.engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+
+            await asyncio.to_thread(ping_db)
+            components["postgres"] = "ok"
+    except Exception as e:
+        components["postgres"] = f"error: {str(e)}"
+
+    return {
+        "status": "healthy",
+        "version": "2.0.0",
+        "components": components,
+    }
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+from src.utils.security import require_jwt
 
 
-def require_api_key(api_key: Optional[str] = Depends(_api_key_header)) -> str:
-    """Constant-time API key validation to prevent timing attacks."""
-    valid_key = os.getenv("SMARTROUTE_API_KEY", "dev-key-change-in-production")
-    if not api_key or not secrets.compare_digest(api_key, valid_key):
-        raise HTTPException(status_code=401, detail="Invalid or missing API key")
-    return api_key
+def require_api_key(payload: dict = Depends(require_jwt)) -> str:
+    """JWT validation facade. Returns the user ID (sub) from the token."""
+    return payload.get("sub", "unknown_user")
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -168,9 +210,9 @@ async def root():
         "status": "healthy" if pipeline else "degraded",
         "service": "SmartRoute-AI",
         "version": "2.0.0",
-        # All business endpoints live under /v1 — keeps API evolvable
         "endpoints": {
             "query": "/v1/query",
+            "batch": "/v1/query/batch",
             "stream": "/v1/query/stream",
             "stats": "/v1/stats",
             "savings": "/v1/savings",
@@ -178,22 +220,6 @@ async def root():
             "models": "/v1/models",
             "health": "/health",
             "docs": "/docs",
-        },
-    }
-
-
-@app.get("/health")
-async def health():
-    if not pipeline:
-        raise HTTPException(status_code=503, detail="Pipeline not initialised")
-    return {
-        "status": "healthy",
-        "version": "2.0.0",
-        "components": {
-            "router": "ok" if pipeline.router else "error",
-            "model_manager": "ok" if pipeline.model_manager else "error",
-            "retriever": "ok" if pipeline.retriever else "error",
-            "cost_tracker": "ok" if pipeline.tracker else "error",
         },
     }
 
@@ -223,10 +249,42 @@ async def query(
             use_retrieval=query_request.use_retrieval,
             session_id=query_request.session_id,
         )
+        if result.get("latency", 0) > 10.0:
+            from src.utils.alerting import send_alert
+
+            asyncio.create_task(
+                send_alert(
+                    "High API Latency",
+                    f"Query took {result['latency']:.2f}s to process.\nModel: {result.get('model_used')}",
+                    "warning",
+                )
+            )
         return QueryResponse(**result)
     except Exception as e:
         logger.error(f"Query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@v1.post("/query/batch")
+@limiter.limit("10/minute")
+async def query_batch(
+    request: Request,
+    queries: List[str],
+    strategy: Optional[str] = None,
+    use_retrieval: bool = True,
+    _: str = Depends(require_api_key),
+):
+    """Process multiple queries concurrently. Max 10 queries per call."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    if not queries:
+        raise HTTPException(status_code=422, detail="queries list cannot be empty")
+    if len(queries) > 10:
+        raise HTTPException(status_code=422, detail="Maximum 10 queries per batch request")
+    results = await pipeline.batch_run(
+        queries=queries, strategy=strategy, use_retrieval=use_retrieval
+    )
+    return results
 
 
 @v1.post("/query/stream")
@@ -241,45 +299,19 @@ async def query_stream(
         raise HTTPException(status_code=503, detail="Service not ready")
 
     async def _token_generator() -> AsyncIterator[str]:
+        import json
+
         try:
-            # Guardrails
-            try:
-                query = validate_query(query_request.query)
-            except GuardrailViolation as e:
-                yield f"data: [ERROR] {e}\n\n"
-                return
-
-            # Route
-            routing_decision = pipeline.router.route(query, query_request.strategy)
-            model_id = routing_decision["model_id"]
-
-            # Retrieve context (run blocking call in executor)
-            context = ""
-            if query_request.use_retrieval:
-                loop = asyncio.get_event_loop()
-                context, _ = await loop.run_in_executor(None, pipeline.retriever.retrieve, query)
-
-            model = pipeline.model_manager.load_model(model_id)
-            history = (
-                pipeline.memory.get_history(query_request.session_id)
-                if query_request.session_id
-                else []
-            )
-
-            async for chunk in model.astream(
-                prompt=query,
-                context=context,
-                max_tokens=1000,
-                temperature=0.7,
-                history=history,
+            async for item in pipeline.astream_run(
+                query=query_request.query,
+                strategy=query_request.strategy,
+                use_retrieval=query_request.use_retrieval,
+                session_id=query_request.session_id,
             ):
-                yield f"data: {chunk}\n\n"
-
-            yield "data: [DONE]\n\n"
-
+                yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             logger.error(f"Stream failed: {e}")
-            yield f"data: [ERROR] {e}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(
         _token_generator(),
@@ -297,7 +329,7 @@ async def get_stats(
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return pipeline.tracker.get_statistics(days=days)
+    return await asyncio.to_thread(pipeline.tracker.get_statistics, days)
 
 
 @v1.get("/savings")
@@ -309,7 +341,7 @@ async def get_savings(
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return pipeline.tracker.calculate_savings(days=days)
+    return await asyncio.to_thread(pipeline.tracker.calculate_savings, days)
 
 
 @v1.get("/budget")
@@ -320,17 +352,16 @@ async def get_budget(
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return pipeline.budget_manager.get_budget_status()
+    return await asyncio.to_thread(pipeline.budget_manager.get_budget_status)
 
 
 @v1.get("/models")
 async def list_models(_: str = Depends(require_api_key)):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return {
-        "available": pipeline.model_manager.list_available_models(),
-        "loaded": pipeline.model_manager.list_loaded_models(),
-    }
+    available = list(pipeline.model_manager.config.get("openrouter_models", {}).keys())
+    loaded = list(pipeline.model_manager.loaded_models.keys())
+    return {"available": available, "loaded": loaded}
 
 
 @v1.delete("/memory/{session_id}")
@@ -338,38 +369,33 @@ async def clear_memory(session_id: str, _: str = Depends(require_api_key)):
     """Clear conversation history for a session."""
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    pipeline.memory.clear(session_id)
+    await pipeline.memory.clear(session_id)
     return {"status": "cleared", "session_id": session_id}
+
+
+@v1.post("/index")
+async def index_documents(_: str = Depends(require_api_key)):
+    """Trigger indexing of documents in the data/documents directory."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    from src.retrieval.indexer import DocumentIndexer
+
+    try:
+        indexer = DocumentIndexer()
+        # Run synchronous indexing in a thread
+        await asyncio.to_thread(indexer.index_directory, "data/documents")
+        # Reload the retriever to pick up new documents
+        if hasattr(pipeline.retriever, "reload"):
+            await asyncio.to_thread(pipeline.retriever.reload)
+        stats = indexer.get_stats()
+        return {"status": "success", "stats": stats}
+    except Exception as e:
+        logger.error(f"Indexing failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # Mount versioned router — all /v1/* routes are now live
 app.include_router(v1)
-
-
-# ── Legacy unversioned routes (deprecated) ────────────────────────────────────
-#
-# Kept only to avoid breaking existing integrations during transition.
-# Will be removed in v2. Clients should migrate to /v1/* routes.
-
-
-@app.post("/query", response_model=QueryResponse, deprecated=True, include_in_schema=False)
-@limiter.limit("30/minute")
-async def query_legacy(
-    request: Request, query_request: QueryRequest, _: str = Depends(require_api_key)
-):
-    return await query(request, query_request, _)
-
-
-@app.get("/stats", deprecated=True, include_in_schema=False)
-@limiter.limit("60/minute")
-async def get_stats_legacy(request: Request, days: int = 1, _: str = Depends(require_api_key)):
-    return await get_stats(request, days, _)
-
-
-@app.get("/budget", deprecated=True, include_in_schema=False)
-@limiter.limit("60/minute")
-async def get_budget_legacy(request: Request, _: str = Depends(require_api_key)):
-    return await get_budget(request, _)
 
 
 if __name__ == "__main__":

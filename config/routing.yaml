@@ -1,58 +1,64 @@
 default_strategy: "cost_optimized"
 
+# Classifier Selection (A/B Testing)
+classification:
+  active_classifier: "ml" # Options: heuristic, llm, ml
+  llm_classifier:
+    model: "nvidia/nemotron-nano-9b-v2:free"
+
 strategies:
   cost_optimized:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
-      model: "llama_3_1_8b"        
-      fallback: "llama4_scout_17b" 
+      model: "nvidia/nemotron-nano-9b-v2:free"        
+      fallback: "openrouter/free" 
       quality_threshold: 0.7
       max_latency: 3.0
       
     medium:
-      model: "llama4_scout_17b"
-      fallback: "llama_3_3_70b"
+      model: "openai/gpt-oss-20b:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.75
       max_latency: 5.0
       
     complex:
-      model: "llama_3_3_70b"   
-      fallback: "llama_3_3_70b" 
+      model: "google/gemma-4-31b-it:free"   
+      fallback: "openrouter/free" 
       quality_threshold: 0.8
       max_latency: 10.0
       
   quality_first:
     description: "Always use the most capable model (best quality, slower)"
     simple:
-      model: "llama_3_3_70b"
-      fallback: "llama_3_3_70b"
+      model: "google/gemma-4-31b-it:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.70
       
     medium:
-      model: "llama_3_3_70b"
-      fallback: "llama_3_3_70b"
+      model: "google/gemma-4-31b-it:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.85
       
     complex:
-      model: "llama_3_3_70b"
-      fallback: "llama_3_3_70b"
+      model: "google/gemma-4-31b-it:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.9
       
   balanced:
     description: "Balance between cost and quality"
     simple:
-      model: "llama_3_1_8b"
-      fallback: "llama4_scout_17b"
+      model: "nvidia/nemotron-nano-9b-v2:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.75
       
     medium:
-      model: "llama4_scout_17b"
-      fallback: "llama_3_3_70b"
+      model: "openai/gpt-oss-20b:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.8
       
     complex:
-      model: "llama_3_3_70b"
-      fallback: "llama_3_3_70b"
+      model: "google/gemma-4-31b-it:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.85
 
 # Complexity classification
@@ -88,3 +94,69 @@ quality:
   min_confidence: 0.6
   max_retries: 2
   escalate_on_failure: true
+
+# Reference queries for semantic routing
+reference_queries:
+  complex:
+  - Analyze the impact of...
+  - Compare and contrast...
+  - Evaluate the effectiveness of...
+  - Synthesize findings from...
+  - Critique the methodology of...
+  - Design a distributed rate limiter for a high-traffic API.
+  - Explain the math behind backpropagation in neural networks.
+  - Write a multi-threaded Rust web server from scratch.
+  - Optimize this O(n^2) algorithm to O(n log n).
+  - Analyze the economic implications of quantitative easing.
+  - Evaluate the security vulnerabilities of this smart contract.
+  - Design a highly available database architecture.
+  - Implement a custom memory allocator in C.
+  - Synthesize the findings of these three medical research papers.
+  - Critique the philosophical arguments for determinism.
+  - Write a comprehensive test suite using Pytest and mock objects.
+  - Explain the intricacies of the Paxos consensus algorithm.
+  - Develop a machine learning model to predict stock prices.
+  - Analyze the time and space complexity of this dynamic programming solution.
+  - Design a real-time collaborative text editor like Google Docs.
+  medium:
+  - Write a Python script to reverse a string.
+  - How do I set up a basic Express server?
+  - Explain how garbage collection works in Java.
+  - Compare REST and GraphQL APIs.
+  - What are the pros and cons of microservices?
+  - Summarize the plot of Inception.
+  - Translate this short paragraph to French.
+  - Explain the basics of supply and demand.
+  - How do I use a left join in SQL?
+  - What is the time complexity of bubble sort?
+  - Write a polite email declining a job offer.
+  - Give me a 3-day itinerary for Rome.
+  - Explain the concept of inheritance in OOP.
+  - How do I fix a merge conflict in Git?
+  - What are the main causes of World War I?
+  - Write a regular expression to match email addresses.
+  - Explain how DNS resolution works.
+  - Create a simple HTML form with validation.
+  - How do I iterate over a dictionary in Python?
+  - Summarize this 5-page article.
+  simple:
+  - What is X?
+  - Define Y
+  - Who is Z?
+  - Simple definition of A
+  - List the B
+  - What does acronym stand for?
+  - Give me a quick summary.
+  - Translate this word to Spanish.
+  - What time is it in Tokyo?
+  - Where is the capital of France?
+  - How tall is the Eiffel Tower?
+  - Is Python an object oriented language?
+  - Name three types of databases.
+  - What is the boiling point of water?
+  - Convert 50 miles to kilometers.
+  - When was the Declaration of Independence signed?
+  - What is the difference between a dog and a wolf?
+  - Who wrote Romeo and Juliet?
+  - What is the speed of light?
+  - Give me a synonym for happy.

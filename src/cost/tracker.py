@@ -1,9 +1,7 @@
 import hashlib
-import json
 import os
 from contextlib import contextmanager
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict
 
 from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
@@ -61,7 +59,7 @@ class CostTracker:
             Base.metadata.create_all(bind=self.engine)
         # NOTE: Schema is managed by Alembic migrations, not create_all().
         # Run `alembic upgrade head` before starting the app (render.yaml does this).
-        logger.info(f"CostTracker → Supabase: {database_url.split('@')[-1]}")
+        logger.info(f"CostTracker -> Supabase: {database_url.split('@')[-1]}")
 
     @contextmanager
     def _get_session(self):
@@ -172,42 +170,6 @@ class CostTracker:
             "percentage": round((savings / baseline_cost * 100) if baseline_cost > 0 else 0, 2),
             "queries": total_queries,
         }
-
-    def get_daily_breakdown(self, days: int = 7) -> Dict:
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        with self._get_session() as session:
-            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
-        daily = {}
-        for log in logs:
-            date = log.timestamp.date().isoformat()
-            if date not in daily:
-                daily[date] = {"queries": 0, "cost": 0.0}
-            daily[date]["queries"] += 1
-            daily[date]["cost"] += log.cost
-        return daily
-
-    def export_to_jsonl(self, output_path: Path, days: int = 30):
-        cutoff = datetime.utcnow() - timedelta(days=days)
-        with self._get_session() as session:
-            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            for log in logs:
-                f.write(
-                    json.dumps(
-                        {
-                            "timestamp": log.timestamp.isoformat(),
-                            "model_id": log.model_id,
-                            "complexity": log.complexity,
-                            "cost": log.cost,
-                            "latency": log.latency,
-                            "success": log.success,
-                            "query_hash": log.query_hash,
-                        }
-                    )
-                    + "\n"
-                )
-        logger.info(f"Exported {len(logs)} logs to {output_path}")
 
     def close(self):
         if self.engine:

@@ -6,10 +6,11 @@ import numpy as np
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
 
+from src.routing.base_classifier import BaseClassifier
 from src.routing.features import FeatureExtractor
 
 
-class ComplexityClassifier:
+class ComplexityClassifier(BaseClassifier):
     """ML-based query complexity classifier"""
 
     def __init__(self, model_path: Optional[Path] = None):
@@ -54,21 +55,21 @@ class ComplexityClassifier:
 
         return float(accuracy)
 
-    def predict(self, query: str) -> Tuple[str, float]:
+    async def predict(self, query: str) -> Tuple[str, float]:
         if not self.is_trained:
             raise RuntimeError(
                 "Classifier not trained. Run 'python scripts/train_classifier.py' first."
             )
 
-        # Extract features
-        features = self.feature_extractor.extract(query)
+        # Extract features (now an async network call)
+        features = await self.feature_extractor.extract(query)
         feature_vector = self.feature_extractor.extract_vector(features)
 
         # Scale
         X = feature_vector.reshape(1, -1)
         X_scaled = self.scaler.transform(X)
 
-        # Predict
+        # Predict (very fast, safe on main thread)
         prediction = self.model.predict(X_scaled)[0]
         probabilities = self.model.predict_proba(X_scaled)[0]
 
@@ -76,19 +77,6 @@ class ComplexityClassifier:
         confidence = probabilities[prediction]
 
         return complexity, confidence
-
-    def get_feature_importance(self) -> dict:
-        """Get feature importance scores"""
-        if not self.is_trained:
-            return {}
-
-        from src.routing.features import FeatureExtractor
-
-        feature_names = FeatureExtractor.FEATURE_ORDER
-
-        importances = self.model.feature_importances_
-
-        return dict(zip(feature_names, importances))
 
     def save(self, path: Path):
         """Save trained model using joblib (safer than pickle)"""

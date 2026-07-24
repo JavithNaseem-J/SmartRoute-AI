@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -30,6 +31,18 @@ def get_training_data():
         # This extreme class imbalance destroys the LightGBM model's ability to identify complex queries.
         # We rely on the synthetic data generator below which provides perfectly balanced classes.
         pass
+
+    csv_path = Path("data/training/synthetic_queries.csv")
+    if csv_path.exists():
+        print(f"Loading synthetic data from {csv_path}...")
+        import csv
+
+        with open(csv_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                queries.append(row["query"])
+                labels.append(int(row["complexity"]))
+        return queries, labels
 
     # Fallback to BETTER synthetic data (no duplicates)
     print("Generating synthetic data...")
@@ -111,7 +124,7 @@ def get_training_data():
     return queries, labels
 
 
-def main():
+async def main():
     print("=" * 60)
     print("TRAINING QUERY COMPLEXITY CLASSIFIER")
     print("=" * 60)
@@ -133,7 +146,7 @@ def main():
 
     # batch_extract_vectors encodes ALL queries in one SentenceTransformer
     # call instead of 10,000 individual forward passes — ~50x faster
-    X = feature_extractor.batch_extract_vectors(queries, batch_size=256)
+    X = await feature_extractor.batch_extract_vectors(queries)
     y = labels
 
     print(f"####### Extracted features: {X.shape} #######")
@@ -201,7 +214,7 @@ def main():
     # Mapping (unused but kept for context if needed, stripped to avoid lint error)
     correct = 0
     for query, expected_str in test_examples:
-        predicted_str, confidence = classifier.predict(query)
+        predicted_str, confidence = await classifier.predict(query)
 
         is_correct = "#######" if predicted_str == expected_str else ">>>>>>><<<<<<<"
 
@@ -223,4 +236,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

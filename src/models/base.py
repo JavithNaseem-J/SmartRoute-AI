@@ -24,11 +24,9 @@ class BaseLLM(ABC):
     @abstractmethod
     async def agenerate(
         self,
-        prompt: str,
-        context: str = "",
+        messages: List[Dict],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        history: Optional[List[Dict]] = None,
     ) -> Dict:
         """Generate a response asynchronously.
 
@@ -41,15 +39,14 @@ class BaseLLM(ABC):
         """
 
     @abstractmethod
-    def astream(
+    async def astream(
         self,
-        prompt: str,
-        context: str = "",
+        messages: List[Dict],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-        history: Optional[List[Dict]] = None,
     ) -> AsyncIterator[str]:
-        """Stream response tokens asynchronously (Server-Sent Events)."""
+        """Generate response token-by-token."""
+        pass
 
     @abstractmethod
     def count_tokens(self, text: str) -> int:
@@ -58,7 +55,3 @@ class BaseLLM(ABC):
     @abstractmethod
     def get_cost(self, input_tokens: int, output_tokens: int) -> float:
         """Return cost in USD for the given token pair."""
-
-    @abstractmethod
-    def get_info(self) -> Dict:
-        """Return provider metadata (model_id, provider, cost rates, etc.)."""

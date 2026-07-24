@@ -42,9 +42,15 @@ def client():
     api_module.pipeline = original
 
 
+import jwt
+
+
 @pytest.fixture
 def api_key():
-    return os.getenv("SMARTROUTE_API_KEY", "dev-key-change-in-production")
+    jwt_secret = os.getenv(
+        "SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long"
+    )
+    return jwt.encode({"sub": "test_user"}, jwt_secret, algorithm="HS256")
 
 
 def test_health_check(client):
@@ -55,19 +61,21 @@ def test_health_check(client):
 
 
 def test_query_requires_auth(client):
-    """Test query endpoint requires API key."""
-    response = client.post("/query", json={"query": "What is AI?"})
-    assert response.status_code == 401
+    """Test query endpoint requires API key/JWT token."""
+    response = client.post("/v1/query", json={"query": "What is AI?"})
+    assert response.status_code == 403 or response.status_code == 401
 
 
 def test_query_with_auth(client, api_key):
-    """Test query endpoint with valid API key."""
-    response = client.post("/query", json={"query": "What is AI?"}, headers={"X-API-Key": api_key})
+    """Test query endpoint with valid JWT."""
+    response = client.post(
+        "/v1/query", json={"query": "What is AI?"}, headers={"Authorization": f"Bearer {api_key}"}
+    )
     assert response.status_code == 200
     assert response.json()["success"] is True
 
 
 def test_stats_endpoint(client, api_key):
     """Test stats endpoint."""
-    response = client.get("/stats", headers={"X-API-Key": api_key})
+    response = client.get("/v1/stats", headers={"Authorization": f"Bearer {api_key}"})
     assert response.status_code == 200

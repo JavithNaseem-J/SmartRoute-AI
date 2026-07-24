@@ -11,7 +11,11 @@ from alembic import context
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import Base so Alembic can discover the ORM models for autogenerate
+from dotenv import load_dotenv
+
 from src.cost.tracker import Base  # noqa: E402
+
+load_dotenv()
 
 config = context.config
 

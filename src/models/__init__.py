@@ -1,5 +1,5 @@
 # Models module
-from .groq_model import GroqModel
 from .model_manager import ModelManager
+from .openrouter_model import OpenRouterModel
 
-__all__ = ["ModelManager", "GroqModel"]
+__all__ = ["ModelManager", "OpenRouterModel"]
