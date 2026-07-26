@@ -33,12 +33,8 @@ from src.utils.logger import logger
 try:
     from datasets import Dataset
     from ragas import evaluate
-    from ragas.metrics import (
-        answer_relevancy,
-        context_precision,
-        context_recall,
-        faithfulness,
-    )
+    from ragas.metrics import (answer_relevancy, context_precision,
+                               context_recall, faithfulness)
 
     _RAGAS_AVAILABLE = True
 except ImportError:

@@ -29,15 +29,13 @@ def _build_exporter(endpoint: str):
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
 
     if protocol == "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter as HTTPExporter,
-        )
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import \
+            OTLPSpanExporter as HTTPExporter
 
         return HTTPExporter(endpoint=endpoint)
     else:
-        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
-            OTLPSpanExporter as GRPCExporter,
-        )
+        from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import \
+            OTLPSpanExporter as GRPCExporter
 
         return GRPCExporter(endpoint=endpoint)
 

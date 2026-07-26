@@ -4,7 +4,8 @@ from typing import Dict, Optional
 
 from qdrant_client.models import PointStruct
 
-from src.core.dependencies import get_embeddings, get_qdrant_client, get_redis_client
+from src.core.dependencies import (get_embeddings, get_qdrant_client,
+                                   get_redis_client)
 from src.utils.logger import logger
 
 
