@@ -40,12 +40,12 @@ def get_training_data():
         with open(csv_path, "r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                queries.append(row["query"])
-                labels.append(int(row["complexity"]))
-        return queries, labels
+                if row.get("query") and row.get("complexity") is not None:
+                    queries.append(row["query"])
+                    labels.append(int(row["complexity"]))
 
-    # Fallback to BETTER synthetic data (no duplicates)
-    print("Generating synthetic data...")
+    # Add rich synthetic queries (no duplicates)
+    print("Generating rich synthetic data...")
 
     # Define templates to generate varied queries
     subjects = [

@@ -77,10 +77,10 @@ async def test_feature_extractor_upgraded_features():
     # Check new semantic features
     assert "medium_similarity" in features
 
-    # Validate feature vector shape is now 16 (12 lexical + 4 semantic)
+    # Validate feature vector shape is now 19 (15 lexical + 4 semantic)
     vector = extractor.extract_vector(features)
-    assert vector.shape == (16,)
+    assert vector.shape == (19,)
 
     # Validate batch extraction
     batch_features = await extractor.batch_extract_vectors([query, "another query"])
-    assert batch_features.shape == (2, 16)
+    assert batch_features.shape == (2, 19)
