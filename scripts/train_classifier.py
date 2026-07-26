@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 try:
@@ -182,8 +183,22 @@ async def main():
     else:
         X_test_scaled = X_test
 
+    y_pred = classifier.model.predict(X_test_scaled)
     test_accuracy = classifier.model.score(X_test_scaled, y_test)
-    print(f"####### Test accuracy: {test_accuracy:.2%} #######")
+    print(f"####### Overall Test Accuracy: {test_accuracy:.2%} #######")
+
+    # Detailed Evaluation Metrics (Precision, Recall, F1-Score)
+    print("\n" + "=" * 60)
+    print("CLASSIFICATION REPORT & EVALUATION METRICS")
+    print("=" * 60)
+    report = classification_report(
+        y_test, y_pred, target_names=["simple (0)", "medium (1)", "complex (2)"], digits=4
+    )
+    print(report)
+
+    cm = confusion_matrix(y_test, y_pred)
+    print("Confusion Matrix:")
+    print(cm)
 
     # Feature importance
     print("\n[5/5] Analyzing feature importance...")

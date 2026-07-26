@@ -78,6 +78,14 @@ class ComplexityClassifier(BaseClassifier):
 
         return complexity, confidence
 
+    def get_feature_importance(self) -> dict:
+        """Return feature importance scores mapped to feature names."""
+        if not self.is_trained:
+            return {}
+        importances = self.model.feature_importances_
+        feature_names = self.feature_extractor.FEATURE_ORDER
+        return {name: float(score) for name, score in zip(feature_names, importances)}
+
     def save(self, path: Path):
         """Save trained model using joblib (safer than pickle)"""
         path.parent.mkdir(parents=True, exist_ok=True)
