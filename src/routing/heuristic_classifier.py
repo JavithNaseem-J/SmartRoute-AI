@@ -116,7 +116,11 @@ class HeuristicClassifier(BaseClassifier):
         # 2. Medium Triggers (Multi-part questions, moderate length)
         is_multipart = query.count("?") > 1 or " and " in query_lower
 
-        if is_multipart or word_count > 15 or any(k in query_lower for k in self.medium_keywords):
+        if (
+            is_multipart
+            or word_count > 15
+            or any(k in query_lower for k in self.medium_keywords)
+        ):
             return "medium", 1.0
 
         # 3. Simple Triggers (Short, factual, greeting)

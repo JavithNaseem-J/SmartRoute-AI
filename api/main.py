@@ -186,7 +186,9 @@ class QueryRequest(BaseModel):
         None, description="Routing strategy: cost_optimized | quality_first | balanced"
     )
     use_retrieval: bool = Field(True, description="Enable RAG retrieval")
-    session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversation")
+    session_id: Optional[str] = Field(
+        None, description="Session ID for multi-turn conversation"
+    )
 
 
 class QueryResponse(BaseModel):
@@ -280,7 +282,9 @@ async def query_batch(
     if not queries:
         raise HTTPException(status_code=422, detail="queries list cannot be empty")
     if len(queries) > 10:
-        raise HTTPException(status_code=422, detail="Maximum 10 queries per batch request")
+        raise HTTPException(
+            status_code=422, detail="Maximum 10 queries per batch request"
+        )
     results = await pipeline.batch_run(
         queries=queries, strategy=strategy, use_retrieval=use_retrieval
     )

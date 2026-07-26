@@ -34,7 +34,9 @@ class DocumentRetriever:
         try:
             self.qdrant.set_sparse_model("prithivida/Splade_PP_en_v1")
         except Exception as e:
-            logger.warning(f"Could not set sparse model, sparse vectors will be disabled: {e}")
+            logger.warning(
+                f"Could not set sparse model, sparse vectors will be disabled: {e}"
+            )
 
         # Re-ranker for post-retrieval relevance filtering
         self.reranker = DocumentReranker()
@@ -99,7 +101,9 @@ class DocumentRetriever:
             return [
                 (
                     Document(
-                        page_content=r.payload.get("page_content", "") if r.payload else "",
+                        page_content=(
+                            r.payload.get("page_content", "") if r.payload else ""
+                        ),
                         metadata=r.payload.get("metadata", {}) if r.payload else {},
                     ),
                     r.score,

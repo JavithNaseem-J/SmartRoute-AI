@@ -86,7 +86,9 @@ class FeatureExtractor:
 
             import yaml
 
-            config_path = Path(__file__).parent.parent.parent / "config" / "routing.yaml"
+            config_path = (
+                Path(__file__).parent.parent.parent / "config" / "routing.yaml"
+            )
             with open(config_path, "r") as f:
                 self.reference_queries = yaml.safe_load(f).get("reference_queries", {})
         except Exception as e:
@@ -98,7 +100,9 @@ class FeatureExtractor:
         self.ref_embeddings: dict = {}
         self._ref_embeddings_ready = False
 
-    def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> "np.ndarray[Any, Any]":
+    def _cosine_similarity_max(
+        self, a: np.ndarray, b: np.ndarray
+    ) -> "np.ndarray[Any, Any]":
         """Compute max cosine similarity of a (N, D) against b (M, D). Returns (N,)."""
         # a: (N, D), b: (M, D) -> dot: (N, M)
         dot = np.dot(a, b.T)
@@ -175,17 +179,26 @@ class FeatureExtractor:
             try:
                 # Async network call for embeddings
                 embeddings_list = await self.embedder.aembed_documents(queries)
-                embeddings = np.array(embeddings_list, dtype=np.float32)  # shape: (n, 384)
+                embeddings = np.array(
+                    embeddings_list, dtype=np.float32
+                )  # shape: (n, 384)
 
-                simple_max = self._cosine_similarity_max(embeddings, self.ref_embeddings["simple"])
-                medium_max = self._cosine_similarity_max(embeddings, self.ref_embeddings["medium"])
+                simple_max = self._cosine_similarity_max(
+                    embeddings, self.ref_embeddings["simple"]
+                )
+                medium_max = self._cosine_similarity_max(
+                    embeddings, self.ref_embeddings["medium"]
+                )
                 complex_max = self._cosine_similarity_max(
                     embeddings, self.ref_embeddings["complex"]
                 )
 
                 semantic = np.stack(
-                    [complex_max - simple_max, simple_max, medium_max, complex_max], axis=1
-                ).astype(np.float32)  # shape: (n, 4)
+                    [complex_max - simple_max, simple_max, medium_max, complex_max],
+                    axis=1,
+                ).astype(
+                    np.float32
+                )  # shape: (n, 4)
             except Exception as e:
                 logger.error(f"Failed to fetch embeddings from API: {e}")
                 semantic = np.zeros((n, 4), dtype=np.float32)
@@ -201,7 +214,17 @@ class FeatureExtractor:
         words = query.split()
         word_set = set(query_lower.split())
 
-        logic_ops = {"if", "then", "and", "or", "else", "not", "when", "assume", "given"}
+        logic_ops = {
+            "if",
+            "then",
+            "and",
+            "or",
+            "else",
+            "not",
+            "when",
+            "assume",
+            "given",
+        }
         logic_operator_count = sum(1 for w in word_set if w in logic_ops)
 
         # Count non-alphanumeric and non-space characters
@@ -211,7 +234,9 @@ class FeatureExtractor:
         return {
             "word_count": len(words),
             "sentence_count": len([s for s in re.split(r"[.!?]+", query) if s.strip()]),
-            "has_code": bool(re.search(r"```|def\s+\w+|class\s+\w+|import\s+\w+", query)),
+            "has_code": bool(
+                re.search(r"```|def\s+\w+|class\s+\w+|import\s+\w+", query)
+            ),
             "has_technical_terms": bool(word_set & self.technical_terms),
             "has_numbers": bool(re.search(r"\d+", query)),
             "question_depth": min(query.count("?") + query.count(",") // 2, 5),
@@ -237,4 +262,6 @@ class FeatureExtractor:
 
     def extract_vector(self, features: Dict) -> np.ndarray:
         """Convert a features dict to a numpy vector (used at inference time)."""
-        return np.array([float(features.get(f, 0)) for f in self.FEATURE_ORDER], dtype=np.float32)
+        return np.array(
+            [float(features.get(f, 0)) for f in self.FEATURE_ORDER], dtype=np.float32
+        )

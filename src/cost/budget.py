@@ -67,7 +67,9 @@ class BudgetManager:
 
             if new_total > self.limits["daily"]:
                 await self._redis.incrbyfloat(key, -estimated_cost)  # roll back
-                logger.warning(f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}")
+                logger.warning(
+                    f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}"
+                )
                 import asyncio
 
                 from src.utils.alerting import send_alert

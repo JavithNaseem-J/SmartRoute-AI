@@ -19,7 +19,9 @@ API_URL = os.getenv("API_URL", "http://localhost:8000")
 jwt_secret = os.getenv(
     "SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long"
 )
-ui_token = jwt.encode({"sub": "streamlit-ui", "role": "admin"}, jwt_secret, algorithm="HS256")
+ui_token = jwt.encode(
+    {"sub": "streamlit-ui", "role": "admin"}, jwt_secret, algorithm="HS256"
+)
 HEADERS = {"Authorization": f"Bearer {ui_token}"}
 
 
@@ -76,7 +78,9 @@ tab1, tab2, tab3 = st.tabs(["Inference Console", "Cost Analytics", "Budget Statu
 with tab1:
     docs_dir = Path("data/documents")
     existing_docs = list(docs_dir.glob("**/*.*")) if docs_dir.exists() else []
-    doc_files = [f for f in existing_docs if f.suffix.lower() in [".pdf", ".txt", ".md"]]
+    doc_files = [
+        f for f in existing_docs if f.suffix.lower() in [".pdf", ".txt", ".md"]
+    ]
 
     if use_retrieval:
         st.header("Enterprise Knowledge Base")
@@ -114,15 +118,21 @@ with tab1:
                                 processed_count += 1
 
                             try:
-                                r = requests.post(f"{API_URL}/v1/index", headers=HEADERS)
+                                r = requests.post(
+                                    f"{API_URL}/v1/index", headers=HEADERS
+                                )
                                 r.raise_for_status()
                                 st.session_state.docs_processed = True
-                                st.success(f"✅ Indexed {processed_count} document(s) on backend!")
+                                st.success(
+                                    f"✅ Indexed {processed_count} document(s) on backend!"
+                                )
                                 st.rerun()
                             except Exception as e:
                                 st.error(f"❌ Indexing Error: {e}")
         else:
-            st.info("Upload source documents to enable retrieval-augmented generation (RAG).")
+            st.info(
+                "Upload source documents to enable retrieval-augmented generation (RAG)."
+            )
             uploaded_files = st.file_uploader(
                 "Upload PDF, TXT, or MD files to build knowledge base",
                 type=["pdf", "txt", "md"],
@@ -149,7 +159,9 @@ with tab1:
                             r = requests.post(f"{API_URL}/v1/index", headers=HEADERS)
                             r.raise_for_status()
                             st.session_state.docs_processed = True
-                            st.success(f"✅ Processed {processed_count} document(s) on backend!")
+                            st.success(
+                                f"✅ Processed {processed_count} document(s) on backend!"
+                            )
                             st.rerun()
                         except Exception as e:
                             st.error(f"❌ Indexing Error: {e}")
@@ -165,16 +177,20 @@ with tab1:
 
     query = st.text_area(
         "Query Input",
-        placeholder="Enter your query here..."
-        if not use_retrieval
-        else "Enter a query regarding the indexed documents...",
+        placeholder=(
+            "Enter your query here..."
+            if not use_retrieval
+            else "Enter a query regarding the indexed documents..."
+        ),
         height=100,
     )
 
     col1, col2 = st.columns([1, 4])
 
     with col1:
-        ask_button = st.button("Execute Query", type="primary", use_container_width=True)
+        ask_button = st.button(
+            "Execute Query", type="primary", use_container_width=True
+        )
 
     if ask_button and query and ready:
         st.markdown("### Output")
@@ -188,7 +204,11 @@ with tab1:
             with requests.post(
                 f"{API_URL}/v1/query/stream",
                 headers=HEADERS,
-                json={"query": query, "strategy": strategy, "use_retrieval": use_retrieval},
+                json={
+                    "query": query,
+                    "strategy": strategy,
+                    "use_retrieval": use_retrieval,
+                },
                 stream=True,
             ) as response:
                 response.raise_for_status()
@@ -220,7 +240,9 @@ with tab1:
                         for source in sources:
                             st.write(f"- {source}")
 
-                routing_info = metadata.get("routing_info") or final_result.get("routing_info")
+                routing_info = metadata.get("routing_info") or final_result.get(
+                    "routing_info"
+                )
                 if routing_info:
                     with st.expander("Detailed Routing Metrics"):
                         st.json(routing_info)
@@ -250,13 +272,17 @@ with tab2:
                 st.metric(
                     "Total Cost",
                     f"${stats.get('total_cost', 0):.4f}",
-                    delta=f"-${savings.get('savings', 0):.4f}"
-                    if savings.get("savings", 0) > 0
-                    else None,
+                    delta=(
+                        f"-${savings.get('savings', 0):.4f}"
+                        if savings.get("savings", 0) > 0
+                        else None
+                    ),
                     delta_color="inverse",
                 )
             with col3:
-                st.metric("Avg Cost/Query", f"${stats.get('avg_cost_per_query', 0):.4f}")
+                st.metric(
+                    "Avg Cost/Query", f"${stats.get('avg_cost_per_query', 0):.4f}"
+                )
             with col4:
                 st.metric(
                     "Savings",
@@ -293,7 +319,10 @@ with tab2:
                 by_complexity = stats.get("by_complexity", {})
                 if by_complexity:
                     comp_data = pd.DataFrame(
-                        [{"Complexity": c, "Count": d["count"]} for c, d in by_complexity.items()]
+                        [
+                            {"Complexity": c, "Count": d["count"]}
+                            for c, d in by_complexity.items()
+                        ]
                     )
                     fig = px.bar(
                         comp_data,

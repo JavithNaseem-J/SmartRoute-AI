@@ -28,12 +28,16 @@ def get_qdrant_client() -> AsyncQdrantClient:
         qdrant_url = os.getenv("QDRANT_URL")
         qdrant_key = os.getenv("QDRANT_API_KEY")
         if not qdrant_url or not qdrant_key:
-            raise RuntimeError("QDRANT_URL and QDRANT_API_KEY environment variables are required")
+            raise RuntimeError(
+                "QDRANT_URL and QDRANT_API_KEY environment variables are required"
+            )
         _qdrant_client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_key)
     return _qdrant_client
 
 
-def get_embeddings(model_name: str = "BAAI/bge-small-en-v1.5") -> HuggingFaceEndpointEmbeddings:
+def get_embeddings(
+    model_name: str = "BAAI/bge-small-en-v1.5",
+) -> HuggingFaceEndpointEmbeddings:
     """Get the shared endpoint embeddings model."""
     global _embeddings
     if _embeddings is None:

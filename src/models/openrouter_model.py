@@ -2,7 +2,12 @@ import os
 from typing import AsyncGenerator, Dict, List, Optional
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 from src.models.base import BaseLLM
 from src.utils.circuit_breaker import AsyncCircuitBreaker
@@ -58,7 +63,9 @@ class OpenRouterModel(BaseLLM):
         if self._breaker.state == "OPEN":
             from src.utils.circuit_breaker import CircuitBreakerOpenException
 
-            raise CircuitBreakerOpenException(f"Circuit breaker OPEN for {self.model_id}")
+            raise CircuitBreakerOpenException(
+                f"Circuit breaker OPEN for {self.model_id}"
+            )
         try:
             result = await self.client.chat.completions.create(
                 model=self.model_id,
@@ -83,7 +90,9 @@ class OpenRouterModel(BaseLLM):
         if self._breaker.state == "OPEN":
             from src.utils.circuit_breaker import CircuitBreakerOpenException
 
-            raise CircuitBreakerOpenException(f"Circuit breaker OPEN for {self.model_id}")
+            raise CircuitBreakerOpenException(
+                f"Circuit breaker OPEN for {self.model_id}"
+            )
         try:
             result = await self.client.chat.completions.create(
                 model=self.model_id,
@@ -114,7 +123,9 @@ class OpenRouterModel(BaseLLM):
             return {
                 "text": response.choices[0].message.content.strip(),
                 "input_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "output_tokens": response.usage.completion_tokens if response.usage else 0,
+                "output_tokens": (
+                    response.usage.completion_tokens if response.usage else 0
+                ),
             }
         except Exception as e:
             logger.error(f"OpenRouter API unexpected error: {e}")

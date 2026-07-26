@@ -25,7 +25,9 @@ Medium: Short code, comparisons, guides.
 Complex: Deep architecture, multi-step math, system design."""
 
 
-async def generate_class(model: NvidiaModel, complexity: str, num_samples: int) -> list[str]:
+async def generate_class(
+    model: NvidiaModel, complexity: str, num_samples: int
+) -> list[str]:
     logger.info(f"Generating {num_samples} {complexity} queries...")
 
     prompt = SYSTEM_PROMPT.format(num_samples=num_samples, complexity=complexity)
@@ -76,7 +78,9 @@ async def main():
         for size in sizes:
             queries = await generate_class(model, complexity, size)
             for q in queries:
-                all_queries.append({"query": q.replace("\n", " ").strip(), "complexity": class_id})
+                all_queries.append(
+                    {"query": q.replace("\n", " ").strip(), "complexity": class_id}
+                )
 
     # Save to CSV
     logger.info(f"Saving {len(all_queries)} queries to {out_file}")

@@ -3,7 +3,11 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
+from langchain_community.document_loaders import (
+    DirectoryLoader,
+    PyPDFLoader,
+    TextLoader,
+)
 from langchain_core.documents import Document
 from qdrant_client import models
 
@@ -28,14 +32,20 @@ class DocumentIndexer:
 
         self.embeddings = get_embeddings()
         self.qdrant = get_qdrant_client()
-        self.chunker = DocumentChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.chunker = DocumentChunker(
+            chunk_size=chunk_size, chunk_overlap=chunk_overlap
+        )
 
         try:
             self.qdrant.set_sparse_model("prithivida/Splade_PP_en_v1")
         except Exception as e:
-            logger.warning(f"Could not set sparse model, sparse vectors will be disabled: {e}")
+            logger.warning(
+                f"Could not set sparse model, sparse vectors will be disabled: {e}"
+            )
 
-        self.retriever = DocumentRetriever(persist_dir=persist_dir, collection_name=collection_name)
+        self.retriever = DocumentRetriever(
+            persist_dir=persist_dir, collection_name=collection_name
+        )
 
         logger.info(f"DocumentIndexer initialized: {collection_name}")
 
@@ -44,7 +54,9 @@ class DocumentIndexer:
         exists = await self.qdrant.collection_exists(self.collection_name)
         if not exists:
             vectors_config = {
-                "dense": models.VectorParams(size=vector_size, distance=models.Distance.COSINE)
+                "dense": models.VectorParams(
+                    size=vector_size, distance=models.Distance.COSINE
+                )
             }
             sparse_vectors_config = {"sparse": models.SparseVectorParams()}
             await self.qdrant.create_collection(
@@ -145,7 +157,10 @@ class DocumentIndexer:
                             values=s_vec.values.tolist(),
                         ),
                     },
-                    payload={"page_content": doc.page_content, "metadata": doc.metadata},
+                    payload={
+                        "page_content": doc.page_content,
+                        "metadata": doc.metadata,
+                    },
                 )
                 for doc, d_vec, s_vec in zip(chunks, dense_vectors, sparse_vectors_list)
             ]
@@ -154,7 +169,10 @@ class DocumentIndexer:
                 models.PointStruct(
                     id=str(uuid.uuid4()),
                     vector={"dense": vec},
-                    payload={"page_content": doc.page_content, "metadata": doc.metadata},
+                    payload={
+                        "page_content": doc.page_content,
+                        "metadata": doc.metadata,
+                    },
                 )
                 for doc, vec in zip(chunks, dense_vectors)
             ]

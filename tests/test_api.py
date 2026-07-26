@@ -33,7 +33,9 @@ def client():
     mock_pipeline = MagicMock()
     mock_pipeline.run = AsyncMock(return_value=_MOCK_RESULT)
     mock_pipeline.tracker.get_statistics.return_value = {"total_queries": 10}
-    mock_pipeline.budget_manager.get_budget_status.return_value = {"daily": {"spent": 0}}
+    mock_pipeline.budget_manager.get_budget_status.return_value = {
+        "daily": {"spent": 0}
+    }
 
     original = api_module.pipeline
     api_module.pipeline = mock_pipeline
@@ -41,7 +43,6 @@ def client():
     yield TestClient(api_module.app)
 
     api_module.pipeline = original
-
 
 
 @pytest.fixture
@@ -68,7 +69,9 @@ def test_query_requires_auth(client):
 def test_query_with_auth(client, api_key):
     """Test query endpoint with valid JWT."""
     response = client.post(
-        "/v1/query", json={"query": "What is AI?"}, headers={"Authorization": f"Bearer {api_key}"}
+        "/v1/query",
+        json={"query": "What is AI?"},
+        headers={"Authorization": f"Bearer {api_key}"},
     )
     assert response.status_code == 200
     assert response.json()["success"] is True

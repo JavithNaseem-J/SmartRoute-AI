@@ -64,7 +64,8 @@ async def test_reranker_semantic_ranking():
         page_content="Paris is the capital of France.", metadata={"src": "correct"}
     )
     doc_partial = Document(
-        page_content="France is a country in Western Europe.", metadata={"src": "partial"}
+        page_content="France is a country in Western Europe.",
+        metadata={"src": "partial"},
     )
 
     docs = [doc_unrelated, doc_partial, doc_correct]

@@ -17,7 +17,9 @@ class QueryRouter:
     Now supports pluggable classifiers (Heuristic, LLM, ML).
     """
 
-    def __init__(self, routing_config_path: Path, classifier_path: Optional[Path] = None):
+    def __init__(
+        self, routing_config_path: Path, classifier_path: Optional[Path] = None
+    ):
         # Load routing configuration
         with open(routing_config_path, "r") as f:
             self.config = yaml.safe_load(f)
@@ -56,13 +58,17 @@ class QueryRouter:
         strategy = strategy or self.default_strategy
 
         if strategy not in self.config["strategies"]:
-            logger.warning(f"Unknown strategy {strategy}, using {self.default_strategy}")
+            logger.warning(
+                f"Unknown strategy {strategy}, using {self.default_strategy}"
+            )
             strategy = self.default_strategy
 
         # Classify query complexity (async)
         complexity, confidence = await self.classifier.predict(query)
 
-        logger.info(f"Query classified as {complexity} " f"(confidence: {confidence:.2f})")
+        logger.info(
+            f"Query classified as {complexity} " f"(confidence: {confidence:.2f})"
+        )
 
         # Get routing rules for this strategy and complexity
         strategy_config = self.config["strategies"][strategy]

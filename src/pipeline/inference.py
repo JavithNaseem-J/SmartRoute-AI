@@ -35,7 +35,9 @@ class InferencePipeline:
         logger.info("Initializing inference pipeline...")
 
         if classifier_path is None:
-            classifier_path = _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
+            classifier_path = (
+                _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
+            )
 
         self.router = QueryRouter(
             routing_config_path=config_dir / "routing.yaml",
@@ -70,9 +72,7 @@ class InferencePipeline:
             )
             user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
         else:
-            system_msg = (
-                "You are a helpful AI assistant. Answer questions accurately and concisely."
-            )
+            system_msg = "You are a helpful AI assistant. Answer questions accurately and concisely."
             user_msg = prompt
 
         return [
@@ -120,7 +120,9 @@ class InferencePipeline:
         estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
         can_afford, reason = await self.budget_manager.check_budget(estimated_cost)
         if not can_afford:
-            logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
+            logger.warning(
+                f"Budget exceeded ({reason}) — falling back to cheapest model"
+            )
             model_id = "llama_3_1_8b"
             routing_decision["model_id"] = model_id
             routing_decision["reason"] = f"budget_{reason}"
@@ -158,10 +160,14 @@ class InferencePipeline:
             query = validate_query(query)
         except GuardrailViolation as e:
             logger.warning(f"Query blocked by guardrails: {e}")
-            return self._error_response(str(e), "guardrail_violation", time.time() - start_time)
+            return self._error_response(
+                str(e), "guardrail_violation", time.time() - start_time
+            )
 
         try:
-            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
+            prep = await self._prepare_context(
+                query, strategy, use_retrieval, start_time
+            )
             if prep["is_cached"]:
                 return dict(prep["cached_result"])
 
@@ -281,13 +287,18 @@ class InferencePipeline:
             return
 
         try:
-            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
+            prep = await self._prepare_context(
+                query, strategy, use_retrieval, start_time
+            )
             if prep["is_cached"]:
                 cached_result = prep["cached_result"]
                 yield {
                     "type": "metadata",
                     "data": {
-                        "routing_info": {"model_id": "semantic_cache", "complexity": "cached"},
+                        "routing_info": {
+                            "model_id": "semantic_cache",
+                            "complexity": "cached",
+                        },
                         "sources": cached_result.get("sources", []),
                     },
                 }
@@ -333,7 +344,9 @@ class InferencePipeline:
                 fallback_model = self.model_manager.load_model(model_id)
                 input_tokens = fallback_model.count_tokens(full_prompt)
 
-                stream = fallback_model.astream(messages=messages, max_tokens=1000, temperature=0.7)
+                stream = fallback_model.astream(
+                    messages=messages, max_tokens=1000, temperature=0.7
+                )
                 full_answer = ""
                 async for chunk in stream:
                     full_answer += chunk
@@ -384,7 +397,10 @@ class InferencePipeline:
             latency = time.time() - start_time
             logger.error(f"Pipeline stream failed: {e}", exc_info=True)
             yield {"type": "chunk", "content": f"\n\nError: {str(e)}"}
-            yield {"type": "done", "result": self._error_response(str(e), str(e), latency)}
+            yield {
+                "type": "done",
+                "result": self._error_response(str(e), str(e), latency),
+            }
 
     async def batch_run(
         self,
@@ -396,7 +412,10 @@ class InferencePipeline:
         if not queries:
             return []
         logger.info(f"Batch processing {len(queries)} queries...")
-        tasks = [self.run(query=q, strategy=strategy, use_retrieval=use_retrieval) for q in queries]
+        tasks = [
+            self.run(query=q, strategy=strategy, use_retrieval=use_retrieval)
+            for q in queries
+        ]
         return list(await asyncio.gather(*tasks))
 
     def get_statistics(self, days: int = 1) -> Dict:

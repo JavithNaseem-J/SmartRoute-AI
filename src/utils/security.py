@@ -22,7 +22,9 @@ def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(security)) -
 
     try:
         # Decode and verify the JWT signature
-        payload = jwt.decode(token, jwt_secret, algorithms=["HS256"], options={"verify_aud": False})
+        payload = jwt.decode(
+            token, jwt_secret, algorithms=["HS256"], options={"verify_aud": False}
+        )
         return payload
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token has expired")

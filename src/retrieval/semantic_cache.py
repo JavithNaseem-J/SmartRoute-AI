@@ -9,7 +9,9 @@ from src.utils.logger import logger
 
 
 class SemanticCache:
-    def __init__(self, threshold: float = 0.95, collection_name: str = "semantic-cache"):
+    def __init__(
+        self, threshold: float = 0.95, collection_name: str = "semantic-cache"
+    ):
         self.threshold = threshold
         self.collection_name = collection_name
         self.embeddings = get_embeddings()
@@ -65,7 +67,9 @@ class SemanticCache:
             # 3. Store vector in Qdrant
             await self.qdrant.upsert(
                 collection_name=self.collection_name,
-                points=[PointStruct(id=point_id, vector=vector, payload={"query": query})],
+                points=[
+                    PointStruct(id=point_id, vector=vector, payload={"query": query})
+                ],
             )
             logger.info("Inserted new response into semantic cache.")
 

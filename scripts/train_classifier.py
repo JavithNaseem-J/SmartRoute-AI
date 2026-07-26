@@ -60,7 +60,13 @@ def get_training_data():
         "Kubernetes",
         "API",
     ]
-    actions_simple = ["What is", "Define", "Who created", "When was", "List features of"]
+    actions_simple = [
+        "What is",
+        "Define",
+        "Who created",
+        "When was",
+        "List features of",
+    ]
     actions_medium = [
         "How does",
         "Why use",
@@ -207,8 +213,14 @@ async def main():
         ("Define machine learning", "simple"),
         ("How does neural network training work?", "medium"),
         ("Explain the difference between AI and ML", "medium"),
-        ("Analyze the ethical implications of AI in healthcare comprehensively", "complex"),
-        ("Evaluate different approaches to AGI development with detailed reasoning", "complex"),
+        (
+            "Analyze the ethical implications of AI in healthcare comprehensively",
+            "complex",
+        ),
+        (
+            "Evaluate different approaches to AGI development with detailed reasoning",
+            "complex",
+        ),
     ]
 
     # Mapping (unused but kept for context if needed, stripped to avoid lint error)

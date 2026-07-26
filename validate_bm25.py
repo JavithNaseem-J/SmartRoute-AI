@@ -17,7 +17,10 @@ def main():
 
         # Now let's save some dummy documents to BM25
         docs = [
-            Document(page_content="This is a test document about AI.", metadata={"source": "test"})
+            Document(
+                page_content="This is a test document about AI.",
+                metadata={"source": "test"},
+            )
         ]
         retriever.save_bm25_index(docs)
 
