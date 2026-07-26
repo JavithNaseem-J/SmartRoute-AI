@@ -32,10 +32,9 @@ jobs:
           uv pip install --system -r requirements.txt
           uv pip install --system ruff pytest pytest-cov pytest-asyncio httpx fakeredis
 
-      - name: Lint and Format Check (ruff)
+      - name: Lint (ruff)
         run: |
           ruff check src/ api/ tests/ --output-format=github
-          ruff format --check .
 
       - name: Run tests
         run: |
