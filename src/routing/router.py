@@ -3,18 +3,14 @@ from typing import Dict, Optional
 
 import yaml  # type: ignore
 
-from src.routing.base_classifier import BaseClassifier
 from src.routing.classifier import ComplexityClassifier
-from src.routing.heuristic_classifier import HeuristicClassifier
-from src.routing.llm_classifier import LLMClassifier
 from src.utils.logger import logger
 
 
 class QueryRouter:
     """
     Intelligent query router
-    Routes queries to cost-effective models based on complexity.
-    Now supports pluggable classifiers (Heuristic, LLM, ML).
+    Routes queries to cost-effective models based on complexity using LightGBM ML Classifier.
     """
 
     def __init__(self, routing_config_path: Path, classifier_path: Optional[Path] = None):
@@ -22,24 +18,10 @@ class QueryRouter:
         with open(routing_config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
-        # Determine active classifier from config
-        class_config = self.config.get("classification", {})
-        self.active_classifier_name = class_config.get("active_classifier", "heuristic")
-
-        # Initialize classifier
-        self.classifier: BaseClassifier
-        if self.active_classifier_name == "ml":
-            logger.info("Initializing ML Classifier (Legacy)")
-            self.classifier = ComplexityClassifier(classifier_path)
-        elif self.active_classifier_name == "llm":
-            model_id = class_config.get("llm_classifier", {}).get(
-                "model", "nvidia/nemotron-nano-9b-v2:free"
-            )
-            logger.info(f"Initializing LLM Classifier with model {model_id}")
-            self.classifier = LLMClassifier(model_id=model_id)
-        else:
-            logger.info("Initializing Heuristic Classifier (Zero-latency)")
-            self.classifier = HeuristicClassifier()
+        # Initialize ML classifier
+        logger.info("Initializing ML Classifier (LightGBM)")
+        self.classifier = ComplexityClassifier(classifier_path)
+        self.active_classifier_name = "ml"
 
         # Set default strategy
         self.default_strategy = self.config.get("default_strategy", "cost_optimized")

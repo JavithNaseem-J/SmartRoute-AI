@@ -1,10 +1,8 @@
 default_strategy: "cost_optimized"
 
-# Classifier Selection (A/B Testing)
+# Classifier Selection
 classification:
-  active_classifier: "ml" # Options: heuristic, llm, ml
-  llm_classifier:
-    model: "nvidia/nemotron-nano-9b-v2:free"
+  active_classifier: "ml"
 
 strategies:
   cost_optimized:
