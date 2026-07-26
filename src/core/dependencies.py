@@ -47,9 +47,13 @@ def get_embeddings(
     """Get the shared endpoint embeddings model."""
     global _embeddings
     if _embeddings is None:
-        hf_token = os.getenv("HF_TOKEN")
+        hf_token = os.getenv("HF_TOKEN", "")
         if not hf_token:
-            raise RuntimeError("HF_TOKEN environment variable is required")
+            from src.utils.logger import logger
+
+            logger.warning(
+                "HF_TOKEN environment variable not set. Embeddings API calls will fail until configured."
+            )
         _embeddings = HuggingFaceEndpointEmbeddings(
             model=model_name,
             huggingfacehub_api_token=hf_token,
