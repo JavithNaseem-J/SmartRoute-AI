@@ -105,7 +105,7 @@ class FeatureExtractor:
         norm_a = np.linalg.norm(a, axis=1, keepdims=True)  # (N, 1)
         norm_b = np.linalg.norm(b, axis=1, keepdims=True).T  # (1, M)
         sims = dot / (norm_a * norm_b + 1e-10)
-        return sims.max(axis=1)  # (N,)
+        return sims.max(axis=1)  # type: ignore[no-any-return]
 
     # ------------------------------------------------------------------
     # Single-query extraction (used at inference time)
