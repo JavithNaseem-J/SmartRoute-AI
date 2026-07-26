@@ -39,9 +39,7 @@ class LLMClassifier(BaseClassifier):
         ]
 
         try:
-            result = await self.model.agenerate(
-                messages=messages, max_tokens=5, temperature=0.0
-            )
+            result = await self.model.agenerate(messages=messages, max_tokens=5, temperature=0.0)
             answer = result["text"].strip().lower()
 
             # Clean up the response in case the LLM was chatty

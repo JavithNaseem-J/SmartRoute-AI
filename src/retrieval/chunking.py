@@ -27,8 +27,7 @@ class DocumentChunker:
         )
 
         logger.info(
-            f"DocumentChunker initialized: "
-            f"chunk_size={chunk_size}, overlap={chunk_overlap}"
+            f"DocumentChunker initialized: chunk_size={chunk_size}, overlap={chunk_overlap}"
         )
 
     def chunk_documents(self, documents: List[Document]) -> List[Document]:

@@ -136,9 +136,9 @@ class DocumentRetriever:
         sources = []
 
         for i, doc in enumerate(top_docs):
-            context_parts.append(f"[Source {i+1}]\n{doc.page_content}")
+            context_parts.append(f"[Source {i + 1}]\n{doc.page_content}")
             source = doc.metadata.get("source", "Unknown")
-            sources.append(f"Source {i+1}: {source}")
+            sources.append(f"Source {i + 1}: {source}")
 
         logger.info(f"Hybrid search retrieved {len(top_docs)} documents")
 

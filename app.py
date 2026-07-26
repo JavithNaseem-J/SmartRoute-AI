@@ -316,8 +316,8 @@ with tab2:
                             "Model": m,
                             "Queries": d["count"],
                             "Total Cost": f"${d['cost']:.4f}",
-                            "Avg Cost": f"${d.get('avg_cost', d['cost']/d['count'] if d['count']>0 else 0):.4f}",
-                            "Percentage": f"{(d['count']/total_q*100):.1f}%",
+                            "Avg Cost": f"${d.get('avg_cost', d['cost'] / d['count'] if d['count'] > 0 else 0):.4f}",
+                            "Percentage": f"{(d['count'] / total_q * 100):.1f}%",
                         }
                         for m, d in by_model.items()
                     ]

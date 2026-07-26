@@ -22,26 +22,25 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          
+          python-version: '3.10'
+
+      - name: Install uv
+        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
+
       - name: Install dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install black isort flake8 pytest
-          pip install -r requirements.txt
-          
-      - name: Lint with black
+          uv pip install --system -r requirements.txt
+          uv pip install --system ruff pytest pytest-cov pytest-asyncio httpx fakeredis
+
+      - name: Lint and Format Check (ruff)
         run: |
-          black --check .
-          
-      - name: Check imports with isort
-        run: |
-          isort --check-only .
-          
+          ruff check src/ api/ tests/ --output-format=github
+          ruff format --check .
+
       - name: Run tests
         run: |
-          pytest tests/ || echo "No tests configured yet"
-          
+          pytest tests/
+
   build-and-push:
     needs: lint-and-test
     runs-on: ubuntu-latest
@@ -78,7 +77,7 @@ jobs:
         if: failure()
         run: |
           curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 SmartRoute-AI Deploy Pipeline Failed! Check GitHub Actions."}' ${{ secrets.WEBHOOK_URL }}
-          
+
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -89,7 +88,7 @@ jobs:
           deploy_url: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
           if [ -n "$deploy_url" ]; then
-            curl "$deploy_url"
+            curl -X GET "$deploy_url"
           else
-            echo "Render deploy hook not configured"
+            echo "RENDER_DEPLOY_HOOK_URL secret is not set, skipping automatic deployment trigger."
           fi

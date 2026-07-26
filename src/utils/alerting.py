@@ -12,9 +12,7 @@ async def send_alert(title: str, message: str, level: str = "error") -> bool:
     """
     webhook_url = os.getenv("WEBHOOK_URL")
     if not webhook_url:
-        logger.debug(
-            f"Alert not sent (no WEBHOOK_URL): [{level.upper()}] {title} - {message}"
-        )
+        logger.debug(f"Alert not sent (no WEBHOOK_URL): [{level.upper()}] {title} - {message}")
         return False
 
     color_map = {
@@ -40,9 +38,7 @@ async def send_alert(title: str, message: str, level: str = "error") -> bool:
         async with aiohttp.ClientSession() as session:
             async with session.post(webhook_url, json=payload, timeout=5.0) as resp:
                 if resp.status >= 400:
-                    logger.error(
-                        f"Failed to send alert to webhook. Status: {resp.status}"
-                    )
+                    logger.error(f"Failed to send alert to webhook. Status: {resp.status}")
                     return False
                 return True
     except Exception as e:

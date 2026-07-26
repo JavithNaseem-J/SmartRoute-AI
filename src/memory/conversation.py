@@ -44,9 +44,7 @@ class ConversationMemory:
             logger.warning(f"ConversationMemory get failed: {e}")
             return []
 
-    async def add_turn(
-        self, session_id: str, user_msg: str, assistant_msg: str
-    ) -> None:
+    async def add_turn(self, session_id: str, user_msg: str, assistant_msg: str) -> None:
         try:
             key = self._key(session_id)
             raw = await self._redis.get(key)

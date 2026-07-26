@@ -142,9 +142,9 @@ async def main():
     labels = np.array(labels)
 
     print(f"####### Examples: {len(queries)} #######")
-    print(f"  - Simple: {np.sum(labels==0)}")
-    print(f"  - Medium: {np.sum(labels==1)}")
-    print(f"  - Complex: {np.sum(labels==2)}")
+    print(f"  - Simple: {np.sum(labels == 0)}")
+    print(f"  - Medium: {np.sum(labels == 1)}")
+    print(f"  - Complex: {np.sum(labels == 2)}")
 
     # Extract features — use batch method for speed (single encode call)
     print("\n[2/5] Extracting features...")

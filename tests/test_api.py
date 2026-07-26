@@ -33,9 +33,7 @@ def client():
     mock_pipeline = MagicMock()
     mock_pipeline.run = AsyncMock(return_value=_MOCK_RESULT)
     mock_pipeline.tracker.get_statistics.return_value = {"total_queries": 10}
-    mock_pipeline.budget_manager.get_budget_status.return_value = {
-        "daily": {"spent": 0}
-    }
+    mock_pipeline.budget_manager.get_budget_status.return_value = {"daily": {"spent": 0}}
 
     original = api_module.pipeline
     api_module.pipeline = mock_pipeline

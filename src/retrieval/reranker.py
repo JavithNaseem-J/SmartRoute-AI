@@ -16,9 +16,7 @@ class DocumentReranker:
         self.token = os.getenv("HF_TOKEN")
         self.headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         if not self.token:
-            logger.warning(
-                "HF_TOKEN not set. Re-ranking API may rate-limit or reject requests."
-            )
+            logger.warning("HF_TOKEN not set. Re-ranking API may rate-limit or reject requests.")
         else:
             logger.info(f"####### Re-ranker initialized with API: {model_name} #######")
 
@@ -27,9 +25,7 @@ class DocumentReranker:
         # We can attempt requests even without token, but highly limited.
         return True
 
-    async def rerank(
-        self, query: str, documents: List[Document], top_k: int = 5
-    ) -> List[Document]:
+    async def rerank(self, query: str, documents: List[Document], top_k: int = 5) -> List[Document]:
         """Score documents against the query and return the top_k via async HTTP API."""
         if not documents:
             return documents[:top_k]
@@ -50,14 +46,10 @@ class DocumentReranker:
                 scored_docs = list(zip(documents, scores))
                 scored_docs.sort(key=lambda x: x[1], reverse=True)
                 top_docs = [doc for doc, score in scored_docs[:top_k]]
-                logger.info(
-                    f"Re-ranked {len(documents)} documents via API, returning top {top_k}"
-                )
+                logger.info(f"Re-ranked {len(documents)} documents via API, returning top {top_k}")
                 return top_docs
             else:
-                logger.warning(
-                    f"Unexpected response format from Reranker API: {scores}"
-                )
+                logger.warning(f"Unexpected response format from Reranker API: {scores}")
                 return documents[:top_k]
 
         except Exception as e:

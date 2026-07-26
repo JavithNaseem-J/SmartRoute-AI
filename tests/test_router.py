@@ -11,9 +11,7 @@ from src.routing.router import QueryRouter
 @pytest.fixture
 def router():
     """Create router with real config."""
-    classifier_path = (
-        Path(__file__).parent.parent / "models/classifiers/complexity_classifier.pkl"
-    )
+    classifier_path = Path(__file__).parent.parent / "models/classifiers/complexity_classifier.pkl"
     return QueryRouter(
         routing_config_path=Path("config/routing.yaml"),
         classifier_path=classifier_path if classifier_path.exists() else None,
