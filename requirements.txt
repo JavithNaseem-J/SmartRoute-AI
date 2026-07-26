@@ -41,7 +41,7 @@ opentelemetry-sdk>=1.24.0
 opentelemetry-instrumentation-fastapi>=0.45b0
 opentelemetry-exporter-otlp-proto-grpc>=1.24.0
 opentelemetry-exporter-otlp-proto-http>=1.24.0
-langfuse>=2.9.0
+langfuse>=2.9.0,<3.0.0
 
 # ── Evaluation (offline only — not loaded by the live API) ──────────────────────
 
