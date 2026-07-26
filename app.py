@@ -43,11 +43,10 @@ def _process_and_index_documents(uploaded_files, docs_dir: Path):
             st.error(f"❌ Indexing Error: {e}")
 
 
-@st.cache_resource
 def check_api_ready():
     try:
         r = requests.get(f"{API_URL}/health", timeout=5)
-        if r.status_code == 200 and r.json().get("status") == "healthy":
+        if r.status_code == 200 and r.json().get("status") in ["healthy", "starting"]:
             return True
         return False
     except Exception:

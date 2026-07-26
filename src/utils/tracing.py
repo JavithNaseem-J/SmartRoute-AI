@@ -27,19 +27,42 @@ def _build_exporter(endpoint: str):
     """Return the right OTEL exporter based on OTEL_EXPORTER_OTLP_PROTOCOL or endpoint URL."""
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "").lower()
 
+    # Parse headers from OTEL_EXPORTER_OTLP_HEADERS
+    headers_str = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
+    headers = {}
+    if headers_str:
+        for item in headers_str.split(","):
+            if "=" in item:
+                k, v = item.split("=", 1)
+                headers[k.strip()] = v.strip()
+
+    # Auto-generate Basic Auth for Langfuse if keys are present
+    if not headers and ("langfuse" in endpoint.lower() or os.getenv("LANGFUSE_PUBLIC_KEY")):
+        import base64
+
+        pub_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
+        sec_key = os.getenv("LANGFUSE_SECRET_KEY", "")
+        if pub_key and sec_key:
+            auth = base64.b64encode(f"{pub_key}:{sec_key}".encode()).decode()
+            headers["Authorization"] = f"Basic {auth}"
+
+    kwargs = {"endpoint": endpoint}
+    if headers:
+        kwargs["headers"] = headers
+
     if protocol == "grpc":
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter as GRPCExporter,
         )
 
-        return GRPCExporter(endpoint=endpoint)
+        return GRPCExporter(**kwargs)
     else:
         # Default to http/protobuf for HTTP endpoints (e.g., Langfuse / OTLP HTTP)
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter as HTTPExporter,
         )
 
-        return HTTPExporter(endpoint=endpoint)
+        return HTTPExporter(**kwargs)
 
 
 def setup_tracing(app=None) -> None:
