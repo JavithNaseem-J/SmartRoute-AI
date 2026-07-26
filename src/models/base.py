@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import AsyncGenerator, AsyncIterator, Dict, List, Optional
+from typing import AsyncGenerator, Dict, List, Optional
 
 
 class BaseLLM(ABC):
@@ -38,7 +38,6 @@ class BaseLLM(ABC):
         temperature: Optional[float] = None,
     ) -> AsyncGenerator[str, None]:
         """Generate response token-by-token (async generator)."""
-
 
     @abstractmethod
     def count_tokens(self, text: str) -> int:

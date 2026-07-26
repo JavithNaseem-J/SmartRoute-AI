@@ -163,7 +163,7 @@ class InferencePipeline:
         try:
             prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
             if prep["is_cached"]:
-                return prep["cached_result"]
+                return dict(prep["cached_result"])
 
             model_id = prep["model_id"]
             complexity = prep["complexity"]

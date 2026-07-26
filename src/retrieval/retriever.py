@@ -80,16 +80,16 @@ class DocumentRetriever:
                     ),
                 ]
 
-                results = await self.qdrant.query_points(
+                query_response = await self.qdrant.query_points(
                     collection_name=self.collection_name,
                     prefetch=prefetch,
                     query=models.FusionQuery(fusion=models.Fusion.RRF),
                     limit=k,
                     with_payload=True,
                 )
-                results = results.points
+                points = query_response.points
             else:
-                results = await self.qdrant.search(  # type: ignore[attr-defined]
+                points = await self.qdrant.search(  # type: ignore[attr-defined]
                     collection_name=self.collection_name,
                     query_vector=("dense", vector),
                     limit=k,
@@ -99,12 +99,12 @@ class DocumentRetriever:
             return [
                 (
                     Document(
-                        page_content=r.payload.get("page_content", ""),  # type: ignore[union-attr]
-                        metadata=r.payload.get("metadata", {}),  # type: ignore[union-attr]
+                        page_content=r.payload.get("page_content", "") if r.payload else "",
+                        metadata=r.payload.get("metadata", {}) if r.payload else {},
                     ),
-                    r.score,  # type: ignore[union-attr]
+                    r.score,
                 )
-                for r in results
+                for r in points
             ]
         except Exception as e:
             logger.error(f"Qdrant search failed: {e}")

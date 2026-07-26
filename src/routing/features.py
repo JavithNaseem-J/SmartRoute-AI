@@ -98,7 +98,7 @@ class FeatureExtractor:
         self.ref_embeddings: dict = {}
         self._ref_embeddings_ready = False
 
-    def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> np.ndarray:
+    def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> "np.ndarray[Any, Any]":
         """Compute max cosine similarity of a (N, D) against b (M, D). Returns (N,)."""
         # a: (N, D), b: (M, D) -> dot: (N, M)
         dot = np.dot(a, b.T)
@@ -117,7 +117,7 @@ class FeatureExtractor:
         vector = vectors[0]
 
         # Reconstruct the feature dictionary matching FEATURE_ORDER
-        features = {}
+        features: Dict[str, Any] = {}
         for i, feat in enumerate(self.FEATURE_ORDER):
             val = vector[i]
             # Convert bool/int features back for backward compatibility
@@ -170,7 +170,7 @@ class FeatureExtractor:
 
         if not self.has_model or not self.ref_embeddings:
             # Pad semantic columns with zeros
-            semantic = np.zeros((n, 4), dtype=np.float32)
+            semantic: "np.ndarray[Any, Any]" = np.zeros((n, 4), dtype=np.float32)
         else:
             try:
                 # Async network call for embeddings
@@ -183,7 +183,7 @@ class FeatureExtractor:
                     embeddings, self.ref_embeddings["complex"]
                 )
 
-                semantic: np.ndarray = np.stack(  # type: ignore[assignment]
+                semantic = np.stack(
                     [complex_max - simple_max, simple_max, medium_max, complex_max], axis=1
                 ).astype(np.float32)  # shape: (n, 4)
             except Exception as e:

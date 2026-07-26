@@ -2,6 +2,7 @@ import asyncio
 import os
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
@@ -382,7 +383,7 @@ async def index_documents(_: str = Depends(require_api_key)):
     try:
         indexer = DocumentIndexer()
         # Run synchronous indexing in a thread
-        await asyncio.to_thread(indexer.index_directory, "data/documents")
+        await asyncio.to_thread(indexer.index_directory, Path("data/documents"))
         # Reload the retriever to pick up new documents
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
