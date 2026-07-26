@@ -24,21 +24,22 @@ except ImportError:
 
 
 def _build_exporter(endpoint: str):
-    """Return the right OTEL exporter based on the OTEL_EXPORTER_OTLP_PROTOCOL."""
-    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "grpc").lower()
+    """Return the right OTEL exporter based on OTEL_EXPORTER_OTLP_PROTOCOL or endpoint URL."""
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "").lower()
 
-    if protocol == "http/protobuf":
-        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
-            OTLPSpanExporter as HTTPExporter,
-        )
-
-        return HTTPExporter(endpoint=endpoint)
-    else:
+    if protocol == "grpc":
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter as GRPCExporter,
         )
 
         return GRPCExporter(endpoint=endpoint)
+    else:
+        # Default to http/protobuf for HTTP endpoints (e.g., Langfuse / OTLP HTTP)
+        from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
+            OTLPSpanExporter as HTTPExporter,
+        )
+
+        return HTTPExporter(endpoint=endpoint)
 
 
 def setup_tracing(app=None) -> None:
