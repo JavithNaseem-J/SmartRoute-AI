@@ -1,5 +1,4 @@
 import os
-
 import redis.asyncio as redis
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from qdrant_client import AsyncQdrantClient
@@ -30,7 +29,7 @@ def get_qdrant_client() -> AsyncQdrantClient:
         if not qdrant_url or not qdrant_key:
             raise RuntimeError("QDRANT_URL and QDRANT_API_KEY environment variables are required")
         _qdrant_client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_key)
-        enable_sparse = os.getenv("ENABLE_SPARSE_EMBEDDINGS", "true").lower() == "true"
+        enable_sparse = os.getenv("ENABLE_SPARSE_EMBEDDINGS", "false").lower() == "true"
         if enable_sparse:
             try:
                 _qdrant_client.set_sparse_model("prithivida/Splade_PP_en_v1", threads=1)
