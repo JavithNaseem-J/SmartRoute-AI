@@ -73,16 +73,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Alert on Failure
+        if: failure()
+        run: |
+          curl -X POST -H 'Content-type: application/json' --data '{"text":"🚨 SmartRoute-AI Deploy Pipeline Failed! Check GitHub Actions."}' ${{ secrets.WEBHOOK_URL }}
           
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Trigger Render Deployment
+      - name: Deploy to Render
+        env:
+          deploy_url: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          if [ -n "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" ]; then
-            curl -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"
+          if [ -n "$deploy_url" ]; then
+            curl "$deploy_url"
           else
-            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping deployment hook."
+            echo "Render deploy hook not configured"
           fi

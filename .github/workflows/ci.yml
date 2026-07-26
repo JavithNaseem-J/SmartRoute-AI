@@ -221,3 +221,16 @@ jobs:
           labels: ${{ steps.meta-dash.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  # ── Alerting ─────────────────────────────────────────────────────────────────
+  alert-on-failure:
+    name: Alert on Failure
+    runs-on: ubuntu-latest
+    needs: [lint, type-check, test, security, docker-build-pr, docker-build-and-push]
+    if: failure()
+    steps:
+      - name: Send Slack/Discord Alert
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+            --data '{"text":"🚨 CI/CD Pipeline Failed for SmartRoute-AI! Check the GitHub Actions logs."}' \
+            ${{ secrets.WEBHOOK_URL }}

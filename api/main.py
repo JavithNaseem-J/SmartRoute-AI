@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import AsyncIterator, List, Optional
@@ -12,7 +13,7 @@ load_dotenv()  # noqa: E402 – must run before any src.* imports that read env 
 import uvicorn  # noqa: E402
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import StreamingResponse  # noqa: E402
+from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
@@ -22,6 +23,7 @@ from src.pipeline.inference import InferencePipeline  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 from src.utils.security import require_jwt  # noqa: E402
 from src.utils.tracing import setup_tracing  # noqa: E402
+from src.utils.alerting import send_alert  # noqa: E402
 
 #  validation
 
@@ -109,6 +111,18 @@ app.add_middleware(
 setup_tracing(app)
 
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}")
+    error_details = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    await send_alert(
+        title="Unhandled API Exception (500)",
+        message=f"Path: {request.url.path}\nError: {str(exc)}\n\n```python\n{error_details[:1500]}\n```",
+        level="critical",
+    )
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
+
 @app.get("/health", tags=["system"])
 async def health_check():
     """Unauthenticated health probe for Docker, Render, and load balancers.
@@ -186,9 +200,7 @@ class QueryRequest(BaseModel):
         None, description="Routing strategy: cost_optimized | quality_first | balanced"
     )
     use_retrieval: bool = Field(True, description="Enable RAG retrieval")
-    session_id: Optional[str] = Field(
-        None, description="Session ID for multi-turn conversation"
-    )
+    session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversation")
 
 
 class QueryResponse(BaseModel):
@@ -282,9 +294,7 @@ async def query_batch(
     if not queries:
         raise HTTPException(status_code=422, detail="queries list cannot be empty")
     if len(queries) > 10:
-        raise HTTPException(
-            status_code=422, detail="Maximum 10 queries per batch request"
-        )
+        raise HTTPException(status_code=422, detail="Maximum 10 queries per batch request")
     results = await pipeline.batch_run(
         queries=queries, strategy=strategy, use_retrieval=use_retrieval
     )
