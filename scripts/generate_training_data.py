@@ -9,7 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.append(str(Path(__file__).parent.parent))
-from src.models.nvidia_model import NvidiaModel  # noqa: E402
+from src.models.openrouter_model import OpenRouterModel  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
 # Number of queries to generate per complexity class
@@ -25,15 +25,13 @@ Medium: Short code, comparisons, guides.
 Complex: Deep architecture, multi-step math, system design."""
 
 
-async def generate_class(
-    model: NvidiaModel, complexity: str, num_samples: int
-) -> list[str]:
+async def generate_class(model: OpenRouterModel, complexity: str, num_samples: int) -> list[str]:
     logger.info(f"Generating {num_samples} {complexity} queries...")
 
     prompt = SYSTEM_PROMPT.format(num_samples=num_samples, complexity=complexity)
 
     try:
-        response = await model.agenerate(prompt)
+        response = await model.agenerate(messages=[{"role": "user", "content": prompt}])
 
         # Clean up output to extract JSON
         content = response["text"].strip()
@@ -57,7 +55,7 @@ async def main():
     logger.info("Starting synthetic data generation...")
 
     # Initialize the fast model to use for generation
-    model = NvidiaModel("llama-3.1-8b-instant")
+    model = OpenRouterModel("nvidia/nemotron-nano-9b-v2:free")
 
     out_dir = Path("data/training")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -78,9 +76,7 @@ async def main():
         for size in sizes:
             queries = await generate_class(model, complexity, size)
             for q in queries:
-                all_queries.append(
-                    {"query": q.replace("\n", " ").strip(), "complexity": class_id}
-                )
+                all_queries.append({"query": q.replace("\n", " ").strip(), "complexity": class_id})
 
     # Save to CSV
     logger.info(f"Saving {len(all_queries)} queries to {out_file}")

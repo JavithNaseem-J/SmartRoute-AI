@@ -45,6 +45,15 @@ class BudgetManager:
             "monthly": budgets.get("monthly", 200.0),
         }
         self.alert_threshold = budgets.get("alert_threshold", 0.8)
+
+        models_path = _PROJECT_ROOT / "config" / "models.yaml"
+        try:
+            with open(models_path, "r") as f:
+                self.model_config = yaml.safe_load(f).get("openrouter_models", {})
+        except Exception as e:
+            logger.warning(f"Could not load models.yaml for cost estimation: {e}")
+            self.model_config = {}
+
         logger.info(
             f"BudgetManager: daily=${self.limits['daily']}, weekly=${self.limits['weekly']}"
         )
@@ -67,9 +76,7 @@ class BudgetManager:
 
             if new_total > self.limits["daily"]:
                 await self._redis.incrbyfloat(key, -estimated_cost)  # roll back
-                logger.warning(
-                    f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}"
-                )
+                logger.warning(f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}")
                 import asyncio
 
                 from src.utils.alerting import send_alert
@@ -115,21 +122,13 @@ class BudgetManager:
         self,
         model_id: str,
         query_length: int,
-        model_config_path: Path = _PROJECT_ROOT / "config" / "models.yaml",
     ) -> float:
-        try:
-            import yaml  # type: ignore
-
-            with open(model_config_path, "r") as f:
-                config = yaml.safe_load(f)
-            if model_id in config.get("openrouter_models", {}):
-                cfg = config["openrouter_models"][model_id]
-                estimated_input = query_length // 4
-                estimated_output = 500
-                return float(
-                    (estimated_input / 1000) * cfg.get("cost_per_1k_input", 0.001)
-                    + (estimated_output / 1000) * cfg.get("cost_per_1k_output", 0.002)
-                )
-        except Exception:
-            pass
+        if model_id in self.model_config:
+            cfg = self.model_config[model_id]
+            estimated_input = query_length // 4
+            estimated_output = 500
+            return float(
+                (estimated_input / 1000) * cfg.get("cost_per_1k_input", 0.001)
+                + (estimated_output / 1000) * cfg.get("cost_per_1k_output", 0.002)
+            )
         return 0.05

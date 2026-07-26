@@ -52,6 +52,20 @@ class OpenRouterModel(BaseLLM):
     # BaseLLM interface
     # ------------------------------------------------------------------
 
+    async def _execute_with_breaker(self, api_func, **kwargs):
+        self._breaker._update_state()
+        if self._breaker.state == "OPEN":
+            from src.utils.circuit_breaker import CircuitBreakerOpenException
+
+            raise CircuitBreakerOpenException(f"Circuit breaker OPEN for {self.model_id}")
+        try:
+            result = await api_func(**kwargs)
+            self._breaker.record_success()
+            return result
+        except Exception:
+            self._breaker.record_failure()
+            raise
+
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),
         stop=stop_after_attempt(3),
@@ -59,25 +73,13 @@ class OpenRouterModel(BaseLLM):
         reraise=True,
     )
     async def _call_api(self, messages, max_tok, temp):
-        self._breaker._update_state()
-        if self._breaker.state == "OPEN":
-            from src.utils.circuit_breaker import CircuitBreakerOpenException
-
-            raise CircuitBreakerOpenException(
-                f"Circuit breaker OPEN for {self.model_id}"
-            )
-        try:
-            result = await self.client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                max_tokens=max_tok,
-                temperature=temp,
-            )
-            self._breaker.record_success()
-            return result
-        except Exception:
-            self._breaker.record_failure()
-            raise
+        return await self._execute_with_breaker(
+            self.client.chat.completions.create,
+            model=self.model_id,
+            messages=messages,
+            max_tokens=max_tok,
+            temperature=temp,
+        )
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),
@@ -86,27 +88,15 @@ class OpenRouterModel(BaseLLM):
         reraise=True,
     )
     async def _call_api_stream(self, messages, max_tok, temp):
-        self._breaker._update_state()
-        if self._breaker.state == "OPEN":
-            from src.utils.circuit_breaker import CircuitBreakerOpenException
-
-            raise CircuitBreakerOpenException(
-                f"Circuit breaker OPEN for {self.model_id}"
-            )
-        try:
-            result = await self.client.chat.completions.create(
-                model=self.model_id,
-                messages=messages,
-                max_tokens=max_tok,
-                temperature=temp,
-                stream=True,
-                stream_options={"include_usage": True},
-            )
-            self._breaker.record_success()
-            return result
-        except Exception:
-            self._breaker.record_failure()
-            raise
+        return await self._execute_with_breaker(
+            self.client.chat.completions.create,
+            model=self.model_id,
+            messages=messages,
+            max_tokens=max_tok,
+            temperature=temp,
+            stream=True,
+            stream_options={"include_usage": True},
+        )
 
     async def agenerate(
         self,
@@ -123,9 +113,7 @@ class OpenRouterModel(BaseLLM):
             return {
                 "text": response.choices[0].message.content.strip(),
                 "input_tokens": response.usage.prompt_tokens if response.usage else 0,
-                "output_tokens": (
-                    response.usage.completion_tokens if response.usage else 0
-                ),
+                "output_tokens": (response.usage.completion_tokens if response.usage else 0),
             }
         except Exception as e:
             logger.error(f"OpenRouter API unexpected error: {e}")

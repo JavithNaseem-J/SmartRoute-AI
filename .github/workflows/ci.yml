@@ -226,7 +226,7 @@ jobs:
   alert-on-failure:
     name: Alert on Failure
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test, security, docker-build-pr, docker-build-and-push]
+    needs: [lint, type-check, test, security, docker-validate, docker-build-and-push]
     if: failure()
     steps:
       - name: Send Slack/Discord Alert

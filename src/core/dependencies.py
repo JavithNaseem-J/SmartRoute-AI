@@ -28,10 +28,14 @@ def get_qdrant_client() -> AsyncQdrantClient:
         qdrant_url = os.getenv("QDRANT_URL")
         qdrant_key = os.getenv("QDRANT_API_KEY")
         if not qdrant_url or not qdrant_key:
-            raise RuntimeError(
-                "QDRANT_URL and QDRANT_API_KEY environment variables are required"
-            )
+            raise RuntimeError("QDRANT_URL and QDRANT_API_KEY environment variables are required")
         _qdrant_client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_key)
+        try:
+            _qdrant_client.set_sparse_model("prithivida/Splade_PP_en_v1")
+        except Exception as e:
+            from src.utils.logger import logger
+
+            logger.warning(f"Could not set sparse model, sparse vectors will be disabled: {e}")
     return _qdrant_client
 
 

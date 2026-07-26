@@ -1,6 +1,4 @@
 import time
-from functools import wraps
-from typing import Any, Callable
 
 from src.utils.logger import logger
 
@@ -43,25 +41,6 @@ class AsyncCircuitBreaker:
                     f"Circuit Breaker tripped! Transitioning to OPEN state for {self.recovery_timeout}s."
                 )
             self.state = "OPEN"
-
-    def __call__(self, func: Callable) -> Callable:
-        @wraps(func)
-        async def wrapper(*args, **kwargs) -> Any:
-            self._update_state()
-            if self.state == "OPEN":
-                raise CircuitBreakerOpenException(
-                    f"Circuit Breaker is OPEN. Calls to {func.__name__} are blocked."
-                )
-
-            try:
-                result = await func(*args, **kwargs)
-                self.record_success()
-                return result
-            except Exception as e:
-                self.record_failure()
-                raise e
-
-        return wrapper
 
 
 # Use AsyncCircuitBreaker as a per-instance attribute on each model class.

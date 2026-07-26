@@ -10,7 +10,6 @@ class BaseLLM(ABC):
         - astream(...)          → token-by-token streaming (async generator)
         - count_tokens(...)     → local token counting (no API call)
         - get_cost(...)         → cost in USD for a token pair
-        - get_info()            → provider metadata dict
     """
 
     @abstractmethod

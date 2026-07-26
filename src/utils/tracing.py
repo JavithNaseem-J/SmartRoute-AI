@@ -7,10 +7,9 @@ Authentication can be configured natively via OTEL_EXPORTER_OTLP_HEADERS.
 Falls back to a no-op when OTEL_EXPORTER_OTLP_ENDPOINT is absent.
 """
 
-import logging
 import os
 
-logger = logging.getLogger("SmartRouteAILogger")
+from src.utils.logger import logger
 
 try:
     from opentelemetry import trace

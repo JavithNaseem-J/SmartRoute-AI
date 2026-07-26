@@ -35,9 +35,7 @@ class InferencePipeline:
         logger.info("Initializing inference pipeline...")
 
         if classifier_path is None:
-            classifier_path = (
-                _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
-            )
+            classifier_path = _PROJECT_ROOT / "models" / "classifiers" / "complexity_classifier.pkl"
 
         self.router = QueryRouter(
             routing_config_path=config_dir / "routing.yaml",
@@ -72,7 +70,9 @@ class InferencePipeline:
             )
             user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
         else:
-            system_msg = "You are a helpful AI assistant. Answer questions accurately and concisely."
+            system_msg = (
+                "You are a helpful AI assistant. Answer questions accurately and concisely."
+            )
             user_msg = prompt
 
         return [
@@ -80,6 +80,32 @@ class InferencePipeline:
             *(history or []),
             {"role": "user", "content": user_msg},
         ]
+
+    async def _log_query_metrics(
+        self,
+        query: str,
+        model_id: str,
+        complexity: str,
+        strategy: str,
+        input_tokens: int = 0,
+        output_tokens: int = 0,
+        cost: float = 0.0,
+        latency: float = 0.0,
+        success: bool = True,
+    ) -> None:
+        """Centralized async logging helper to log query metrics."""
+        await asyncio.to_thread(
+            self.tracker.log_query,
+            query=query,
+            model_id=model_id,
+            complexity=complexity,
+            strategy=strategy,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=cost,
+            latency=latency,
+            success=success,
+        )
 
     async def _prepare_context(
         self,
@@ -93,17 +119,12 @@ class InferencePipeline:
         cached_result = await self.semantic_cache.get(query)
         if cached_result:
             cached_result["latency"] = time.time() - start_time
-            await asyncio.to_thread(
-                self.tracker.log_query,
+            await self._log_query_metrics(
                 query=query,
                 model_id="semantic_cache",
                 complexity="cached",
                 strategy="cache",
-                input_tokens=0,
-                output_tokens=0,
-                cost=0.0,
                 latency=cached_result["latency"],
-                success=True,
             )
             return {"is_cached": True, "cached_result": cached_result}
 
@@ -120,9 +141,7 @@ class InferencePipeline:
         estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
         can_afford, reason = await self.budget_manager.check_budget(estimated_cost)
         if not can_afford:
-            logger.warning(
-                f"Budget exceeded ({reason}) — falling back to cheapest model"
-            )
+            logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
             model_id = "llama_3_1_8b"
             routing_decision["model_id"] = model_id
             routing_decision["reason"] = f"budget_{reason}"
@@ -160,14 +179,10 @@ class InferencePipeline:
             query = validate_query(query)
         except GuardrailViolation as e:
             logger.warning(f"Query blocked by guardrails: {e}")
-            return self._error_response(
-                str(e), "guardrail_violation", time.time() - start_time
-            )
+            return self._error_response(str(e), "guardrail_violation", time.time() - start_time)
 
         try:
-            prep = await self._prepare_context(
-                query, strategy, use_retrieval, start_time
-            )
+            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
             if prep["is_cached"]:
                 return dict(prep["cached_result"])
 
@@ -198,8 +213,7 @@ class InferencePipeline:
             latency = time.time() - start_time
 
             # Track cost
-            await asyncio.to_thread(
-                self.tracker.log_query,
+            await self._log_query_metrics(
                 query=query,
                 model_id=model_id,
                 complexity=complexity,
@@ -241,15 +255,11 @@ class InferencePipeline:
             latency = time.time() - start_time
             logger.error(f"Pipeline failed: {e}", exc_info=True)
             if "model_id" in locals() and "complexity" in locals():
-                await asyncio.to_thread(
-                    self.tracker.log_query,
+                await self._log_query_metrics(
                     query=query,
                     model_id=model_id,
                     complexity=complexity,
                     strategy=strategy or "unknown",
-                    input_tokens=0,
-                    output_tokens=0,
-                    cost=0.0,
                     latency=latency,
                     success=False,
                 )
@@ -287,9 +297,7 @@ class InferencePipeline:
             return
 
         try:
-            prep = await self._prepare_context(
-                query, strategy, use_retrieval, start_time
-            )
+            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
             if prep["is_cached"]:
                 cached_result = prep["cached_result"]
                 yield {
@@ -344,9 +352,7 @@ class InferencePipeline:
                 fallback_model = self.model_manager.load_model(model_id)
                 input_tokens = fallback_model.count_tokens(full_prompt)
 
-                stream = fallback_model.astream(
-                    messages=messages, max_tokens=1000, temperature=0.7
-                )
+                stream = fallback_model.astream(messages=messages, max_tokens=1000, temperature=0.7)
                 full_answer = ""
                 async for chunk in stream:
                     full_answer += chunk
@@ -358,8 +364,7 @@ class InferencePipeline:
             latency = time.time() - start_time
 
             # Track cost
-            await asyncio.to_thread(
-                self.tracker.log_query,
+            await self._log_query_metrics(
                 query=query,
                 model_id=model_id,
                 complexity=complexity,
@@ -412,10 +417,7 @@ class InferencePipeline:
         if not queries:
             return []
         logger.info(f"Batch processing {len(queries)} queries...")
-        tasks = [
-            self.run(query=q, strategy=strategy, use_retrieval=use_retrieval)
-            for q in queries
-        ]
+        tasks = [self.run(query=q, strategy=strategy, use_retrieval=use_retrieval) for q in queries]
         return list(await asyncio.gather(*tasks))
 
     def get_statistics(self, days: int = 1) -> Dict:
