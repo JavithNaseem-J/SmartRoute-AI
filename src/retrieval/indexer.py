@@ -3,8 +3,7 @@ import uuid
 from pathlib import Path
 from typing import List, Optional
 
-from langchain_community.document_loaders import (DirectoryLoader, PyPDFLoader,
-                                                  TextLoader)
+from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader, TextLoader
 from langchain_core.documents import Document
 from qdrant_client import models
 

@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()  # noqa: E402 – must run before any src.* imports that read env vars
 
 import uvicorn  # noqa: E402
-from fastapi import (APIRouter, Depends, FastAPI, HTTPException,  # noqa: E402
-                     Request)
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import StreamingResponse  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402

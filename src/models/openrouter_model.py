@@ -2,8 +2,7 @@ import os
 from typing import AsyncGenerator, Dict, List, Optional
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
-from tenacity import (retry, retry_if_exception_type, stop_after_attempt,
-                      wait_exponential)
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.models.base import BaseLLM
 from src.utils.circuit_breaker import AsyncCircuitBreaker

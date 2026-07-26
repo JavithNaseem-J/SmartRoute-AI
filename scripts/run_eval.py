@@ -10,8 +10,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from src.evaluation.ragas_eval import (EvalReport, EvalSample,  # noqa: E402
-                                       RagasEvaluator)
+from src.evaluation.ragas_eval import EvalReport, EvalSample, RagasEvaluator  # noqa: E402
 from src.pipeline.inference import InferencePipeline  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 

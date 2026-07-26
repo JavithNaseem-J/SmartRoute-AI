@@ -9,8 +9,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.append(str(Path(__file__).parent.parent))
-from src.models.nvidia_model import NvidiaModel
-from src.utils.logger import logger
+from src.models.nvidia_model import NvidiaModel  # noqa: E402
+
+from src.utils.logger import logger  # noqa: E402
 
 # Number of queries to generate per complexity class
 SAMPLES_PER_CLASS = 200

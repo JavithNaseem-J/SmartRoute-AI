@@ -4,8 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Dict
 
-from sqlalchemy import (Boolean, Column, DateTime, Float, Integer, String,
-                        create_engine)
+from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.utils.logger import logger
