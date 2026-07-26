@@ -1,5 +1,5 @@
 import re
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import numpy as np
 
@@ -145,7 +145,7 @@ class FeatureExtractor:
     # ------------------------------------------------------------------
     # Batch extraction (used at training time & extraction)
     # ------------------------------------------------------------------
-    async def batch_extract_vectors(self, queries: List[str]) -> np.ndarray:
+    async def batch_extract_vectors(self, queries: List[str]) -> "np.ndarray[Any, Any]":
         """
         Extract feature vectors for a list of queries efficiently.
         Encodes ALL queries in a single batched call to the Inference API.
@@ -183,7 +183,7 @@ class FeatureExtractor:
                     embeddings, self.ref_embeddings["complex"]
                 )
 
-                semantic = np.stack(
+                semantic: np.ndarray = np.stack(  # type: ignore[assignment]
                     [complex_max - simple_max, simple_max, medium_max, complex_max], axis=1
                 ).astype(np.float32)  # shape: (n, 4)
             except Exception as e:
@@ -224,10 +224,10 @@ class FeatureExtractor:
             "symbol_density": symbol_density,
         }
 
-    def _lexical_vector(self, query: str) -> np.ndarray:
+    def _lexical_vector(self, query: str) -> "np.ndarray[Any, Any]":
         """Return lexical features as a float32 array (12 values)."""
         f = self._extract_lexical(query)
-        return np.array(
+        return np.array(  # type: ignore[return-value]
             [
                 float(f[k]) if not isinstance(f[k], bool) else float(f[k])
                 for k in self.FEATURE_ORDER[:12]

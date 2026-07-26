@@ -1,13 +1,5 @@
-"""
-Abstract base class for all LLM providers.
-
-Every LLM (Groq, OpenAI, Gemini, local vLLM) must implement this interface.
-The InferencePipeline only depends on BaseLLM — swapping providers requires
-zero changes to the pipeline or any other module.
-"""
-
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncGenerator, AsyncIterator, Dict, List, Optional
 
 
 class BaseLLM(ABC):
@@ -15,7 +7,7 @@ class BaseLLM(ABC):
 
     Subclasses must implement:
         - async agenerate(...)  → standard non-streaming call
-        - async astream(...)    → token-by-token streaming
+        - astream(...)          → token-by-token streaming (async generator)
         - count_tokens(...)     → local token counting (no API call)
         - get_cost(...)         → cost in USD for a token pair
         - get_info()            → provider metadata dict
@@ -39,14 +31,14 @@ class BaseLLM(ABC):
         """
 
     @abstractmethod
-    async def astream(
+    def astream(
         self,
         messages: List[Dict],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-    ) -> AsyncIterator[str]:
-        """Generate response token-by-token."""
-        pass
+    ) -> AsyncGenerator[str, None]:
+        """Generate response token-by-token (async generator)."""
+
 
     @abstractmethod
     def count_tokens(self, text: str) -> int:

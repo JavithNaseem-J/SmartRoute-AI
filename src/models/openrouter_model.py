@@ -1,5 +1,5 @@
 import os
-from typing import AsyncIterator, Dict, List, Optional
+from typing import AsyncGenerator, AsyncIterator, Dict, List, Optional
 
 from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -125,7 +125,7 @@ class OpenRouterModel(BaseLLM):
         messages: List[Dict],
         max_tokens: Optional[int] = None,
         temperature: Optional[float] = None,
-    ) -> AsyncIterator[str]:
+    ) -> AsyncGenerator[str, None]:
         """Streaming async generation yielding tokens."""
         max_tok = max_tokens or self.max_tokens
         temp = temperature if temperature is not None else self.temperature

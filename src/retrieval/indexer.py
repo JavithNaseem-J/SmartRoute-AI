@@ -129,10 +129,10 @@ class DocumentIndexer:
         # 2. Generate Sparse Vectors if available
         sparse_supported = (
             hasattr(self.qdrant, "_sparse_embedding_model")
-            and self.qdrant._sparse_embedding_model is not None
+            and self.qdrant._sparse_embedding_model is not None  # type: ignore[attr-defined]
         )
         if sparse_supported:
-            sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)
+            sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)  # type: ignore[attr-defined]
             sparse_vectors_list = list(sparse_vectors_generator)
 
             points = [

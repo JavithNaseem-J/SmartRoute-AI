@@ -6,20 +6,21 @@ from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv()  # noqa: E402 – must run before any src.* imports that read env vars
 
-import uvicorn
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
+import uvicorn  # noqa: E402
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request  # noqa: E402
+from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
+from fastapi.responses import StreamingResponse  # noqa: E402
+from pydantic import BaseModel, Field  # noqa: E402
+from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+from slowapi.util import get_remote_address  # noqa: E402
 
-from src.pipeline.inference import InferencePipeline
-from src.utils.logger import logger
-from src.utils.tracing import setup_tracing
+from src.pipeline.inference import InferencePipeline  # noqa: E402
+from src.utils.logger import logger  # noqa: E402
+from src.utils.security import require_jwt  # noqa: E402
+from src.utils.tracing import setup_tracing  # noqa: E402
 
 #  validation
 
@@ -169,12 +170,10 @@ async def health_check():
 
 # ── Authentication ────────────────────────────────────────────────────────────
 
-from src.utils.security import require_jwt
-
 
 def require_api_key(payload: dict = Depends(require_jwt)) -> str:
     """JWT validation facade. Returns the user ID (sub) from the token."""
-    return payload.get("sub", "unknown_user")
+    return str(payload.get("sub", "unknown_user"))
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -386,7 +385,7 @@ async def index_documents(_: str = Depends(require_api_key)):
         await asyncio.to_thread(indexer.index_directory, "data/documents")
         # Reload the retriever to pick up new documents
         if hasattr(pipeline.retriever, "reload"):
-            await asyncio.to_thread(pipeline.retriever.reload)
+            await pipeline.retriever.reload()
         stats = indexer.get_stats()
         return {"status": "success", "stats": stats}
     except Exception as e:

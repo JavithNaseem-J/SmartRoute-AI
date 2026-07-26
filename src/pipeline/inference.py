@@ -127,7 +127,7 @@ class InferencePipeline:
 
         # Retrieval
         context = ""
-        sources = []
+        sources: List[str] = []
         if use_retrieval:
             context, sources = await self.retriever.retrieve(query)
             logger.info(f"Retrieved {len(sources)} sources")

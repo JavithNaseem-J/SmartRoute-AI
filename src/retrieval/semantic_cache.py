@@ -25,7 +25,7 @@ class SemanticCache:
             vector = await self.embeddings.aembed_query(query)
 
             # 2. Search Qdrant for nearest match
-            results = await self.qdrant.search(
+            results = await self.qdrant.search(  # type: ignore[attr-defined]
                 collection_name=self.collection_name,
                 query_vector=vector,
                 limit=1,
@@ -41,7 +41,7 @@ class SemanticCache:
 
             if cached_data:
                 logger.info(f"Semantic Cache Hit! (score: {results[0].score:.3f})")
-                return json.loads(cached_data)
+                return dict(json.loads(cached_data))
 
         except Exception as e:
             logger.error(f"SemanticCache get error: {e}")

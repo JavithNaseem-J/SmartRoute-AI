@@ -57,12 +57,12 @@ class DocumentRetriever:
             # Check if fastembed sparse model is loaded
             sparse_supported = (
                 hasattr(self.qdrant, "_sparse_embedding_model")
-                and self.qdrant._sparse_embedding_model is not None
+                and self.qdrant._sparse_embedding_model is not None  # type: ignore[attr-defined]
             )
 
             if sparse_supported:
                 # Qdrant client native method for generating sparse queries
-                sparse_vector = next(self.qdrant._sparse_embedding_model.query_embed(query))
+                sparse_vector = next(self.qdrant._sparse_embedding_model.query_embed(query))  # type: ignore[attr-defined]
 
                 prefetch = [
                     models.Prefetch(
@@ -89,7 +89,7 @@ class DocumentRetriever:
                 )
                 results = results.points
             else:
-                results = await self.qdrant.search(
+                results = await self.qdrant.search(  # type: ignore[attr-defined]
                     collection_name=self.collection_name,
                     query_vector=("dense", vector),
                     limit=k,
@@ -99,10 +99,10 @@ class DocumentRetriever:
             return [
                 (
                     Document(
-                        page_content=r.payload.get("page_content", ""),
-                        metadata=r.payload.get("metadata", {}),
+                        page_content=r.payload.get("page_content", ""),  # type: ignore[union-attr]
+                        metadata=r.payload.get("metadata", {}),  # type: ignore[union-attr]
                     ),
-                    r.score,
+                    r.score,  # type: ignore[union-attr]
                 )
                 for r in results
             ]

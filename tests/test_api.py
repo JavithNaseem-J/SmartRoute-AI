@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
+import jwt
 import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,8 +42,6 @@ def client():
 
     api_module.pipeline = original
 
-
-import jwt
 
 
 @pytest.fixture
