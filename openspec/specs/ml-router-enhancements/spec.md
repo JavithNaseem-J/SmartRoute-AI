@@ -1,27 +1,24 @@
-# ML Router Enhancements
-
-## Purpose
-TBD: Specify the overarching purpose for hardening the ML routing algorithm with advanced heuristics and retrainability.
+# ML Router Enhancements Spec
 
 ## Requirements
 
-### Requirement: Enhanced Semantic Anchoring
-The ML Feature Extractor SHALL evaluate query embeddings against expanded sets of at least 20 reference queries for each complexity level (simple, medium, complex).
+### Requirement: Offline Pre-computed Centroid Embeddings
+The ML Feature Extractor SHALL load reference cluster centroids from a pre-computed binary numpy file (`data/models/reference_centroids.npy`) without performing live external HTTP API requests.
 
-#### Scenario: Medium Complexity Query Evaluation
-- **WHEN** a user submits a query requiring multi-step aggregation but no deep logical proofs
-- **THEN** the system SHALL calculate a `medium_similarity` feature score that heavily biases the router towards the medium complexity model.
+#### Scenario: Offline feature extraction
+- **WHEN** a query is submitted to the Feature Extractor
+- **THEN** the system SHALL compute cosine similarity against pre-loaded centroid vectors in memory in under 1ms without making external network calls.
 
-### Requirement: Advanced Linguistic Features
-The ML Feature Extractor SHALL compute advanced heuristics including logic operator density and symbol density.
+### Requirement: Length-Decoupled Feature Extraction
+The ML Feature Extractor SHALL compute readability index (Flesch-Kincaid), code token syntax density, and relative centroid distance margins to decouple string length from query complexity.
 
-#### Scenario: Code-heavy query parsing
-- **WHEN** a user submits a short query with dense coding syntax (e.g., brackets, arrows)
-- **THEN** the system SHALL accurately flag high symbol density, guiding the LightGBM classifier to flag it as complex despite its short length.
+#### Scenario: Evaluating long simple queries
+- **WHEN** a user submits a long query containing polite conversational text but simple factual intent
+- **THEN** the system SHALL compute a high readability score and low centroid margin, preventing false-positive complex classifications.
 
-### Requirement: Reproducible Model Retraining
-The system SHALL include automated scripts to generate diverse synthetic query datasets via an LLM and retrain the LightGBM classifier end-to-end.
+### Requirement: Probability Calibration & Hysteresis Thresholding
+The Query Router SHALL calibrate LightGBM output probabilities and apply a cost-biased hysteresis threshold to route low-confidence complex predictions (`confidence < 0.75`) to the cost-effective cheap model.
 
-#### Scenario: Updating the routing boundaries
-- **WHEN** the system administrators want to update routing logic
-- **THEN** they SHALL be able to run `scripts/generate_training_data.py` followed by `scripts/train_classifier.py` to transparently re-tune the decision trees.
+#### Scenario: Uncertain complexity classification
+- **WHEN** the ML classifier predicts `complex` with a confidence score below 0.75
+- **THEN** the system SHALL escalate/fallback to the cost-optimized cheap model to prevent unnecessary API expenditure.
