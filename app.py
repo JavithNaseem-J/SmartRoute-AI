@@ -13,7 +13,7 @@ load_dotenv()
 
 st.set_page_config(page_title="SmartRoute Inference Gateway", layout="wide")
 
-API_URL = os.getenv("API_URL", "http://localhost:8000")
+API_URL = os.getenv("API_URL", "http://localhost:8000").rstrip("/")
 
 # Generate a local JWT for the Streamlit UI to talk to the backend
 jwt_secret = os.getenv(
