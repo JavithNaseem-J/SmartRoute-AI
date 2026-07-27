@@ -1,7 +1,13 @@
 import os
 from typing import AsyncGenerator, Dict, List, Optional
 
-from openai import APIConnectionError, APIError, AsyncOpenAI, RateLimitError
+from openai import (
+    APIConnectionError,
+    AsyncOpenAI,
+    AuthenticationError,
+    InternalServerError,
+    RateLimitError,
+)
 from tenacity import (
     retry,
     retry_if_exception_type,
@@ -42,7 +48,11 @@ class OpenRouterModel(BaseLLM):
         self.client = AsyncOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "DUMMY_KEY_FOR_TESTS",
-            timeout=10.0,
+            default_headers={
+                "HTTP-Referer": "https://smartroute-ai.streamlit.app",
+                "X-Title": "SmartRoute-AI",
+            },
+            timeout=20.0,
         )
         # Per-model circuit breaker — isolates failures to this model only
         self._breaker = AsyncCircuitBreaker(failure_threshold=5, recovery_timeout=60.0)
@@ -62,6 +72,15 @@ class OpenRouterModel(BaseLLM):
             result = await api_func(**kwargs)
             self._breaker.record_success()
             return result
+        except AuthenticationError:
+            logger.error(
+                f"OpenRouter 401 Authentication Error for {self.model_id}: "
+                "Invalid or missing OPENROUTER_API_KEY. Please verify key in .env or Render variables."
+            )
+            raise RuntimeError(
+                "OpenRouter API key is invalid or missing. "
+                "Please configure OPENROUTER_API_KEY in your environment variables."
+            )
         except Exception:
             self._breaker.record_failure()
             raise
@@ -69,7 +88,7 @@ class OpenRouterModel(BaseLLM):
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),
         stop=stop_after_attempt(3),
-        retry=retry_if_exception_type((RateLimitError, APIError, APIConnectionError)),
+        retry=retry_if_exception_type((RateLimitError, APIConnectionError, InternalServerError)),
         reraise=True,
     )
     async def _call_api(self, messages, max_tok, temp):
@@ -84,7 +103,7 @@ class OpenRouterModel(BaseLLM):
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),
         stop=stop_after_attempt(3),
-        retry=retry_if_exception_type((RateLimitError, APIError, APIConnectionError)),
+        retry=retry_if_exception_type((RateLimitError, APIConnectionError, InternalServerError)),
         reraise=True,
     )
     async def _call_api_stream(self, messages, max_tok, temp):
