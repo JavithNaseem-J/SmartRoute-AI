@@ -50,6 +50,10 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+mock_key/
+model_cache/
+hf_cache/
+*.cache
 
 # Translations
 *.mo

@@ -13,7 +13,6 @@ from qdrant_client import models
 
 from src.core.dependencies import get_embeddings, get_qdrant_client, get_redis_client
 from src.retrieval.chunking import DocumentChunker
-from src.retrieval.retriever import DocumentRetriever
 from src.utils.logger import logger
 
 
@@ -33,8 +32,6 @@ class DocumentIndexer:
         self.embeddings = get_embeddings()
         self.qdrant = get_qdrant_client()
         self.chunker = DocumentChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-
-        self.retriever = DocumentRetriever(persist_dir=persist_dir, collection_name=collection_name)
 
         logger.info(f"DocumentIndexer initialized: {collection_name}")
 

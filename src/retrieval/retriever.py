@@ -1,15 +1,11 @@
-from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
 from qdrant_client import models
 
-from src.core.dependencies import get_embeddings, get_qdrant_client
+from src.core.dependencies import get_embeddings, get_qdrant_client, get_sparse_vector
 from src.retrieval.reranker import DocumentReranker
 from src.utils.logger import logger
-
-_executor = ThreadPoolExecutor(max_workers=4)
 
 
 class DocumentRetriever:
@@ -17,15 +13,11 @@ class DocumentRetriever:
 
     def __init__(
         self,
-        persist_dir: Path = Path("data/embeddings"),
         collection_name: str = "smartroute_docs",
         top_k: int = 5,
-        max_distance: float = 1.5,
     ):
-        self.persist_dir = Path(persist_dir)
         self.collection_name = collection_name
         self.top_k = top_k
-        self.max_distance = max_distance
 
         # Initialize components
         self.embeddings = get_embeddings()
@@ -49,16 +41,9 @@ class DocumentRetriever:
         vector = await self.embeddings.aembed_query(query)
 
         try:
-            # Check if fastembed sparse model is loaded
-            sparse_supported = (
-                hasattr(self.qdrant, "_sparse_embedding_model")
-                and self.qdrant._sparse_embedding_model is not None  # type: ignore[attr-defined]
-            )
+            sparse_vector = get_sparse_vector(self.qdrant, query)
 
-            if sparse_supported:
-                # Qdrant client native method for generating sparse queries
-                sparse_vector = next(self.qdrant._sparse_embedding_model.query_embed(query))  # type: ignore[attr-defined]
-
+            if sparse_vector is not None:
                 prefetch = [
                     models.Prefetch(
                         query=vector,

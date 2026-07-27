@@ -110,7 +110,7 @@ class RagasEvaluator:
             sample.answer = result.get("answer", "")
 
             # Extract the raw context chunks used during retrieval
-            context_text, _ = self.pipeline.retriever.retrieve(sample.question)
+            context_text, _ = await self.pipeline.retriever.retrieve(sample.question)
             # Split into individual chunks (separated by double newline in retriever)
             sample.contexts = [c.strip() for c in context_text.split("\n\n") if c.strip()]
 

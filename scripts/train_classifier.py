@@ -83,9 +83,6 @@ def get_training_data():
         "Develop a comprehensive strategy for",
     ]
 
-    queries = []
-    labels = []
-
     import random
 
     # Generate Simple (0)

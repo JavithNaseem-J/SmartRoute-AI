@@ -2,19 +2,21 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
+      target: api
     container_name: smartroute-api
     ports:
       - "8000:8000"
-    command: sh -c "alembic upgrade head && uvicorn api.main:app --host 0.0.0.0 --port 8000"
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000
     env_file:
       - .env
     environment:
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
-      - SMARTROUTE_API_KEY=${SMARTROUTE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - HF_TOKEN=${HF_TOKEN}
       - DATABASE_URL=${DATABASE_URL:-}
       - REDIS_URL=redis://redis:6379/0
+      - QDRANT_URL=${QDRANT_URL:-http://localhost:6333}
     volumes:
       - ./data/documents:/app/data/documents
       - ./data/embeddings:/app/data/embeddings
@@ -35,14 +37,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dashboard
     container_name: smartroute-dashboard
     ports:
       - "8501:8501"
     env_file:
       - .env
     environment:
-      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
-      - SMARTROUTE_API_KEY=${SMARTROUTE_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - API_URL=http://api:8000
       - PORT=8501
     volumes:
@@ -55,6 +58,19 @@ services:
       api:
         condition: service_healthy
     restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    container_name: smartroute-migrate
+    command: alembic upgrade head
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-}
+    restart: "no"
 
   redis:
     image: redis:7-alpine
@@ -73,7 +89,3 @@ services:
 
 volumes:
   redis-data:
-
-networks:
-  default:
-    name: smartroute-network

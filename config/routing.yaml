@@ -1,83 +1,59 @@
 default_strategy: "cost_optimized"
 
-# Classifier Selection
-classification:
-  active_classifier: "ml"
-
 strategies:
   cost_optimized:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
-      model: "nvidia/nemotron-nano-9b-v2:free"        
-      fallback: "openrouter/free" 
+      model: "nvidia/nemotron-nano-9b-v2:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.7
       max_latency: 3.0
-      
+
     medium:
       model: "openai/gpt-oss-20b:free"
       fallback: "openrouter/free"
       quality_threshold: 0.75
       max_latency: 5.0
-      
+
     complex:
-      model: "google/gemma-4-31b-it:free"   
-      fallback: "openrouter/free" 
+      model: "google/gemma-4-31b-it:free"
+      fallback: "openrouter/free"
       quality_threshold: 0.8
       max_latency: 10.0
-      
+
   quality_first:
     description: "Always use the most capable model (best quality, slower)"
     simple:
       model: "google/gemma-4-31b-it:free"
       fallback: "openrouter/free"
       quality_threshold: 0.70
-      
+
     medium:
       model: "google/gemma-4-31b-it:free"
       fallback: "openrouter/free"
       quality_threshold: 0.85
-      
+
     complex:
       model: "google/gemma-4-31b-it:free"
       fallback: "openrouter/free"
       quality_threshold: 0.9
-      
+
   balanced:
     description: "Balance between cost and quality"
     simple:
       model: "nvidia/nemotron-nano-9b-v2:free"
       fallback: "openrouter/free"
       quality_threshold: 0.75
-      
+
     medium:
       model: "openai/gpt-oss-20b:free"
       fallback: "openrouter/free"
       quality_threshold: 0.8
-      
+
     complex:
       model: "google/gemma-4-31b-it:free"
       fallback: "openrouter/free"
       quality_threshold: 0.85
-
-# Complexity classification
-complexity_rules:
-  simple:
-    max_words: 15
-    max_sentences: 1
-    keywords: ["what is", "define", "who is", "when", "where"]
-    confidence_threshold: 0.8
-    
-  medium:
-    max_words: 30
-    max_sentences: 3
-    keywords: ["how", "why", "explain", "compare", "difference"]
-    confidence_threshold: 0.6
-    
-  complex:
-    min_words: 45
-    keywords: ["analyze", "evaluate", "synthesize", "argue", "critique"]
-    requires_reasoning: true
-    confidence_threshold: 0.4
 
 # Budget limits (USD)
 budgets:
@@ -85,13 +61,6 @@ budgets:
   weekly: 50.0
   monthly: 200.0
   alert_threshold: 0.8
-  emergency_stop: true
-
-# Quality gates
-quality:
-  min_confidence: 0.6
-  max_retries: 2
-  escalate_on_failure: true
 
 # Reference queries for semantic routing
 reference_queries:

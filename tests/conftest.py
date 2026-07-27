@@ -21,9 +21,11 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "rediss://default:test@test.upstash.io:6379")
 os.environ.setdefault("QDRANT_URL", "https://test.qdrant.io")
 os.environ.setdefault("QDRANT_API_KEY", "test-key")
-os.environ.setdefault("NVIDIA_API_KEY", "test-nvidia-key")
+os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
+os.environ.setdefault(
+    "SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long"
+)
 os.environ.setdefault("HF_TOKEN", "dummy-hf-token-for-testing")
-os.environ.setdefault("SMARTROUTE_API_KEY", "dev-key-change-in-production")
 
 
 @pytest.fixture(autouse=True)

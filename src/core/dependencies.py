@@ -58,3 +58,13 @@ def get_embeddings(
             huggingfacehub_api_token=hf_token,
         )
     return _embeddings
+
+
+def get_sparse_vector(client: AsyncQdrantClient, text: str):
+    """Safely extract a sparse query vector if the sparse embedding model is loaded on the Qdrant client."""
+    if hasattr(client, "_sparse_embedding_model") and client._sparse_embedding_model is not None:  # type: ignore[attr-defined]
+        try:
+            return next(client._sparse_embedding_model.query_embed(text))  # type: ignore[attr-defined]
+        except Exception:
+            return None
+    return None

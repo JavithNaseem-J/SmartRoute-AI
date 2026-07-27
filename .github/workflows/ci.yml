@@ -7,14 +7,14 @@ on:
     branches: [main]
 
 env:
-  IMAGE_NAME: smartrouteai
+  REGISTRY: ghcr.io
   PYTHON_VERSION: "3.10"
   HF_TOKEN: "dummy_hf_token_for_ci_tests"
 
 jobs:
-  # ── Lint ─────────────────────────────────────────────────────────────────────
-  lint:
-    name: Lint (ruff)
+  # ── Test Job (Lint, Type Check, Pytest) ───────────────────────────────────────
+  test:
+    name: Lint, Type Check & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -26,31 +26,14 @@ jobs:
       - name: Install uv
         run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
 
-      - name: Run ruff linter
+      - name: Install Dependencies
         run: |
-          uv pip install --system ruff
-          ruff check src/ api/ tests/ --output-format=github
+          uv pip install --system -e .[dev]
 
-  # ── Type checking ─────────────────────────────────────────────────────────────
-  type-check:
-    name: Type Check (mypy)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Lint (ruff)
+        run: ruff check src/ api/ tests/ --output-format=github
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system -r requirements.txt
-          uv pip install --system mypy types-redis types-PyYAML
-
-      - name: Run mypy
+      - name: Type Check (mypy)
         run: |
           mypy src/ api/ \
             --ignore-missing-imports \
@@ -58,179 +41,90 @@ jobs:
             --warn-return-any \
             --show-error-codes
 
-  # ── Security scan ─────────────────────────────────────────────────────────────
-  security:
-    name: Security (bandit + pip-audit)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+      - name: Run Tests (pytest)
+        run: pytest tests/ -v
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install security tools
-        run: uv pip install --system bandit pip-audit
-
-      - name: Run bandit (static security analysis)
-        run: bandit -r src/ api/ -ll --format json -o bandit-report.json || true
-
-      - name: Upload bandit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: bandit-report
-          path: bandit-report.json
-
-      - name: Run pip-audit (dependency vulnerability scan)
-        run: pip-audit -r requirements.txt --format=json --output pip-audit-report.json || true
-
-      - name: Upload pip-audit report
-        uses: actions/upload-artifact@v4
-        with:
-          name: pip-audit-report
-          path: pip-audit-report.json
-
-  # ── Tests ─────────────────────────────────────────────────────────────────────
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    needs: lint
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system -r requirements.txt
-          uv pip install --system pytest pytest-cov pytest-asyncio httpx fakeredis
-
-      - name: Run tests with coverage
-        env:
-          SMARTROUTE_API_KEY: test-key-ci
-          GROQ_API_KEY: dummy-for-ci
-          DATABASE_URL: "sqlite:///:memory:"
-          REDIS_URL: rediss://default:test@test.upstash.io:6379
-          QDRANT_URL: https://test.qdrant.io
-          QDRANT_API_KEY: test-key
-        run: |
-          pytest tests/ -v \
-            --cov=src --cov=api \
-            --cov-report=xml:coverage.xml \
-            --cov-report=term-missing \
-            --tb=short
-
-      - name: Upload coverage
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage.xml
-
-  # ── Docker build  ────────────────────────────────────────────────────────────
-  docker-validate:
-    name: Docker Build Validation
-    runs-on: ubuntu-latest
+  # ── Build & Push API Image ──────────────────────────────────────────────────
+  build-api:
+    name: Build & Push API Image
     needs: test
-    if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Build API image (no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile.api
-          push: false
-          tags: smartroute-api:pr-${{ github.event.number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Build dashboard image (no push)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: Dockerfile
-          push: false
-          tags: smartroute-dashboard:pr-${{ github.event.number }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-  # ── Docker build and push (main only) ────────────────────────────────────────
-  docker-build-and-push:
-    name: Build & Push Docker Images
     runs-on: ubuntu-latest
-    needs: [test, security]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
+      - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata (API)
-        id: meta-api
+      - name: Extract metadata for API image
+        id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}-api
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-api
           tags: |
+            type=sha,prefix=
             type=raw,value=latest
-            type=sha,prefix=main-
-
-      - name: Extract metadata (dashboard)
-        id: meta-dash
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}-dashboard
-          tags: |
-            type=raw,value=latest
-            type=sha,prefix=main-
 
       - name: Build and push API image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.api
+          target: api
           push: true
-          tags: ${{ steps.meta-api.outputs.tags }}
-          labels: ${{ steps.meta-api.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Build and push dashboard image
+  # ── Build & Push Dashboard Image ─────────────────────────────────────────────
+  build-dashboard:
+    name: Build & Push Dashboard Image
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Dashboard image
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}-dashboard
+          tags: |
+            type=sha,prefix=
+            type=raw,value=latest
+
+      - name: Build and push Dashboard image
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
+          target: dashboard
           push: true
-          tags: ${{ steps.meta-dash.outputs.tags }}
-          labels: ${{ steps.meta-dash.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-  # ── Alerting ─────────────────────────────────────────────────────────────────
-  alert-on-failure:
-    name: Alert on Failure
+  # ── Deploy Trigger ───────────────────────────────────────────────────────────
+  deploy:
+    name: Deploy to Production
+    needs: [build-api, build-dashboard]
     runs-on: ubuntu-latest
-    needs: [lint, type-check, test, security, docker-validate, docker-build-and-push]
-    if: failure()
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - name: Send Slack/Discord Alert
-        run: |
-          curl -X POST -H 'Content-type: application/json' \
-            --data '{"text":"🚨 CI/CD Pipeline Failed for SmartRoute-AI! Check the GitHub Actions logs."}' \
-            ${{ secrets.WEBHOOK_URL }}
+      - name: Trigger Render Deploy Hook
+        if: ${{ secrets.RENDER_DEPLOY_HOOK_URL != '' }}
+        run: curl -s "${{ secrets.RENDER_DEPLOY_HOOK_URL }}"

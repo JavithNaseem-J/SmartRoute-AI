@@ -1,38 +1,29 @@
 # render.yaml — One-click Render deployment blueprint
-#
-# How to deploy:
-#   1. Push this repo to GitHub (already done)
-#   2. Go to https://dashboard.render.com → New → Blueprint
-#   3. Connect your GitHub repo → Render auto-reads this file
-#   4. Add environment variables in the Render dashboard (or use render secrets)
-#   5. Click "Apply" — done!
-#
-# Free tier limits:
-#   - Web service: 750 hrs/month free (enough for 1 service running 24/7)
-#   - Spins down after 15min inactivity on free tier (cold start ~30s)
-#   - Upgrade to Starter ($7/mo) to keep it always-on
 
 services:
   # ── FastAPI Backend ──────────────────────────────────────────────────────────
   - type: web
     name: smartroute-api
     runtime: docker
-    dockerfilePath: ./Dockerfile.api
-    plan: free                        # upgrade to "starter" for always-on
-    region: singapore                 # closest to India — lowest latency
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: singapore
     preDeployCommand: "alembic upgrade head"
     healthCheckPath: /health
     envVars:
-      # ── Required ──────────────────────────────────────────────────────────────
-      - key: NVIDIA_API_KEY
-        sync: false                   # set manually in Render dashboard
+      # ── Required Provider Keys ────────────────────────────────────────────────
+      - key: OPENROUTER_API_KEY
+        sync: false
 
-      - key: SMARTROUTE_API_KEY
-        sync: false                   # set manually in Render dashboard
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+
+      - key: HF_TOKEN
+        sync: false
 
       # ── Database — Supabase ───────────────────────────────────────────────────
       - key: DATABASE_URL
-        sync: false                   # paste Supabase connection string here
+        sync: false
 
       # ── Vector DB — Qdrant Cloud ──────────────────────────────────────────────
       - key: QDRANT_URL
@@ -42,7 +33,7 @@ services:
 
       # ── Redis — Upstash ───────────────────────────────────────────────────────
       - key: REDIS_URL
-        sync: false                   # paste Upstash Redis URL here
+        sync: false
 
       # ── Runtime config ────────────────────────────────────────────────────────
       - key: ENVIRONMENT
@@ -50,22 +41,19 @@ services:
       - key: PYTHONUNBUFFERED
         value: "1"
 
-      # ── CORS — add your Streamlit Cloud URL when it's deployed ────────────────
+      # ── CORS ──────────────────────────────────────────────────────────────────
       - key: ALLOWED_ORIGINS
         value: "https://smartroute-ai.streamlit.app,http://localhost:8501"
 
-      # ── Tracing — LangFuse (optional but recommended) ─────────────────────────
-      # 1. Create free account at https://cloud.langfuse.com
-      # 2. Create a project → copy Public Key + Secret Key
-      # 3. Paste them below — LangFuse receives all LLM traces automatically
+      # ── Tracing — LangFuse ────────────────────────────────────────────────────
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: "https://cloud.langfuse.com/api/public/otel"  # LangFuse OTEL ingest
+        value: "https://cloud.langfuse.com/api/public/otel"
       - key: LANGFUSE_PUBLIC_KEY
         sync: false
       - key: LANGFUSE_SECRET_KEY
         sync: false
       - key: OTEL_SERVICE_NAME
-        value: smartroute-ai
+        value: smartroute-api
 
   # ── Streamlit Dashboard ──────────────────────────────────────────────────────
   - type: web
@@ -76,9 +64,9 @@ services:
     region: singapore
 
     envVars:
-      - key: GROQ_API_KEY
+      - key: OPENROUTER_API_KEY
         sync: false
-      - key: SMARTROUTE_API_KEY
+      - key: SUPABASE_JWT_SECRET
         sync: false
       - key: DATABASE_URL
         sync: false

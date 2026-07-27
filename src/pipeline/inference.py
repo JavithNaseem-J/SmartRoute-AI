@@ -42,11 +42,7 @@ class InferencePipeline:
             classifier_path=classifier_path if classifier_path.exists() else None,
         )
         self.model_manager = ModelManager(config_path=config_dir / "models.yaml")
-        self.retriever = DocumentRetriever(
-            persist_dir=_PROJECT_ROOT / "data" / "embeddings",
-            top_k=5,
-            max_distance=1.5,
-        )
+        self.retriever = DocumentRetriever(top_k=5)
         self.tracker = CostTracker()
         self.budget_manager = BudgetManager(
             tracker=self.tracker,
@@ -173,6 +169,58 @@ class InferencePipeline:
             "sources": sources,
         }
 
+    async def _finalize_response(
+        self,
+        query: str,
+        answer: str,
+        model_id: str,
+        complexity: str,
+        routing_decision: Dict,
+        input_tokens: int,
+        output_tokens: int,
+        actual_cost: float,
+        latency: float,
+        context: str,
+        sources: List[str],
+        session_id: Optional[str] = None,
+    ) -> Dict:
+        """Log metrics, update session memory, build response payload, and update cache."""
+        await self._log_query_metrics(
+            query=query,
+            model_id=model_id,
+            complexity=complexity,
+            strategy=routing_decision.get("strategy", "unknown"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=actual_cost,
+            latency=latency,
+            success=True,
+        )
+
+        if session_id:
+            await self.memory.add_turn(session_id, query, answer)
+
+        logger.info(f"Query done: cost=${actual_cost:.4f}, latency={latency:.2f}s")
+
+        response_payload = {
+            "answer": answer,
+            "model_used": model_id,
+            "complexity": complexity,
+            "confidence": routing_decision.get("confidence", 1.0),
+            "cost": actual_cost,
+            "latency": latency,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "context": context,
+            "sources": sources,
+            "routing_info": routing_decision,
+            "success": True,
+            "error": None,
+        }
+
+        asyncio.create_task(self.semantic_cache.set(query, response_payload))
+        return response_payload
+
     @observe()
     async def run(
         self,
@@ -223,44 +271,20 @@ class InferencePipeline:
             actual_cost = model.get_cost(input_tokens, output_tokens)
             latency = time.time() - start_time
 
-            # Track cost
-            await self._log_query_metrics(
+            return await self._finalize_response(
                 query=query,
+                answer=answer,
                 model_id=model_id,
                 complexity=complexity,
-                strategy=routing_decision["strategy"],
+                routing_decision=routing_decision,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                cost=actual_cost,
+                actual_cost=actual_cost,
                 latency=latency,
-                success=True,
+                context=context,
+                sources=sources,
+                session_id=session_id,
             )
-
-            if session_id:
-                await self.memory.add_turn(session_id, query, answer)
-
-            logger.info(f"Query done: cost=${actual_cost:.4f}, latency={latency:.2f}s")
-
-            response_payload = {
-                "answer": answer,
-                "model_used": model_id,
-                "complexity": complexity,
-                "confidence": routing_decision["confidence"],
-                "cost": actual_cost,
-                "latency": latency,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "context": context,
-                "sources": sources,
-                "routing_info": routing_decision,
-                "success": True,
-                "error": None,
-            }
-
-            # Fire off background task to cache the response
-            asyncio.create_task(self.semantic_cache.set(query, response_payload))
-
-            return response_payload
 
         except Exception as e:
             latency = time.time() - start_time
@@ -374,39 +398,20 @@ class InferencePipeline:
             actual_cost = model.get_cost(input_tokens, output_tokens)
             latency = time.time() - start_time
 
-            # Track cost
-            await self._log_query_metrics(
+            response_payload = await self._finalize_response(
                 query=query,
+                answer=full_answer,
                 model_id=model_id,
                 complexity=complexity,
-                strategy=routing_decision["strategy"],
+                routing_decision=routing_decision,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
-                cost=actual_cost,
+                actual_cost=actual_cost,
                 latency=latency,
-                success=True,
+                context=context,
+                sources=sources,
+                session_id=session_id,
             )
-
-            if session_id:
-                await self.memory.add_turn(session_id, query, full_answer)
-
-            response_payload = {
-                "answer": full_answer,
-                "model_used": model_id,
-                "complexity": complexity,
-                "confidence": routing_decision["confidence"],
-                "cost": actual_cost,
-                "latency": latency,
-                "input_tokens": input_tokens,
-                "output_tokens": output_tokens,
-                "context": context,
-                "sources": sources,
-                "routing_info": routing_decision,
-                "success": True,
-                "error": None,
-            }
-
-            asyncio.create_task(self.semantic_cache.set(query, response_payload))
             yield {"type": "done", "result": response_payload}
 
         except Exception as e:

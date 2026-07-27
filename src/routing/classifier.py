@@ -6,11 +6,10 @@ import numpy as np
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
 
-from src.routing.base_classifier import BaseClassifier
 from src.routing.features import FeatureExtractor
 
 
-class ComplexityClassifier(BaseClassifier):
+class ComplexityClassifier:
     """ML-based query complexity classifier"""
 
     def __init__(self, model_path: Optional[Path] = None):
