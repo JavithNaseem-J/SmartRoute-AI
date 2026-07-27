@@ -76,6 +76,15 @@ def setup_tracing(app=None) -> None:
         logger.info("Tracing disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable.")
         return
 
+    if "langfuse" in endpoint.lower():
+        pub_key = os.getenv("LANGFUSE_PUBLIC_KEY")
+        sec_key = os.getenv("LANGFUSE_SECRET_KEY")
+        if not pub_key or not sec_key:
+            logger.info(
+                "LangFuse OTEL tracing skipped — LANGFUSE_PUBLIC_KEY and LANGFUSE_SECRET_KEY are not set."
+            )
+            return
+
     if not _OTEL_AVAILABLE:
         logger.warning(
             "opentelemetry packages not installed. "

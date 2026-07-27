@@ -104,7 +104,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"],
+    allow_methods=["GET", "POST", "DELETE", "HEAD"],
     allow_headers=["*"],
 )
 
@@ -219,6 +219,7 @@ class QueryResponse(BaseModel):
 
 
 @app.get("/")
+@app.head("/")
 async def root():
     return {
         "status": "healthy" if pipeline else "degraded",
