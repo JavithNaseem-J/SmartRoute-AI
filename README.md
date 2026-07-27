@@ -27,12 +27,8 @@ On top of routing the system also provides:
 - **Multi-turn memory** — conversation history stored in Redis, injected per `session_id`.
 - **Budget enforcement** — atomic `INCRBYFLOAT` on Redis; daily $10, weekly $50, monthly $200 hard limits (configurable in `config/routing.yaml`). Alerts at 80% of any limit.
 - **Guardrails** — 21 regex patterns for prompt injection blocking; 500-character hard query limit.
-- **Circuit breaker** — per-model; opens after 5 failures, recovers after 60 s.
-- **Exponential-backoff retry** — 3 attempts, 1–10 s wait on `RateLimitError`, `APIConnectionError`, `InternalServerError`.
 - **Full observability** — OpenTelemetry traces (OTLP, gRPC or HTTP) → LangFuse, per-query cost/token/latency logged to Supabase PostgreSQL.
 - **RAGAS evaluation** — `faithfulness`, `answer_relevancy`, `context_recall`, `context_precision`; pass threshold set at 0.70 in `scripts/run_eval.py`.
-- **Streaming SSE** — tokens streamed as Server-Sent Events via `/v1/query/stream`.
-- **Batch endpoint** — up to 10 concurrent queries via `/v1/query/batch`.
 
 ---
 
