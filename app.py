@@ -44,13 +44,16 @@ def _process_and_index_documents(uploaded_files, docs_dir: Path):
 
 
 def check_api_ready():
-    try:
-        r = requests.get(f"{API_URL}/health", timeout=5)
-        if r.status_code == 200 and r.json().get("status") in ["healthy", "starting"]:
-            return True
-        return False
-    except Exception:
-        return False
+    for endpoint in ["/health", "/"]:
+        try:
+            r = requests.get(f"{API_URL}{endpoint}", timeout=5)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("status") in ["healthy", "starting", "ok"] or "service" in data:
+                    return True
+        except Exception:
+            continue
+    return False
 
 
 ready = check_api_ready()
