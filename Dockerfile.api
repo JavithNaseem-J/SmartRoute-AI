@@ -19,6 +19,8 @@ RUN uv pip install --system --no-cache -r pyproject.toml
 
 COPY . .
 
+RUN uv run python scripts/train_classifier.py
+
 RUN useradd --create-home --shell /bin/bash appuser && \
     mkdir -p data/documents data/embeddings models/classifiers logs && \
     chown -R appuser:appuser /app

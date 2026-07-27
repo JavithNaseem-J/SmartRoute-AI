@@ -223,3 +223,9 @@ class FeatureExtractor:
     def extract_vector(self, features: Dict) -> np.ndarray:
         """Convert a features dict to a numpy vector (used at inference time)."""
         return np.array([float(features.get(f, 0)) for f in self.FEATURE_ORDER], dtype=np.float32)
+
+    def extract_sync(self, query: str) -> np.ndarray:
+        """Synchronous feature extraction fallback (used during fast auto-training)."""
+        lexical = self._lexical_vector(query)
+        semantic = np.zeros(4, dtype=np.float32)
+        return np.concatenate([lexical, semantic])

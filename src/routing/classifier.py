@@ -30,6 +30,52 @@ class ComplexityClassifier:
 
         if model_path and model_path.exists():
             self.load(model_path)
+        else:
+            self._auto_train()
+
+    def _auto_train(self):
+        """Auto-train on synthetic features if pre-trained model file is absent."""
+        from src.utils.logger import logger
+
+        logger.info("Pre-trained classifier not found — running fast auto-training fallback...")
+        import asyncio
+        import random
+
+        subjects = ["AI", "Python", "Machine Learning", "Data Science", "SQL", "Docker", "API"]
+        actions_simple = ["What is", "Define", "Who created", "When was", "List features of"]
+        actions_medium = ["How does", "Why use", "Explain concept of", "Describe benefits of"]
+        actions_complex = [
+            "Analyze impact of",
+            "Evaluate performance of",
+            "Critique architectural design of",
+        ]
+
+        queries = []
+        labels = []
+        for _ in range(100):
+            queries.append(f"{random.choice(actions_simple)} {random.choice(subjects)}?")
+            labels.append(0)
+            queries.append(f"{random.choice(actions_medium)} {random.choice(subjects)} in tech?")
+            labels.append(1)
+            queries.append(
+                f"{random.choice(actions_complex)} {random.choice(subjects)}, providing comprehensive trade-off analysis."
+            )
+            labels.append(2)
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            # In async loop context, run feature extractions via sync call
+            X_list = [self.feature_extractor.extract_sync(q) for q in queries]
+        else:
+            X_list = [asyncio.run(self.feature_extractor.extract(q)) for q in queries]
+
+        X = np.array(X_list)
+        y = np.array(labels)
+        self.train(X, y)
 
     def train(self, X: np.ndarray, y: np.ndarray) -> float:
         """
@@ -57,9 +103,7 @@ class ComplexityClassifier:
 
     async def predict(self, query: str) -> Tuple[str, float]:
         if not self.is_trained:
-            raise RuntimeError(
-                "Classifier not trained. Run 'python scripts/train_classifier.py' first."
-            )
+            self._auto_train()
 
         # Extract features (now an async network call)
         features = await self.feature_extractor.extract(query)
