@@ -17,7 +17,19 @@ class DocumentChunker:
     ):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
-        self.separators = separators or ["\n\n", "\n", ". ", " ", ""]
+        # Header-aware separators: markdown headers are split first so that
+        # section headings (# Fill, ## Normalize, ### Research) stay attached
+        # to their body text and never get orphaned into standalone tiny chunks.
+        self.separators = separators or [
+            "\n# ",
+            "\n## ",
+            "\n### ",
+            "\n\n",
+            "\n",
+            ". ",
+            " ",
+            "",
+        ]
 
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,

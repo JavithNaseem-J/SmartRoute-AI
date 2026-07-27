@@ -65,10 +65,20 @@ class InferencePipeline:
         """Compose the messages list sent to the API."""
         if context:
             system_msg = (
-                "You are a helpful AI assistant. "
-                "Use the provided context to answer the question accurately and concisely."
+                "You are an enterprise document QA assistant. "
+                "You MUST answer strictly and exclusively based on the provided document context below. "
+                "If the user asks about a term, section heading, instruction, or phrase that appears "
+                "in the context, extract and quote or summarize that specific text directly from the context. "
+                "Do NOT use general dictionary definitions, outside knowledge, or your own parametric memory "
+                "when the answer can be found in the context. "
+                "If the context does not contain relevant information, respond with: "
+                "'The uploaded documents do not contain information about this topic.'"
             )
-            user_msg = f"Context:\n{context}\n\nQuestion: {prompt}"
+            user_msg = (
+                f"Document Context:\n{context}\n\n"
+                f"User Question: {prompt}\n\n"
+                "Answer based strictly on the document context above."
+            )
         else:
             system_msg = (
                 "You are a helpful AI assistant. Answer questions accurately and concisely."
