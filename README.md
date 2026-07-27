@@ -2,15 +2,15 @@
 
 **Cost-optimized LLM inference gateway with ML-based query routing and RAG.**
 
-🚀 **Live Deployment:** [Click Here](https://smartroute-dashboard.onrender.com/)
+🚀 **Live Deployment:** [smartroute-dashboard.onrender.com](https://smartroute-dashboard.onrender.com/)
 
 ---
 
-## Problem
+## Problem + Features
 
 Every LLM call goes through the same expensive, high-capability model even when the question is _"What is Python?"_ — a query any 9B model can answer correctly. SmartRoute-AI fixes that.
 
-## Features
+### Features
 A **LightGBM classifier** (19 lexical + semantic features, `n_estimators=50`, `max_depth=4`, `num_leaves=15`) reads each incoming query and routes it to the smallest model that can handle it:
 
 | Complexity | Model (`cost_optimized` strategy) | Max latency target |
@@ -40,46 +40,47 @@ On top of routing the system also provides:
 
 ```mermaid
 graph TD
-    User([Client / Streamlit UI / API Consumer]) -->|JWT Auth & HTTPS| Gateway[FastAPI Gateway v2.0.0]
+    Client([Client Application]) -->|HTTPS Request| Gateway[API Gateway]
     
     subgraph Security & Ingestion Layer
-        Gateway --> Guard[Input Guardrails<br/>21 Regex Patterns & 500-char Limit]
-        Guard --> CacheCheck{Semantic Cache Check<br/>Qdrant Cosine Sim ≥ 0.95}
+        Gateway --> Guardrails[Input Guardrails]
+        Guardrails --> CacheCheck{Semantic Cache Hit?}
     end
 
-    CacheCheck -- Cache Hit --> RedisCache[(Upstash Redis Cache)]
-    RedisCache -->|Instant Payload Response| User
+    CacheCheck -- Yes --> CacheStore[(Redis Cache)]
+    CacheStore -->|Instant Response| Client
 
-    CacheCheck -- Cache Miss --> Router[LightGBM ML Classifier Engine<br/>19 Lexical & Semantic Features]
+    CacheCheck -- No --> Router[Query Complexity Router]
 
-    subgraph Routing & Budget Enforcement
-        Router -->|Complexity: simple / medium / complex| Hysteresis[Cost-Biased Hysteresis<br/>Confidence < 0.75 Demotes Complex to Medium]
-        Hysteresis --> BudgetCheck{Atomic Budget Check<br/>Upstash Redis INCRBYFLOAT}
-        BudgetCheck -- Budget Exceeded --> FallbackModel[Demote to Llama 3.1 8B]
-        BudgetCheck -- Within Budget --> StrategyExec[Strategy Execution Engine<br/>cost_optimized / quality_first / balanced]
+    subgraph Routing & Budget Layer
+        Router --> Hysteresis[Hysteresis Adjuster]
+        Hysteresis --> BudgetCheck{Within Budget?}
+        BudgetCheck -- Exceeded --> Fallback[Fallback Model]
+        BudgetCheck -- Approved --> StrategyEngine[Routing Strategy Engine]
     end
 
     subgraph Retrieval Augmented Generation
-        StrategyExec --> RAGCheck{use_retrieval == True?}
-        RAGCheck -- Yes --> HybridSearch[Qdrant Hybrid Vector Search<br/>Dense + Sparse RRF Fusion]
-        HybridSearch --> Reranker[HuggingFace Reranker API<br/>ms-marco-MiniLM-L-6-v2]
-        Reranker --> PromptBuilder[Prompt & Context Assembler]
-        RAGCheck -- No --> PromptBuilder
+        StrategyEngine --> RAGCheck{RAG Enabled?}
+        RAGCheck -- Yes --> VectorSearch[Hybrid Vector Search]
+        VectorSearch --> Reranker[Re-Ranker]
+        Reranker --> ContextAssembler[Context Assembler]
+        RAGCheck -- No --> ContextAssembler
     end
 
-    subgraph LLM Provider & Execution Safeguards
-        PromptBuilder --> CircuitBreaker[Per-Model Circuit Breaker & Retry<br/>5 Failures / 60s Recovery / 3 Retries]
-        CircuitBreaker --> OpenRouter[OpenRouter Async LLM API]
-        OpenRouter -->|Nemotron-9B / GPT-20B / Gemma-31B| LLMResponse[Generated Completion / SSE Tokens]
+    subgraph Resilience & LLM Execution
+        ContextAssembler --> CircuitBreaker[Circuit Breaker]
+        CircuitBreaker --> LLMGateway[LLM Gateway]
+        Fallback --> LLMGateway
+        LLMGateway --> ResponseGen[Response Generator]
     end
 
-    subgraph Analytics & Observability
-        LLMResponse --> PostgresLog[(Supabase PostgreSQL<br/>Query Logs & Cost Tracking)]
-        LLMResponse --> OTEL[OpenTelemetry SDK -> LangFuse Tracing]
-        LLMResponse --> CacheWrite[Async Write to Qdrant & Redis Cache]
+    subgraph Observability & Analytics
+        ResponseGen --> Database[(PostgreSQL Database)]
+        ResponseGen --> Tracing[LangFuse Tracing]
+        ResponseGen --> CacheWrite[Cache Updater]
     end
 
-    LLMResponse --> User
+    ResponseGen --> Client
 ```
 
 ---
@@ -90,35 +91,35 @@ graph TD
 sequenceDiagram
     autonumber
     participant Client as Client Application
-    participant API as FastAPI Gateway
-    participant Cache as Qdrant & Redis Cache
-    participant ML as LightGBM Router
-    participant Redis as Redis Budget Store
-    participant RAG as Qdrant Hybrid RAG
-    participant LLM as OpenRouter API
-    participant DB as Supabase PostgreSQL
+    participant Gateway as API Gateway
+    participant Cache as Semantic Cache
+    participant Router as Complexity Router
+    participant Budget as Budget Manager
+    participant RAG as Vector RAG Engine
+    participant LLM as LLM Gateway
+    participant DB as PostgreSQL Database
 
-    Client->>API: POST /v1/query/stream {query, strategy, use_retrieval}
-    API->>API: Sanitize input & validate guardrails (max 500 chars)
-    API->>Cache: Query semantic cache (threshold = 0.95)
+    Client->>Gateway: Submit Query Request
+    Gateway->>Gateway: Sanitize & Validate Input
+    Gateway->>Cache: Lookup Query Embedding
     alt Cache Hit
-        Cache-->>API: Return cached answer & metadata
-        API-->>Client: Stream SSE cached payload (latency ~50ms)
+        Cache-->>Gateway: Return Cached Payload
+        Gateway-->>Client: Stream Cached Response
     else Cache Miss
-        API->>ML: Extract 19 features & predict query complexity
-        ML-->>API: Returns complexity (simple/medium/complex) & confidence
-        API->>Redis: Atomic INCRBYFLOAT check against budget ($10 daily limit)
-        Redis-->>API: Budget approved
-        opt RAG Enabled
-            API->>RAG: Native hybrid search (dense + sparse RRF)
-            RAG->>RAG: Cross-encoder re-rank top candidate chunks
-            RAG-->>API: Return top-k context chunks & source metadata
+        Gateway->>Router: Classify Query Complexity
+        Router-->>Gateway: Return Complexity & Confidence
+        Gateway->>Budget: Validate Budget Limit
+        Budget-->>Gateway: Budget Approved
+        opt RAG Retrieval Enabled
+            Gateway->>RAG: Execute Hybrid Vector Search
+            RAG->>RAG: Re-Rank Context Chunks
+            RAG-->>Gateway: Return Retrieved Context
         end
-        API->>LLM: Dispatch to routed model via AsyncOpenAI client
-        LLM-->>API: Stream SSE response tokens
-        API-->>Client: Forward SSE stream chunks
-        API->>DB: Log tokens, calculated cost, & latency asynchronously
-        API->>Cache: Write query embedding + response to semantic cache
+        Gateway->>LLM: Dispatch Query to Routed Model
+        LLM-->>Gateway: Stream Response Tokens
+        Gateway-->>Client: Forward Response Stream
+        Gateway->>DB: Log Metrics & Token Costs
+        Gateway->>Cache: Update Semantic Cache
     end
 ```
 
@@ -260,6 +261,7 @@ GitHub Actions CI (`.github/workflows/ci.yml`):
 4. Build and push Docker images to GHCR
 5. Trigger Render deploy hook
 
+Live Deployment URL: [smartroute-dashboard.onrender.com](https://smartroute-dashboard.onrender.com/)
 
 ---
 
