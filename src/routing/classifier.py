@@ -44,6 +44,7 @@ class ComplexityClassifier(BaseClassifier):
             Training accuracy
         """
         # Standardize features
+        # pyrefly: ignore [bad-argument-type]
         X_scaled = self.scaler.fit_transform(X)
 
         # Train model

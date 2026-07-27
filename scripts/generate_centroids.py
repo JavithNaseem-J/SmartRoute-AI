@@ -48,6 +48,7 @@ async def generate_centroids():
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / "reference_centroids.npy"
 
+    # pyrefly: ignore [no-matching-overload]
     np.save(output_path, centroids, allow_pickle=True)
     logger.info(f"Centroids saved successfully to {output_path}")
 

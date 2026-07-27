@@ -75,6 +75,7 @@ class FeatureExtractor:
             self.fastembed_model = TextEmbedding("BAAI/bge-small-en-v1.5")
         except Exception as e:
             logger.warning(f"Could not load fastembed local model: {e}")
+            # pyrefly: ignore [bad-assignment]
             self.fastembed_model = None
 
     def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> "np.ndarray[Any, Any]":

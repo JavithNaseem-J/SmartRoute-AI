@@ -89,26 +89,40 @@ class DocumentIndexer:
 
         return all_docs
 
-    def index_documents(self, documents: List[Document]) -> None:
-        """Index documents into vector store."""
+    async def aindex_documents(self, documents: List[Document]) -> None:
+        """Async index documents into vector store (safe on running event loop)."""
         if not documents:
             return
 
         chunks = self.chunker.chunk_documents(documents)
         logger.info(f"Chunked into {len(chunks)} chunks")
 
-        asyncio.run(self._async_add_documents(chunks))
+        await self._async_add_documents(chunks)
+
+    def index_documents(self, documents: List[Document]) -> None:
+        """Synchronous wrapper for index_documents."""
+        if not documents:
+            return
+        asyncio.run(self.aindex_documents(documents))
+
+    async def aindex_directory(
+        self,
+        docs_dir: Path,
+        file_types: Optional[List[str]] = None,
+    ) -> None:
+        """Async load and index all documents from a directory."""
+        documents = await asyncio.to_thread(self.load_documents, docs_dir, file_types)
+        if not documents:
+            return
+        await self.aindex_documents(documents)
 
     def index_directory(
         self,
         docs_dir: Path,
         file_types: Optional[List[str]] = None,
     ) -> None:
-        """Load and index all documents from a directory."""
-        documents = self.load_documents(docs_dir, file_types)
-        if not documents:
-            return
-        self.index_documents(documents)
+        """Synchronous wrapper to load and index all documents from a directory."""
+        asyncio.run(self.aindex_directory(docs_dir, file_types))
 
     def add_documents(self, documents: List[Document]) -> None:
         """Add documents to existing index."""

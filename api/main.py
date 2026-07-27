@@ -396,8 +396,8 @@ async def index_documents(_: str = Depends(require_api_key)):
 
     try:
         indexer = DocumentIndexer()
-        # Run synchronous indexing in a thread
-        await asyncio.to_thread(indexer.index_directory, Path("data/documents"))
+        # Async indexing on the active event loop
+        await indexer.aindex_directory(Path("data/documents"))
         # Reload the retriever to pick up new documents
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
