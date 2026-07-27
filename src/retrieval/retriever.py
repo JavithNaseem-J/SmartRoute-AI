@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
 from qdrant_client import models
@@ -122,17 +122,28 @@ class DocumentRetriever:
             logger.error(f"Retrieval failed: {e}", exc_info=True)
             return "", []
 
-    async def _retrieve_hybrid(self, query: str) -> Tuple[str, List[str]]:
+    async def _retrieve_hybrid(
+        self, query: str, top_k: Optional[int] = None
+    ) -> Tuple[str, List[str]]:
         """Retrieve using native Qdrant hybrid search with RRF Fusion."""
         logger.info("Using native Qdrant hybrid search")
 
-        # Fetch top_k * 2 candidates from Qdrant
-        results = await self._search_qdrant(query, self.top_k * 2)
+        # Dynamically scale top_k for exhaustive/list queries ("all", "terms", "list", "what are")
+        q_lower = query.lower()
+        is_list_query = any(
+            kw in q_lower
+            for kw in ["all", "list", "terms", "components", "overview", "what are", "every"]
+        )
+
+        effective_k = top_k or (15 if is_list_query else self.top_k)
+
+        # Fetch effective_k * 2 candidates from Qdrant
+        results = await self._search_qdrant(query, effective_k * 2)
 
         candidate_docs = [doc for doc, _ in results]
 
         # Re-rank candidates against the query
-        top_docs = await self.reranker.rerank(query, candidate_docs, top_k=self.top_k)
+        top_docs = await self.reranker.rerank(query, candidate_docs, top_k=effective_k)
 
         context_parts = []
         sources = []
@@ -142,7 +153,9 @@ class DocumentRetriever:
             source = doc.metadata.get("source", "Unknown")
             sources.append(f"Source {i + 1}: {source}")
 
-        logger.info(f"Hybrid search retrieved {len(top_docs)} documents")
+        logger.info(
+            f"Hybrid search retrieved {len(top_docs)} documents (effective_k={effective_k})"
+        )
 
         context = "\n\n".join(context_parts)
         return context, sources

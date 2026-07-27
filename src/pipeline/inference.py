@@ -67,17 +67,18 @@ class InferencePipeline:
             system_msg = (
                 "You are an enterprise document QA assistant. "
                 "You MUST answer strictly and exclusively based on the provided document context below. "
-                "If the user asks about a term, section heading, instruction, or phrase that appears "
-                "in the context, extract and quote or summarize that specific text directly from the context. "
-                "Do NOT use general dictionary definitions, outside knowledge, or your own parametric memory "
-                "when the answer can be found in the context. "
+                "If the user asks about terms, components, features, or lists (e.g. 'what are the production ai terms'), "
+                "extract and compile a COMPLETE, EXHAUSTIVE list of ALL matching items mentioned across all provided context chunks. "
+                "Do NOT stop at 3-5 items — scan all context chunks and list every single item found. "
+                "If the user asks about a specific term or instruction, quote or summarize that text directly from the context. "
+                "Do NOT use general dictionary definitions or outside parametric memory when the answer is in the context. "
                 "If the context does not contain relevant information, respond with: "
                 "'The uploaded documents do not contain information about this topic.'"
             )
             user_msg = (
                 f"Document Context:\n{context}\n\n"
                 f"User Question: {prompt}\n\n"
-                "Answer based strictly on the document context above."
+                "Answer based strictly on the document context above. Be comprehensive and list all items present in the context."
             )
         else:
             system_msg = (
