@@ -31,18 +31,18 @@ jobs:
           uv pip install --system -e .[dev]
 
       - name: Lint (ruff)
-        run: ruff check src/ api/ tests/ --output-format=github
+        run: uv run ruff check src/ api/ tests/ --output-format=github
 
       - name: Type Check (mypy)
         run: |
-          mypy src/ api/ \
+          uv run mypy src/ api/ \
             --ignore-missing-imports \
             --no-strict-optional \
             --warn-return-any \
             --show-error-codes
 
       - name: Run Tests (pytest)
-        run: pytest tests/ -v
+        run: uv run pytest tests/ -v
 
   # ── Build & Push API Image ──────────────────────────────────────────────────
   build-api:
