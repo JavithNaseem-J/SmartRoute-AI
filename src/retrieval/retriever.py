@@ -165,6 +165,5 @@ class DocumentRetriever:
             "status": "loaded" if dense else "not_loaded",
             "retrieval_mode": self.retrieval_mode,
             "top_k": self.top_k,
-            "max_distance": self.max_distance,
             "vector_store": {"document_count": qdrant_count},
         }

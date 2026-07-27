@@ -46,23 +46,23 @@ def _build_exporter(endpoint: str):
             auth = base64.b64encode(f"{pub_key}:{sec_key}".encode()).decode()
             headers["Authorization"] = f"Basic {auth}"
 
-    kwargs = {"endpoint": endpoint}
-    if headers:
-        kwargs["headers"] = headers
-
     if protocol == "grpc":
         from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
             OTLPSpanExporter as GRPCExporter,
         )
 
-        return GRPCExporter(**kwargs)
+        if headers:
+            return GRPCExporter(endpoint=endpoint, headers=headers)
+        return GRPCExporter(endpoint=endpoint)
     else:
         # Default to http/protobuf for HTTP endpoints (e.g., Langfuse / OTLP HTTP)
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter as HTTPExporter,
         )
 
-        return HTTPExporter(**kwargs)
+        if headers:
+            return HTTPExporter(endpoint=endpoint, headers=headers)
+        return HTTPExporter(endpoint=endpoint)
 
 
 def setup_tracing(app=None) -> None:
