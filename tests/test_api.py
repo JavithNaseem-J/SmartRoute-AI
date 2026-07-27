@@ -79,3 +79,12 @@ def test_stats_endpoint(client, api_key):
     """Test stats endpoint."""
     response = client.get("/v1/stats", headers={"Authorization": f"Bearer {api_key}"})
     assert response.status_code == 200
+
+
+def test_list_documents_endpoint(client, api_key):
+    """Test list documents endpoint."""
+    response = client.get("/v1/documents", headers={"Authorization": f"Bearer {api_key}"})
+    assert response.status_code == 200
+    data = response.json()
+    assert "documents" in data
+    assert "total" in data

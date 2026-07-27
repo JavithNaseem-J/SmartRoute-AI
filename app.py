@@ -105,9 +105,36 @@ with tab1:
 
         if doc_files and st.session_state.docs_processed:
             st.success(f"Knowledge base active: {len(doc_files)} indexed document(s)")
-            with st.expander("View Indexed Documents"):
+            with st.expander("Manage Indexed Documents"):
+                col_clear, _ = st.columns([2, 3])
+                with col_clear:
+                    if st.button("🚨 Clear All Documents", key="clear_all_docs"):
+                        try:
+                            r = requests.delete(f"{API_URL}/v1/documents", headers=HEADERS)
+                            r.raise_for_status()
+                            st.session_state.docs_processed = False
+                            st.success("Cleared all documents!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to clear documents: {e}")
+
+                st.markdown("---")
                 for doc in doc_files:
-                    st.write(f"- {doc.name}")
+                    c1, c2 = st.columns([4, 1])
+                    with c1:
+                        size_kb = doc.stat().st_size / 1024
+                        st.write(f"📄 **{doc.name}** ({size_kb:.1f} KB)")
+                    with c2:
+                        if st.button("🗑️ Delete", key=f"del_{doc.name}"):
+                            try:
+                                r = requests.delete(
+                                    f"{API_URL}/v1/documents/{doc.name}", headers=HEADERS
+                                )
+                                r.raise_for_status()
+                                st.success(f"Deleted {doc.name}!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"Failed to delete {doc.name}: {e}")
 
             if st.checkbox("Index additional documents"):
                 uploaded_files = st.file_uploader(

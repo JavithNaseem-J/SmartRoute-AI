@@ -408,6 +408,64 @@ async def index_documents(_: str = Depends(require_api_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@v1.get("/documents")
+async def list_documents(_: str = Depends(require_api_key)):
+    """List all indexed document files in data/documents."""
+    docs_dir = Path("data/documents")
+    if not docs_dir.exists():
+        return {"documents": [], "total": 0}
+
+    docs = []
+    for file_path in docs_dir.glob("*"):
+        if file_path.is_file():
+            stat = file_path.stat()
+            docs.append(
+                {
+                    "filename": file_path.name,
+                    "size_bytes": stat.st_size,
+                    "modified_time": stat.st_mtime,
+                }
+            )
+
+    return {"documents": docs, "total": len(docs)}
+
+
+@v1.delete("/documents/{filename}")
+async def delete_document(filename: str, _: str = Depends(require_api_key)):
+    """Delete a specific document, purge vector points from Qdrant, and flush cache."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    from src.retrieval.indexer import DocumentIndexer
+
+    try:
+        indexer = DocumentIndexer()
+        deleted = await indexer.adelete_document(filename, Path("data/documents"))
+        if hasattr(pipeline.retriever, "reload"):
+            await pipeline.retriever.reload()
+        return {"status": "success", "filename": filename, "deleted": deleted}
+    except Exception as e:
+        logger.error(f"Deleting document {filename} failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@v1.delete("/documents")
+async def clear_all_documents(_: str = Depends(require_api_key)):
+    """Clear all documents, reset Qdrant collection, and flush cache."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    from src.retrieval.indexer import DocumentIndexer
+
+    try:
+        indexer = DocumentIndexer()
+        await indexer.aclear_all_documents(Path("data/documents"))
+        if hasattr(pipeline.retriever, "reload"):
+            await pipeline.retriever.reload()
+        return {"status": "success", "message": "All documents cleared"}
+    except Exception as e:
+        logger.error(f"Clearing all documents failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # Mount versioned router — all /v1/* routes are now live
 app.include_router(v1)
 
