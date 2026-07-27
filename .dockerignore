@@ -53,4 +53,3 @@ docs/
 Thumbs.db
 *.log
 build.log
-uv.lock
