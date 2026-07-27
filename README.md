@@ -2,11 +2,11 @@
 
 **Cost-optimized LLM inference gateway with ML-based query routing and RAG.**
 
-🚀 **Live Deployment:** [smartroute-dashboard.onrender.com](https://smartroute-dashboard.onrender.com/)
+🚀 **Live Deployment:** [Click Here](https://smartroute-dashboard.onrender.com/)
 
 ---
 
-## Problem + Features
+## Problem
 
 Every LLM call goes through the same expensive, high-capability model even when the question is _"What is Python?"_ — a query any 9B model can answer correctly. SmartRoute-AI fixes that.
 
@@ -172,8 +172,6 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 |---|---|---|
 | **Classifier Test Accuracy** | **95.49%** | Evaluated on 731 stratified test queries (3,651 total dataset) |
 | **Routing Macro F1-Score** | **0.9550** | `simple`: 0.975 \| `medium`: 0.941 \| `complex`: 0.949 |
-| **Semantic Cache Latency** | **~50 ms** | Cosine similarity threshold `0.95` (7-day Redis TTL) |
-| **Hard Budget Enforcement** | **$10.00 / day** | Atomic Redis `INCRBYFLOAT` limit ($50/wk, $200/mo) |
 | **RAGAS Quality Threshold** | **0.70+** | Minimum score across Faithfulness, Relevancy, Recall, & Precision |
 
 ---
@@ -220,23 +218,7 @@ pytest tests/ -v
 # 9. Run RAGAS RAG evaluation (requires indexed documents)
 python scripts/run_eval.py
 
-# --- Quick curl example ---
-TOKEN=$(python -c "import jwt; print(jwt.encode({'sub':'test','role':'admin'}, 'YOUR_JWT_SECRET', algorithm='HS256'))")
 
-# Streaming query
-curl -N -X POST http://localhost:8000/v1/query/stream \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"query": "What is a neural network?", "strategy": "cost_optimized", "use_retrieval": false}'
-
-# Batch (up to 10 queries)
-curl -X POST "http://localhost:8000/v1/query/batch" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '["What is AI?", "Explain transformers", "Analyze ethical implications of AGI"]'
-
-# Cost stats for last 7 days
-curl "http://localhost:8000/v1/stats?days=7" -H "Authorization: Bearer $TOKEN"
 ```
 
 ### Docker
@@ -260,8 +242,6 @@ GitHub Actions CI (`.github/workflows/ci.yml`):
 3. Test with `pytest`
 4. Build and push Docker images to GHCR
 5. Trigger Render deploy hook
-
-Live Deployment URL: [smartroute-dashboard.onrender.com](https://smartroute-dashboard.onrender.com/)
 
 ---
 
