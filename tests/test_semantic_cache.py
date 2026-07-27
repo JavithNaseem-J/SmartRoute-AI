@@ -28,10 +28,12 @@ def cache(mock_qdrant, mock_redis, mock_embeddings):
 
 async def test_semantic_cache_miss(cache, mock_qdrant):
     """Test when no similar vector is found in Qdrant."""
-    mock_qdrant.search = AsyncMock(return_value=[])
+    mock_res = AsyncMock()
+    mock_res.points = []
+    mock_qdrant.query_points = AsyncMock(return_value=mock_res)
     result = await cache.get("What is SmartRoute?")
     assert result is None
-    mock_qdrant.search.assert_called_once()
+    mock_qdrant.query_points.assert_called_once()
 
 
 async def test_semantic_cache_hit(cache, mock_qdrant, mock_redis):
@@ -43,7 +45,9 @@ async def test_semantic_cache_hit(cache, mock_qdrant, mock_redis):
         payload={"query": "What is SmartRoute AI?"},
         vector=None,
     )
-    mock_qdrant.search = AsyncMock(return_value=[mock_point])
+    mock_res = AsyncMock()
+    mock_res.points = [mock_point]
+    mock_qdrant.query_points = AsyncMock(return_value=mock_res)
 
     expected_payload = {"answer": "It is an enterprise AI routing system."}
     mock_redis.get = AsyncMock(return_value=json.dumps(expected_payload))
@@ -51,7 +55,7 @@ async def test_semantic_cache_hit(cache, mock_qdrant, mock_redis):
     result = await cache.get("What is SmartRoute?")
 
     assert result == expected_payload
-    mock_qdrant.search.assert_called_once()
+    mock_qdrant.query_points.assert_called_once()
     mock_redis.get.assert_called_once_with("semantic_cache:mock-uuid")
 
 

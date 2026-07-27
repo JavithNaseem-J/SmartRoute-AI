@@ -84,12 +84,14 @@ class DocumentRetriever:
                 )
                 points = query_response.points
             else:
-                points = await self.qdrant.search(  # type: ignore[attr-defined]
+                query_response = await self.qdrant.query_points(
                     collection_name=self.collection_name,
-                    query_vector=("dense", vector),
+                    query=vector,
+                    using="dense",
                     limit=k,
                     with_payload=True,
                 )
+                points = query_response.points
 
             return [
                 (

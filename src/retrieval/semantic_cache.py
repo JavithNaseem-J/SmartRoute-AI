@@ -25,12 +25,13 @@ class SemanticCache:
             vector = await self.embeddings.aembed_query(query)
 
             # 2. Search Qdrant for nearest match
-            results = await self.qdrant.search(  # type: ignore[attr-defined]
+            query_response = await self.qdrant.query_points(
                 collection_name=self.collection_name,
-                query_vector=vector,
+                query=vector,
                 limit=1,
                 score_threshold=self.threshold,
             )
+            results = query_response.points
 
             if not results:
                 return None
