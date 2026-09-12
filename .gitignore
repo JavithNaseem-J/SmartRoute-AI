@@ -16,6 +16,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+!frontend/src/lib/
+!frontend/src/lib/**
 parts/
 sdist/
 var/
@@ -225,4 +227,4 @@ logs/
 scripts/benchmark_cost_savings.py
 
 # ── uv lock file (auto-generated, noisy in diffs) ──────────────────────────────
-uv.lock
+uv.lock
