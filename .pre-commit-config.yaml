@@ -1,7 +1,7 @@
 repos:
   # Ruff: linter + formatter (replaces flake8, isort, and black in one tool)
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.4.4
+    rev: v0.15.22
     hooks:
       - id: ruff             # lint: catches unused imports, style errors, etc.
         args: [--fix]        # auto-fix safe issues

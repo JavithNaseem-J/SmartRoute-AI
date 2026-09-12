@@ -62,9 +62,9 @@ async def test_local_reranker_keyword_fill(reranker_no_token, fill_normalize_doc
     results = await reranker_no_token.rerank("fill", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
-    assert (
-        "Fill" in top_doc.page_content or "fill" in top_doc.page_content.lower()
-    ), f"Expected Fill section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    assert "Fill" in top_doc.page_content or "fill" in top_doc.page_content.lower(), (
+        f"Expected Fill section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    )
 
 
 @pytest.mark.asyncio
@@ -73,9 +73,9 @@ async def test_local_reranker_keyword_normalize(reranker_no_token, fill_normaliz
     results = await reranker_no_token.rerank("normalize", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
-    assert (
-        "Normalize" in top_doc.page_content or "normalize" in top_doc.page_content.lower()
-    ), f"Expected Normalize section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    assert "Normalize" in top_doc.page_content or "normalize" in top_doc.page_content.lower(), (
+        f"Expected Normalize section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    )
 
 
 @pytest.mark.asyncio
@@ -84,9 +84,9 @@ async def test_local_reranker_phrase_query(reranker_no_token, fill_normalize_doc
     results = await reranker_no_token.rerank("what is fill", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
-    assert (
-        "fill" in top_doc.page_content.lower()
-    ), f"Expected Fill section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    assert "fill" in top_doc.page_content.lower(), (
+        f"Expected Fill section chunk at rank 1, got: {top_doc.page_content[:80]}"
+    )
 
 
 @pytest.mark.asyncio
@@ -142,6 +142,6 @@ def test_chunker_preserves_section_header_with_body():
     assert fill_chunks, "At least one chunk must contain the 'Fill' header text"
 
     fill_chunk = fill_chunks[0]
-    assert (
-        "populate" in fill_chunk.page_content.lower()
-    ), "The 'Fill' section header chunk should include its body content"
+    assert "populate" in fill_chunk.page_content.lower(), (
+        "The 'Fill' section header chunk should include its body content"
+    )

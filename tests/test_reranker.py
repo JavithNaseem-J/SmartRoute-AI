@@ -78,6 +78,6 @@ async def test_reranker_semantic_ranking():
 
         result = await reranker.rerank(query, docs, top_k=2)
 
-        assert (
-            result[0].metadata["src"] == "correct"
-        ), f"Expected 'correct' to be top-ranked, got '{result[0].metadata['src']}'"
+        assert result[0].metadata["src"] == "correct", (
+            f"Expected 'correct' to be top-ranked, got '{result[0].metadata['src']}'"
+        )
