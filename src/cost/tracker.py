@@ -32,6 +32,20 @@ class QueryLog(Base):
     success = Column(Boolean, default=True)
 
 
+class DocumentAsset(Base):
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    deleted_at = Column(DateTime, nullable=True)
+    user_id = Column(String, nullable=False)
+    filename = Column(String, nullable=False)
+    content_type = Column(String, nullable=True)
+    size_bytes = Column(Integer, nullable=False)
+    storage_bucket = Column(String, nullable=False)
+    storage_path = Column(String, nullable=False, unique=True)
+
+
 class CostTracker:
     """Cost tracker backed by Supabase PostgreSQL.
 

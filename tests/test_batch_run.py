@@ -1,11 +1,3 @@
-"""
-Tests for concurrent batch_run() in InferencePipeline.
-
-Strategy: mock pipeline.run() with a 1-second async sleep to prove that
-batch_run completes in ~1 second (parallel via asyncio.gather) rather than
-N seconds (sequential). All tests are now async and run with pytest-asyncio.
-"""
-
 import asyncio
 import time
 from unittest.mock import patch

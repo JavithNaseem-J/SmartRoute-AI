@@ -49,7 +49,7 @@ class OpenRouterModel(BaseLLM):
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key or "DUMMY_KEY_FOR_TESTS",
             default_headers={
-                "HTTP-Referer": "https://smartroute-ai.streamlit.app",
+                "HTTP-Referer": os.getenv("APP_PUBLIC_URL", "http://localhost:8000"),
                 "X-Title": "SmartRoute-AI",
             },
             timeout=20.0,

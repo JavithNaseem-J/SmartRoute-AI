@@ -1,11 +1,16 @@
 {
   "name": "SmartRoute-AI",
   "image": "mcr.microsoft.com/devcontainers/python:1-3.10-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "22"
+    }
+  },
   "customizations": {
     "codespaces": {
       "openFiles": [
         "README.md",
-        "app.py"
+        "frontend/src/App.tsx"
       ]
     },
     "vscode": {
@@ -16,24 +21,25 @@
         "ms-python.python",
         "ms-python.vscode-pylance",
         "charliermarsh.ruff",
-        "tamasfe.even-better-toml"
+        "tamasfe.even-better-toml",
+        "dbaeumer.vscode-eslint"
       ]
     }
   },
-  "updateContentCommand": "pip install -r requirements.txt -r requirements-dev.txt",
+  "updateContentCommand": "pip install uv && uv sync --all-groups && cd frontend && npm ci",
   "postAttachCommand": {
     "api": "uvicorn api.main:app --reload --host 0.0.0.0 --port 8000",
-    "dashboard": "streamlit run app.py --server.port 8501 --server.headless true"
+    "frontend": "cd frontend && npm run dev -- --port 5173"
   },
   "portsAttributes": {
     "8000": {
-      "label": "FastAPI Backend",
+      "label": "FastAPI + production SPA",
       "onAutoForward": "notify"
     },
-    "8501": {
-      "label": "Streamlit Dashboard",
+    "5173": {
+      "label": "React Dev Server",
       "onAutoForward": "openPreview"
     }
   },
-  "forwardPorts": [8000, 8501]
+  "forwardPorts": [8000, 5173]
 }

@@ -25,6 +25,9 @@ os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
 os.environ.setdefault(
     "SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long"
 )
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
+os.environ.setdefault("SUPABASE_STORAGE_BUCKET", "smartroute-documents")
 os.environ.setdefault("HF_TOKEN", "dummy-hf-token-for-testing")
 
 

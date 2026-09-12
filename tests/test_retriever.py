@@ -1,20 +1,8 @@
-"""Tests for RAG retrieval grounding: short keyword queries and reranker fallback.
-
-Verifies that single-word or short queries ("fill", "normalize") correctly rank
-the relevant document chunk at the top of results, and that the local keyword
-reranker fallback operates correctly without an HF API token.
-"""
-
 import pytest
 from langchain_core.documents import Document
 
 from src.retrieval.reranker import DocumentReranker
 from src.retrieval.chunking import DocumentChunker
-
-
-# ---------------------------------------------------------------------------
-# Fixtures
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture

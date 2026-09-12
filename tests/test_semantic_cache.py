@@ -1,10 +1,3 @@
-"""
-Tests for SemanticCache.
-
-Qdrant, Redis, and embeddings are mocked globally in conftest.py (autouse).
-The mock_semantic_cache fixture overrides search/upsert/get/setex per test.
-"""
-
 import json
 import sys
 from pathlib import Path
@@ -21,8 +14,6 @@ from src.retrieval.semantic_cache import SemanticCache
 @pytest.fixture
 def cache(mock_qdrant, mock_redis, mock_embeddings):
     """Return a SemanticCache wired to the conftest mocks."""
-    # SemanticCache calls get_qdrant_client(), get_redis_client(), get_embeddings()
-    # at __init__ — all three are already patched by conftest autouse fixtures.
     return SemanticCache(threshold=0.95)
 
 

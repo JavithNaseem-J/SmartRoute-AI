@@ -1,20 +1,33 @@
-name: CI/CD Pipeline
+name: CI
 
 on:
   push:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
-  REGISTRY: ghcr.io
   PYTHON_VERSION: "3.10"
+  NODE_VERSION: "22"
   HF_TOKEN: "dummy_hf_token_for_ci_tests"
+  DATABASE_URL: "sqlite:///:memory:"
+  REDIS_URL: "redis://localhost:6379/0"
+  QDRANT_URL: "https://test.qdrant.io"
+  QDRANT_API_KEY: "test-key"
+  OPENROUTER_API_KEY: "test-openrouter-key"
+  SUPABASE_JWT_SECRET: "super-secret-jwt-token-with-at-least-32-characters-long"
+  SUPABASE_URL: "https://test.supabase.co"
+  SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key"
+  SUPABASE_STORAGE_BUCKET: "smartroute-documents"
+  ENABLE_SPARSE_EMBEDDINGS: "false"
 
 jobs:
-  # ── Test Job (Lint, Type Check, Pytest) ───────────────────────────────────────
-  test:
-    name: Lint, Type Check & Test
+  backend-lint-format:
+    name: Backend lint and formatting
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,16 +37,35 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh && echo "$HOME/.local/bin" >> $GITHUB_PATH
+        uses: astral-sh/setup-uv@v4
 
-      - name: Install Dependencies
-        run: |
-          uv pip install --system -e .[dev]
+      - name: Install backend dependencies
+        run: uv sync --all-groups
 
-      - name: Lint (ruff)
+      - name: Ruff lint
         run: uv run ruff check src/ api/ tests/ --output-format=github
 
-      - name: Type Check (mypy)
+      - name: Ruff format check
+        run: uv run ruff format --check src/ api/ tests/
+
+  backend-type-analysis:
+    name: Backend static type analysis
+    runs-on: ubuntu-latest
+    needs: backend-lint-format
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install backend dependencies
+        run: uv sync --all-groups
+
+      - name: Mypy
         run: |
           uv run mypy src/ api/ \
             --ignore-missing-imports \
@@ -41,96 +73,168 @@ jobs:
             --warn-return-any \
             --show-error-codes
 
-      - name: Run Tests (pytest)
+  backend-unit-tests:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    needs: backend-type-analysis
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install backend dependencies
+        run: uv sync --all-groups
+
+      - name: Pytest unit suite
         run: uv run pytest tests/ -v
 
-  # ── Build & Push API Image ──────────────────────────────────────────────────
-  build-api:
-    name: Build & Push API Image
-    needs: test
+  backend-integration-tests:
+    name: Backend integration tests
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
+    needs: backend-unit-tests
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/setup-python@v5
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          python-version: ${{ env.PYTHON_VERSION }}
 
-      - name: Extract metadata for API image
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-api
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
 
-      - name: Build and push API image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: api
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Install backend dependencies
+        run: uv sync --all-groups
 
-  # ── Build & Push Dashboard Image ─────────────────────────────────────────────
-  build-dashboard:
-    name: Build & Push Dashboard Image
-    needs: test
+      - name: API integration tests
+        run: uv run pytest tests/test_api.py -v
+
+  frontend:
+    name: Frontend install, typecheck, tests, and build
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
-      packages: write
+    needs: backend-integration-tests
+    defaults:
+      run:
+        working-directory: frontend
     steps:
       - uses: actions/checkout@v4
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: actions/setup-node@v4
         with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
 
-      - name: Extract metadata for Dashboard image
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ github.repository }}-dashboard
-          tags: |
-            type=sha,prefix=
-            type=raw,value=latest
+      - name: Install frontend dependencies from lockfile
+        run: npm ci
 
-      - name: Build and push Dashboard image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          target: dashboard
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+      - name: Frontend lint
+        run: npm run lint
 
-  # ── Deploy Trigger ───────────────────────────────────────────────────────────
-  deploy:
-    name: Deploy to Production
-    needs: [build-api, build-dashboard]
+      - name: Frontend typecheck
+        run: npm run typecheck
+
+      - name: Frontend tests
+        run: npm test --if-present
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Frontend vulnerability scan
+        run: npm audit --audit-level=high
+
+  docker-production-smoke:
+    name: Production Docker build and smoke test
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: frontend
+    env:
+      IMAGE_TAG: smartroute-ai:${{ github.sha }}
+      CONTAINER_NAME: smartroute-ai-ci
+      PORT: "8000"
     steps:
-      - name: Trigger Render Deploy Hook
-        env:
-          RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
+      - uses: actions/checkout@v4
+
+      - name: Build production Docker image with build identity
         run: |
-          if [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
-            curl -s "$RENDER_DEPLOY_HOOK_URL"
+          BUILD_TIME="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          docker build \
+            --build-arg COMMIT_SHA="${GITHUB_SHA}" \
+            --build-arg BUILD_TIME="${BUILD_TIME}" \
+            -t "${IMAGE_TAG}" \
+            .
+
+      - name: Start built container
+        run: |
+          docker run -d \
+            --name "${CONTAINER_NAME}" \
+            -p 8000:8000 \
+            -e PORT=8000 \
+            -e DATABASE_URL="${DATABASE_URL}" \
+            -e REDIS_URL="${REDIS_URL}" \
+            -e QDRANT_URL="${QDRANT_URL}" \
+            -e QDRANT_API_KEY="${QDRANT_API_KEY}" \
+            -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
+            -e HF_TOKEN="${HF_TOKEN}" \
+            -e SUPABASE_JWT_SECRET="${SUPABASE_JWT_SECRET}" \
+            -e SUPABASE_URL="${SUPABASE_URL}" \
+            -e SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}" \
+            -e SUPABASE_STORAGE_BUCKET="${SUPABASE_STORAGE_BUCKET}" \
+            -e ENABLE_SPARSE_EMBEDDINGS="${ENABLE_SPARSE_EMBEDDINGS}" \
+            "${IMAGE_TAG}"
+
+      - name: Check health endpoint
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${PORT}/health"; then
+              exit 0
+            fi
+            echo "Waiting for /health (${attempt}/30)..."
+            sleep 5
+          done
+          docker logs "${CONTAINER_NAME}"
+          exit 1
+
+      - name: Confirm API exposes the checked commit
+        run: |
+          curl -fsS "http://127.0.0.1:${PORT}/version" -o version.json
+          python - <<'PY'
+          import json
+          import os
+          import sys
+
+          with open("version.json", encoding="utf-8") as handle:
+              payload = json.load(handle)
+
+          expected = os.environ["GITHUB_SHA"]
+          actual = payload.get("commit_sha")
+          if actual != expected:
+              print(f"/version commit mismatch: expected {expected}, got {actual}", file=sys.stderr)
+              sys.exit(1)
+          PY
+
+      - name: Confirm frontend and API are served
+        run: |
+          curl -fsS -H "Accept: text/html" "http://127.0.0.1:${PORT}/" -o frontend.html
+          grep -qi "SmartRoute" frontend.html
+          curl -fsS "http://127.0.0.1:${PORT}/health" -o health.json
+
+      - name: Run browser smoke tests when configured
+        working-directory: frontend
+        run: |
+          if [ -f playwright.config.ts ] || [ -f playwright.config.js ]; then
+            npm run test:e2e --if-present
+          elif [ -f cypress.config.ts ] || [ -f cypress.config.js ]; then
+            npm run cypress:run --if-present
           else
-            echo "RENDER_DEPLOY_HOOK_URL secret not set. Skipping trigger."
+            echo "No browser smoke test configuration found; skipping."
           fi
+
+      - name: Clean up smoke-test container
+        if: always()
+        run: |
+          docker logs "${CONTAINER_NAME}" || true
+          docker rm -f "${CONTAINER_NAME}" || true

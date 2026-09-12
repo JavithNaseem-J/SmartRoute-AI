@@ -3,7 +3,6 @@ import redis.asyncio as redis
 from langchain_huggingface import HuggingFaceEndpointEmbeddings
 from qdrant_client import AsyncQdrantClient
 
-# Singletons
 _redis_client = None
 _qdrant_client = None
 _embeddings = None

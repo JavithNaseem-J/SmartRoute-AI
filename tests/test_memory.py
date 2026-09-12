@@ -1,10 +1,3 @@
-"""
-Tests for ConversationMemory.
-
-The Redis client is mocked globally in conftest.py via mock_redis (autouse).
-All methods are async — the conftest asyncio_mode="auto" handles that.
-"""
-
 import sys
 import time
 from pathlib import Path
@@ -51,7 +44,7 @@ async def test_fifo_eviction_on_max_turns(mem):
     """When max_turns=2 is exceeded the oldest turn is dropped (FIFO)."""
     await mem.add_turn("s3", "Q1", "A1")  # turn 1
     await mem.add_turn("s3", "Q2", "A2")  # turn 2
-    await mem.add_turn("s3", "Q3", "A3")  # turn 3 → should evict turn 1
+    await mem.add_turn("s3", "Q3", "A3")  # turn 3
 
     history = await mem.get_history("s3")
     # max_turns=2 → max 4 messages
@@ -75,7 +68,7 @@ async def test_ttl_eviction(mem):
     await mem.add_turn("s6", "Q", "A")
     assert len(await mem.get_history("s6")) == 2
 
-    time.sleep(3)  # Wait past TTL
+    time.sleep(3)
 
     evicted = await mem.get_history("s6")
     assert evicted == [], f"Expected eviction, got: {evicted}"

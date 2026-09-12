@@ -1,24 +1,3 @@
-"""
-RAGAS evaluation for SmartRoute-AI RAG pipeline.
-
-Measures four dimensions of retrieval + generation quality:
-
-  faithfulness      — does the answer only use facts from the retrieved context?
-  answer_relevancy  — is the answer actually relevant to the question?
-  context_recall    — did retrieval find the chunks needed to answer correctly?
-  context_precision — are the retrieved chunks precise (low noise)?
-
-Usage (offline eval against a fixed question set):
-
-    python scripts/run_eval.py
-
-Usage (in tests):
-
-    from src.evaluation.ragas_eval import RagasEvaluator
-    evaluator = RagasEvaluator(pipeline)
-    results = await evaluator.run(questions, ground_truths)
-"""
-
 from __future__ import annotations
 
 import json
@@ -28,8 +7,7 @@ from typing import List, Optional
 
 from src.utils.logger import logger
 
-# RAGAS is an optional dev dependency — the app runs fine without it.
-# Install with: pip install ragas
+
 try:
     from datasets import Dataset
     from ragas import evaluate

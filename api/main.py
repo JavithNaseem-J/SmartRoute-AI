@@ -4,26 +4,36 @@ import sys
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 
-load_dotenv()  # noqa: E402 – must run before any src.* imports that read env vars
+load_dotenv()
 
 import uvicorn  # noqa: E402
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request  # noqa: E402
+from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, UploadFile  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-from fastapi.responses import JSONResponse, StreamingResponse  # noqa: E402
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # noqa: E402
+from fastapi.staticfiles import StaticFiles  # noqa: E402
 from pydantic import BaseModel, Field  # noqa: E402
 from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from slowapi.util import get_remote_address  # noqa: E402
 
 from src.pipeline.inference import InferencePipeline  # noqa: E402
+from src.documents import (  # noqa: E402
+    SupabaseStorage,
+    create_document_record,
+    get_active_document,
+    list_active_documents,
+    mark_document_deleted,
+)
+from src.documents.storage import guess_content_type  # noqa: E402
+from src.utils.alerting import send_alert  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 from src.utils.security import require_jwt  # noqa: E402
 from src.utils.tracing import setup_tracing  # noqa: E402
-from src.utils.alerting import send_alert  # noqa: E402
 
 #  validation
 
@@ -33,6 +43,9 @@ _REQUIRED_ENV_VARS = [
     ("QDRANT_URL", "Qdrant Cloud         -> https://cloud.qdrant.io"),
     ("QDRANT_API_KEY", "Qdrant Cloud         -> https://cloud.qdrant.io"),
     ("HF_TOKEN", "HuggingFace API      -> https://huggingface.co/settings/tokens"),
+    ("SUPABASE_URL", "Supabase Project URL -> https://supabase.com"),
+    ("SUPABASE_SERVICE_ROLE_KEY", "Supabase service key -> Project Settings / API"),
+    ("SUPABASE_STORAGE_BUCKET", "Supabase Storage bucket"),
 ]
 
 
@@ -65,6 +78,9 @@ def validate_env() -> None:
 #  Application lifespan
 
 pipeline: Optional[InferencePipeline] = None
+FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
+DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_DIR", "data/documents"))
+ALLOWED_DOCUMENT_SUFFIXES = {".pdf", ".txt", ".md"}
 
 
 @asynccontextmanager
@@ -77,7 +93,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Pipeline initialised - all cloud services connected.")
     except Exception as exc:
         logger.error(f"Pipeline init failed: {exc}")
-        sys.exit(1)  # crash loudly; Render will restart and show the error
+        sys.exit(1)
     yield
     logger.info("Shutting down SmartRoute-AI.")
 
@@ -97,8 +113,37 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # ty
 
 ALLOWED_ORIGINS = os.getenv(
     "ALLOWED_ORIGINS",
-    "http://localhost:8501,http://localhost:3000",
-).split(",")
+    "http://localhost:5173,http://localhost:8000",
+)
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()]
+
+
+def _accepts_html(request: Request) -> bool:
+    accept = request.headers.get("accept", "")
+    return "text/html" in accept
+
+
+def _read_build_metadata_file(filename: str) -> str:
+    try:
+        return (Path("/app") / filename).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
+
+def _deployment_commit_sha() -> str:
+    for env_name in ("SMARTROUTE_COMMIT_SHA", "RENDER_GIT_COMMIT"):
+        value = os.getenv(env_name, "").strip()
+        if value:
+            return value
+    return _read_build_metadata_file(".commit_sha") or "unknown"
+
+
+def _deployment_build_time() -> str:
+    value = os.getenv("SMARTROUTE_BUILD_TIME", "").strip()
+    if value:
+        return value
+    return _read_build_metadata_file(".build_time") or "unknown"
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -125,13 +170,25 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.get("/health", tags=["system"])
 async def health_check():
-    """Unauthenticated health probe for Docker, Render, and load balancers.
+    """Cheap liveness probe for Docker, Render, and load balancers."""
+    return {
+        "status": "healthy" if pipeline else "starting",
+        "version": "2.0.0",
+    }
 
-    Always returns 200 so Docker probes don't restart the container during
-    the 60-second pipeline startup. Returns component detail once ready.
-    """
+
+@app.get("/version", tags=["system"])
+async def version():
+    """Unauthenticated deployment identity used by CI/CD verification."""
+    return {
+        "commit_sha": _deployment_commit_sha(),
+        "build_time": _deployment_build_time(),
+    }
+
+
+async def _component_status() -> dict:
     if not pipeline:
-        return {"status": "starting", "pipeline": "initializing"}
+        return {"pipeline": "initializing"}
 
     components = {
         "router": "ok" if pipeline.router else "error",
@@ -176,11 +233,22 @@ async def health_check():
     except Exception as e:
         components["postgres"] = f"error: {str(e)}"
 
-    return {
-        "status": "healthy",
-        "version": "2.0.0",
-        "components": components,
-    }
+    return components
+
+
+@app.get("/ready", tags=["system"])
+async def readiness_check():
+    """Readiness probe that checks runtime dependencies."""
+    components = await _component_status()
+    ready = bool(pipeline) and all(value == "ok" for value in components.values())
+    return JSONResponse(
+        status_code=200 if ready else 503,
+        content={
+            "status": "ready" if ready else "not_ready",
+            "version": "2.0.0",
+            "components": components,
+        },
+    )
 
 
 # ── Authentication ────────────────────────────────────────────────────────────
@@ -220,7 +288,11 @@ class QueryResponse(BaseModel):
 
 @app.get("/")
 @app.head("/")
-async def root():
+async def root(request: Request):
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.exists() and _accepts_html(request):
+        return FileResponse(index_path)
+
     return {
         "status": "healthy" if pipeline else "degraded",
         "service": "SmartRoute-AI",
@@ -234,6 +306,7 @@ async def root():
             "budget": "/v1/budget",
             "models": "/v1/models",
             "health": "/health",
+            "ready": "/ready",
             "docs": "/docs",
         },
     }
@@ -398,7 +471,7 @@ async def index_documents(_: str = Depends(require_api_key)):
     try:
         indexer = DocumentIndexer()
         # Async indexing on the active event loop
-        await indexer.aindex_directory(Path("data/documents"))
+        await indexer.aindex_directory(DOCUMENTS_DIR)
         # Reload the retriever to pick up new documents
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
@@ -409,56 +482,163 @@ async def index_documents(_: str = Depends(require_api_key)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@v1.get("/documents")
-async def list_documents(_: str = Depends(require_api_key)):
-    """List all indexed document files in data/documents."""
-    docs_dir = Path("data/documents")
-    if not docs_dir.exists():
-        return {"documents": [], "total": 0}
+@v1.post("/documents/upload")
+async def upload_documents(
+    files: List[UploadFile] = File(...),
+    user_id: str = Depends(require_api_key),
+):
+    """Upload PDF, TXT, or MD documents to Supabase Storage and index them."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+    if not files:
+        raise HTTPException(status_code=422, detail="No files uploaded")
 
-    docs = []
-    for file_path in docs_dir.glob("*"):
-        if file_path.is_file():
-            stat = file_path.stat()
-            docs.append(
-                {
-                    "filename": file_path.name,
-                    "size_bytes": stat.st_size,
-                    "modified_time": stat.st_mtime,
-                }
+    from src.retrieval.indexer import DocumentIndexer
+
+    storage = SupabaseStorage.from_env()
+    saved_files = []
+    uploaded_paths = []
+
+    try:
+        indexer = DocumentIndexer()
+        documents_to_index = []
+        pending_records = []
+
+        with TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            for upload in files:
+                filename = Path(upload.filename or "").name
+                suffix = Path(filename).suffix.lower()
+                if not filename or suffix not in ALLOWED_DOCUMENT_SUFFIXES:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"Unsupported document type for {filename or 'unnamed file'}",
+                    )
+
+                content = await upload.read()
+                content_type = upload.content_type or guess_content_type(filename)
+                storage_path = storage.object_path(user_id, filename)
+                await storage.upload(storage_path, content, content_type)
+                uploaded_paths.append(storage_path)
+
+                temp_path = temp_root / filename
+                temp_path.write_bytes(content)
+                loaded_docs = await asyncio.to_thread(
+                    indexer.load_file,
+                    temp_path,
+                    source=storage_path,
+                    metadata={
+                        "storage_bucket": storage.bucket,
+                        "storage_path": storage_path,
+                        "user_id": user_id,
+                    },
+                )
+                documents_to_index.extend(loaded_docs)
+                pending_records.append(
+                    {
+                        "user_id": user_id,
+                        "filename": filename,
+                        "content_type": content_type,
+                        "size_bytes": len(content),
+                        "storage_bucket": storage.bucket,
+                        "storage_path": storage_path,
+                    }
+                )
+
+            await indexer.aindex_documents(documents_to_index)
+
+        for record in pending_records:
+            saved_files.append(
+                await asyncio.to_thread(create_document_record, pipeline.tracker, **record)
             )
+        if hasattr(pipeline.retriever, "reload"):
+            await pipeline.retriever.reload()
 
+        return {
+            "status": "success",
+            "documents": saved_files,
+            "total": len(saved_files),
+            "stats": indexer.get_stats(),
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        for storage_path in uploaded_paths:
+            try:
+                await storage.delete(storage_path)
+            except Exception as cleanup_error:
+                logger.warning(
+                    f"Failed to clean up uploaded object {storage_path}: {cleanup_error}"
+                )
+        logger.error(f"Document upload failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@v1.get("/documents")
+async def list_documents(user_id: str = Depends(require_api_key)):
+    """List active document metadata from Supabase-backed Postgres."""
+    if not pipeline:
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    docs = await asyncio.to_thread(list_active_documents, pipeline.tracker, user_id)
     return {"documents": docs, "total": len(docs)}
 
 
 @v1.delete("/documents/{filename}")
-async def delete_document(filename: str, _: str = Depends(require_api_key)):
-    """Delete a specific document, purge vector points from Qdrant, and flush cache."""
+async def delete_document(filename: str, user_id: str = Depends(require_api_key)):
+    """Delete a stored document, purge vector points from Qdrant, and flush cache."""
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
     from src.retrieval.indexer import DocumentIndexer
 
     try:
+        document = await asyncio.to_thread(get_active_document, pipeline.tracker, filename, user_id)
+        if not document:
+            raise HTTPException(status_code=404, detail=f"Document not found: {filename}")
+
+        storage = SupabaseStorage.from_env()
+        await storage.delete(document["storage_path"])
+
         indexer = DocumentIndexer()
-        deleted = await indexer.adelete_document(filename, Path("data/documents"))
+        deleted = await indexer.adelete_document(
+            filename,
+            DOCUMENTS_DIR,
+            source=document["storage_path"],
+        )
+        await asyncio.to_thread(mark_document_deleted, pipeline.tracker, document["storage_path"])
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
-        return {"status": "success", "filename": filename, "deleted": deleted}
+        return {
+            "status": "success",
+            "filename": filename,
+            "storage_path": document["storage_path"],
+            "deleted": deleted,
+        }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Deleting document {filename} failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @v1.delete("/documents")
-async def clear_all_documents(_: str = Depends(require_api_key)):
-    """Clear all documents, reset Qdrant collection, and flush cache."""
+async def clear_all_documents(user_id: str = Depends(require_api_key)):
+    """Clear stored documents, reset Qdrant collection, and flush cache."""
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
     from src.retrieval.indexer import DocumentIndexer
 
     try:
+        storage = SupabaseStorage.from_env()
+        documents = await asyncio.to_thread(list_active_documents, pipeline.tracker, user_id)
+        for document in documents:
+            await storage.delete(document["storage_path"])
+            await asyncio.to_thread(
+                mark_document_deleted, pipeline.tracker, document["storage_path"]
+            )
+
         indexer = DocumentIndexer()
-        await indexer.aclear_all_documents(Path("data/documents"))
+        await indexer.aclear_all_documents(DOCUMENTS_DIR)
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
         return {"status": "success", "message": "All documents cleared"}
@@ -470,6 +650,26 @@ async def clear_all_documents(_: str = Depends(require_api_key)):
 # Mount versioned router — all /v1/* routes are now live
 app.include_router(v1)
 
+if (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=FRONTEND_DIST / "assets"), name="frontend-assets")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def serve_frontend(full_path: str):
+    """Serve the compiled React app for client-side routes."""
+    if full_path.startswith(("v1/", "docs", "openapi.json", "redoc", "health", "ready")):
+        raise HTTPException(status_code=404, detail="Not found")
+
+    requested_path = FRONTEND_DIST / full_path
+    if requested_path.exists() and requested_path.is_file():
+        return FileResponse(requested_path)
+
+    index_path = FRONTEND_DIST / "index.html"
+    if index_path.exists():
+        return FileResponse(index_path)
+
+    raise HTTPException(status_code=404, detail="Frontend build not found")
+
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

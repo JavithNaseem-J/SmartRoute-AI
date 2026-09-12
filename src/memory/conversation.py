@@ -1,12 +1,3 @@
-"""
-ConversationMemory — Upstash Redis only.
-
-REDIS_URL is REQUIRED. The app will refuse to start without it.
-No in-memory fallback — this system runs in the cloud with multiple workers.
-
-Get your free Upstash Redis URL at: https://upstash.com
-"""
-
 import json
 from typing import Dict, List
 
@@ -18,12 +9,6 @@ SESSION_TTL_SECONDS = 30 * 60  # 30 minutes
 
 
 class ConversationMemory:
-    """Per-session conversation history backed by Upstash Redis.
-
-    REDIS_URL must be set. Raises RuntimeError on startup if missing.
-    Thread-safe and multi-worker safe — Redis is the single source of truth.
-    """
-
     def __init__(
         self,
         max_turns: int = MAX_TURNS,

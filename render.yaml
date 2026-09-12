@@ -1,51 +1,47 @@
-# render.yaml — One-click Render deployment blueprint
+# render.yaml - single-service Render deployment blueprint
 
 services:
-  # ── FastAPI Backend ──────────────────────────────────────────────────────────
   - type: web
-    name: smartroute-api
+    name: smartroute-ai
     runtime: docker
     dockerfilePath: ./Dockerfile
+    autoDeploy: false
     plan: free
     region: singapore
-    preDeployCommand: "alembic upgrade head"
     healthCheckPath: /health
     envVars:
-      # ── Required Provider Keys ────────────────────────────────────────────────
       - key: OPENROUTER_API_KEY
         sync: false
-
       - key: SUPABASE_JWT_SECRET
         sync: false
-
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: SUPABASE_STORAGE_BUCKET
+        value: smartroute-documents
       - key: HF_TOKEN
         sync: false
-
-      # ── Database — Supabase ───────────────────────────────────────────────────
       - key: DATABASE_URL
         sync: false
-
-      # ── Vector DB — Qdrant Cloud ──────────────────────────────────────────────
       - key: QDRANT_URL
         sync: false
       - key: QDRANT_API_KEY
         sync: false
-
-      # ── Redis — Upstash ───────────────────────────────────────────────────────
       - key: REDIS_URL
         sync: false
-
-      # ── Runtime config ────────────────────────────────────────────────────────
+      - key: ENABLE_SPARSE_EMBEDDINGS
+        value: "false"
       - key: ENVIRONMENT
         value: production
+      - key: APP_PUBLIC_URL
+        sync: false
       - key: PYTHONUNBUFFERED
         value: "1"
-
-      # ── CORS ──────────────────────────────────────────────────────────────────
+      - key: DOCUMENTS_DIR
+        value: data/documents
       - key: ALLOWED_ORIGINS
-        value: "https://smartroute-ai.streamlit.app,http://localhost:8501"
-
-      # ── Tracing — LangFuse ────────────────────────────────────────────────────
+        value: ""
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
         value: "https://cloud.langfuse.com/api/public/otel"
       - key: LANGFUSE_PUBLIC_KEY
@@ -53,30 +49,4 @@ services:
       - key: LANGFUSE_SECRET_KEY
         sync: false
       - key: OTEL_SERVICE_NAME
-        value: smartroute-api
-
-  # ── Streamlit Dashboard ──────────────────────────────────────────────────────
-  - type: web
-    name: smartroute-dashboard
-    runtime: docker
-    dockerfilePath: ./Dockerfile
-    plan: free
-    region: singapore
-
-    envVars:
-      - key: OPENROUTER_API_KEY
-        sync: false
-      - key: SUPABASE_JWT_SECRET
-        sync: false
-      - key: DATABASE_URL
-        sync: false
-      - key: QDRANT_URL
-        sync: false
-      - key: QDRANT_API_KEY
-        sync: false
-      - key: REDIS_URL
-        sync: false
-      - key: API_URL
-        sync: false
-      - key: PORT
-        value: "8501"
+        value: smartroute-ai

@@ -86,6 +86,31 @@ class DocumentIndexer:
 
         return all_docs
 
+    def load_file(
+        self,
+        file_path: Path,
+        *,
+        source: str,
+        metadata: Optional[dict] = None,
+    ) -> List[Document]:
+        """Load one supported file and replace local loader source with durable metadata."""
+        file_path = Path(file_path)
+        loader_map = {
+            ".pdf": PyPDFLoader,
+            ".txt": TextLoader,
+            ".md": TextLoader,
+        }
+        loader_cls = loader_map.get(file_path.suffix.lower())
+        if not loader_cls:
+            return []
+
+        documents = loader_cls(str(file_path)).load()
+        for document in documents:
+            document.metadata.update(metadata or {})
+            document.metadata["source"] = source
+            document.metadata["filename"] = file_path.name
+        return documents
+
     async def aindex_documents(self, documents: List[Document]) -> None:
         """Async index documents into vector store (safe on running event loop)."""
         if not documents:
@@ -179,7 +204,10 @@ class DocumentIndexer:
         logger.info(f"Added {len(chunks)} document chunks to index")
 
     async def adelete_document(
-        self, filename: str, docs_dir: Path = Path("data/documents")
+        self,
+        filename: str,
+        docs_dir: Path = Path("data/documents"),
+        source: Optional[str] = None,
     ) -> bool:
         """Delete a document file from disk and purge its vectors from Qdrant and Redis cache."""
         target_file = docs_dir / filename
@@ -199,6 +227,15 @@ class DocumentIndexer:
                     collection_name=self.collection_name,
                     points_selector=models.Filter(
                         should=[
+                            models.FieldCondition(
+                                key="metadata.source",
+                                match=models.MatchValue(value=source),
+                            )
+                            if source
+                            else models.FieldCondition(
+                                key="metadata.filename",
+                                match=models.MatchValue(value=filename),
+                            ),
                             models.FieldCondition(
                                 key="metadata.source",
                                 match=models.MatchValue(value=str(target_file)),

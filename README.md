@@ -2,7 +2,7 @@
 
 **Cost-optimized LLM inference gateway with ML-based query routing and RAG.**
 
-🚀 **Live:** [Click Here](https://smartroute-dashboard.onrender.com/)
+🚀 **Live:** [Click Here](https://smartroute-dashboard.onrender.com/) — Render single-service deployment via `render.yaml`
 
 ---
 
@@ -127,8 +127,10 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 
 | HTTP Method | Endpoint | Rate Limit | Auth Required | Description |
 |---|---|---|---|---|
-| `GET` | `/health` | Unthrottled | No | Health check probe for Docker/Render container status and DB/Redis connectivity. |
-| `GET` | `/` | Unthrottled | No | Root endpoint returning service status, version (`2.0.0`), and endpoint index. |
+| `GET` | `/health` | Unthrottled | No | Cheap liveness check for Docker/Render. |
+| `GET` | `/ready` | Unthrottled | No | Dependency readiness check for Redis, Qdrant, PostgreSQL, and pipeline components. |
+| `GET` | `/version` | Unthrottled | No | Returns non-sensitive deployment identity (`commit_sha`, `build_time`) for release verification. |
+| `GET` | `/` | Unthrottled | No | Serves the React app when built; otherwise returns service status and endpoint index. |
 | `POST` | `/v1/query` | `30/min` | Yes | Synchronous end-to-end inference processing query routing, budget, RAG, and execution. |
 | `POST` | `/v1/query/stream` | `30/min` | Yes | Server-Sent Events (SSE) streaming endpoint returning metadata, tokens, and cost breakdown. |
 | `POST` | `/v1/query/batch` | `10/min` | Yes | Concurrent batch execution processing up to 10 queries per request payload. |
@@ -137,6 +139,7 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 | `GET` | `/v1/budget` | `60/min` | Yes | Upstash Redis budget status detailing daily ($10), weekly ($50), and monthly ($200) utilization. |
 | `GET` | `/v1/models` | Unthrottled | Yes | Returns list of configured OpenRouter models and currently initialized model instances. |
 | `DELETE` | `/v1/memory/{session_id}` | Unthrottled | Yes | Flushes conversation turn history for a given multi-turn session ID from Redis. |
+| `POST` | `/v1/documents/upload` | Unthrottled | Yes | Uploads PDF, TXT, or MD files into the API container and indexes them. |
 | `POST` | `/v1/index` | Unthrottled | Yes | Triggers background document chunking and hybrid vector indexing for files in `data/documents`. |
 | `GET` | `/v1/documents` | Unthrottled | Yes | Lists all indexed document files currently stored in `data/documents`. |
 | `DELETE` | `/v1/documents/{filename}` | Unthrottled | Yes | Deletes a document file, purges matching Qdrant vector points, and flushes semantic cache. |
@@ -156,8 +159,9 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 | Cost/budget DB | Supabase PostgreSQL via SQLAlchemy + Alembic migrations |
 | Observability | OpenTelemetry SDK → LangFuse (OTLP HTTP/gRPC), structured JSON logs |
 | Auth | HS256 JWT (`PyJWT`) |
-| Dashboard | Streamlit 1.31+, Plotly |
-| CI/CD | GitHub Actions → GHCR Docker images → Render deploy hook |
+| Frontend | React, TypeScript, Vite, Tailwind, Radix UI, Framer Motion |
+| Legacy dashboard | Streamlit 1.31+, Plotly (`app.py`, retained temporarily during migration) |
+| CI/CD | GitHub Actions CI gate, exact-commit Render deploy workflow, production `/version` verification |
 | Python | 3.10 (pinned in `.python-version` and `pyproject.toml`) |
 
 ---
@@ -188,6 +192,9 @@ cp .env.example .env
 # Fill in .env — required keys:
 #   OPENROUTER_API_KEY   → https://openrouter.ai
 #   SUPABASE_JWT_SECRET  → any string ≥ 32 chars
+#   SUPABASE_URL         → https://<project-ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY → Supabase server-side service role key
+#   SUPABASE_STORAGE_BUCKET   → private bucket for uploaded documents
 #   HF_TOKEN             → https://huggingface.co/settings/tokens
 #   DATABASE_URL         → postgresql://... (Supabase free tier works)
 #   REDIS_URL            → redis://... (Upstash free tier works)
@@ -201,17 +208,24 @@ alembic upgrade head
 python scripts/train_classifier.py
 # Saves model to models/classifiers/complexity_classifier.pkl
 
-# 6. Start the API backend
+# 6. Install frontend dependencies
+cd frontend
+npm ci
+cd ..
+
+# 7. Start the API backend
 uvicorn api.main:app --host 0.0.0.0 --port 8000
 # or: python -m api.main
 
-# 7. Start the Streamlit dashboard (separate terminal)
-streamlit run app.py        # → http://localhost:8501
+# 8. Start the React dev server (separate terminal)
+cd frontend
+npm run dev -- --port 5173
+# Vite → http://localhost:5173, proxying API calls to http://localhost:8000
 
-# 8. Run the test suite
+# 9. Run the test suite
 pytest tests/ -v
 
-# 9. Run RAGAS RAG evaluation (requires indexed documents)
+# 10. Run RAGAS RAG evaluation (requires indexed documents)
 python scripts/run_eval.py
 
 
@@ -220,24 +234,32 @@ python scripts/run_eval.py
 ### Docker
 
 ```bash
-docker compose up --build
-# API → http://localhost:8000   Dashboard → http://localhost:8501
+docker build -t smartroute-ai .
+docker run --env-file .env -p 8000:8000 smartroute-ai
+# App + API -> http://localhost:8000
 ```
 
-The `Dockerfile` has two targets (`api`, `dashboard`). The build step automatically runs `scripts/train_classifier.py`, so the classifier is baked into the image. Health checks run every 30 s with a 60 s start-up grace period.
+The `Dockerfile` builds the React frontend, copies `frontend/dist` into the Python runtime image, trains the classifier, and starts one Uvicorn process on `${PORT:-8000}`. Uploaded documents are stored in Supabase Storage, metadata is stored in Supabase Postgres, and embeddings remain in Qdrant. Health checks call `/health`; `/ready` performs dependency checks.
 
 ---
 
 ## Deployment
 
-Deployed on **Render** (Singapore region, free plan) via `render.yaml` — two services: `smartroute-api` (port 8000) and `smartroute-dashboard` (port 8501). `alembic upgrade head` runs as a pre-deploy command on every deploy.
+Deployed on **Render** (Singapore region, free plan) via `render.yaml` as one Docker web service named `smartroute-ai`. Render injects `$PORT`; the container serves both React assets and `/v1/*` API routes from the same origin. Run `uv run alembic upgrade head` manually before deploying when migrations change, because Render free-tier services do not support pre-deploy commands.
 
-GitHub Actions CI (`.github/workflows/ci.yml`):
-1. Lint with `ruff`
-2. Type-check with `mypy`
-3. Test with `pytest`
-4. Build and push Docker images to GHCR
-5. Trigger Render deploy hook
+Render `autoDeploy` is disabled. Production deploys are controlled by GitHub Actions:
+
+1. `.github/workflows/ci.yml` runs on pushes to `main`, pull requests to `main`, and manual dispatch.
+2. CI runs backend lint/format/type/test gates, frontend lockfile install/typecheck/test/build, npm audit, and a production Docker image smoke test.
+3. `.github/workflows/deploy-render.yml` runs only after the `CI` workflow succeeds on `main`, or by manual dispatch for a SHA that already has a successful completed CI run.
+4. The deploy workflow calls `RENDER_DEPLOY_HOOK_URL` with `ref=<exact-commit-sha>`.
+5. GitHub waits for production `/version` and fails the deployment if the live `commit_sha` is not the exact SHA that passed CI.
+
+Required GitHub configuration:
+
+- Secret: `RENDER_DEPLOY_HOOK_URL`
+- Repository or `production` environment variable: `PRODUCTION_BASE_URL` (for example, `https://smartroute-ai.onrender.com`)
+- Environment: `production` (keep any approval protection enabled there)
 
 ---
 
@@ -246,7 +268,8 @@ GitHub Actions CI (`.github/workflows/ci.yml`):
 ```
 SmartRoute-AI/
 ├── api/main.py                  # FastAPI app — all /v1/* routes (rate-limited, JWT-gated)
-├── app.py                       # Streamlit dashboard (inference console, cost analytics, budget)
+├── frontend/                    # React + TypeScript console served by FastAPI in production
+├── app.py                       # Legacy Streamlit dashboard retained during migration
 ├── config/
 │   ├── routing.yaml             # Strategy definitions, budget limits, reference queries
 │   └── models.yaml              # Model registry with cost per 1k tokens
@@ -266,13 +289,11 @@ SmartRoute-AI/
 │   └── run_eval.py              # RAGAS evaluation runner
 ├── tests/                       # 9 pytest test files
 ├── data/
-│   ├── training/synthetic_queries.csv
-│   └── documents/               # Drop PDFs / TXTs here for RAG indexing
+│   └── training/synthetic_queries.csv
 ├── models/classifiers/          # complexity_classifier.pkl (231 KB, pre-trained)
 ├── alembic/                     # DB migration scripts
-├── Dockerfile                   # Multi-stage build (base → api / dashboard)
-├── docker-compose.yml
-└── render.yaml                  # One-click Render deployment blueprint
+├── Dockerfile                   # React build + Python runtime image
+└── render.yaml                  # Single-service Render deployment blueprint
 ```
 
 ---
