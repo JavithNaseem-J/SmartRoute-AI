@@ -1,7 +1,7 @@
 import asyncio
 import uuid
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, cast
 
 from langchain_community.document_loaders import (
     DirectoryLoader,
@@ -104,7 +104,7 @@ class DocumentIndexer:
         if not loader_cls:
             return []
 
-        documents = loader_cls(str(file_path)).load()
+        documents = cast(List[Document], loader_cls(str(file_path)).load())
         for document in documents:
             document.metadata.update(metadata or {})
             document.metadata["source"] = source

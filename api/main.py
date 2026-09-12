@@ -5,7 +5,7 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator, List, Optional, TypedDict
 
 from dotenv import load_dotenv
 
@@ -111,11 +111,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
-ALLOWED_ORIGINS = os.getenv(
+ALLOWED_ORIGINS_RAW = os.getenv(
     "ALLOWED_ORIGINS",
     "http://localhost:5173,http://localhost:8000",
 )
-ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS.split(",") if origin.strip()]
+ALLOWED_ORIGINS = [origin.strip() for origin in ALLOWED_ORIGINS_RAW.split(",") if origin.strip()]
 
 
 def _accepts_html(request: Request) -> bool:
@@ -281,6 +281,15 @@ class QueryResponse(BaseModel):
     sources: List[str]
     success: bool
     error: Optional[str] = None
+
+
+class PendingDocumentRecord(TypedDict):
+    user_id: str
+    filename: str
+    content_type: str
+    size_bytes: int
+    storage_bucket: str
+    storage_path: str
 
 
 # ── Public endpoints ──────────────────────────────────────────────────────────
@@ -502,7 +511,7 @@ async def upload_documents(
     try:
         indexer = DocumentIndexer()
         documents_to_index = []
-        pending_records = []
+        pending_records: List[PendingDocumentRecord] = []
 
         with TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
