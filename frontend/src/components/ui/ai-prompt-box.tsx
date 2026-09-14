@@ -344,7 +344,7 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   const isImageFile = React.useCallback((file: File) => file.type.startsWith("image/"), []);
   const isDocFile = React.useCallback((file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
-    return ["pdf", "txt", "md", "docx", "json"].includes(ext || "");
+    return ["pdf", "txt", "md"].includes(ext || "");
   }, []);
 
   const processFile = React.useCallback((file: File) => {
@@ -353,8 +353,8 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
       return;
     }
 
-    if (file.size > 25 * 1024 * 1024) {
-      console.warn("File too large (max 25MB)");
+    if (file.size > 10 * 1024 * 1024) {
+      console.warn("File too large (max 10MB)");
       return;
     }
 
@@ -548,7 +548,7 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
                           }
                           if (e.target) e.target.value = "";
                         }}
-                        accept=".pdf,.txt,.md,.json"
+                        accept=".pdf,.txt,.md"
                       />
                     </button>
                   </PromptInputAction>

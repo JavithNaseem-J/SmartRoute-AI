@@ -316,7 +316,10 @@ def test_upload_rolls_back_storage_when_indexing_fails(client, api_key, monkeypa
         headers={"Authorization": f"Bearer {api_key}"},
     )
 
-    assert response.status_code == 500
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Vector indexing failed. Check Qdrant and embedding provider configuration."
+    )
     assert operations == [
         ("upload", "test_user/test-note.txt", "text/plain"),
         ("delete", "test_user/test-note.txt", ""),

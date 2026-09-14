@@ -289,7 +289,8 @@ class InferencePipeline:
             )
 
             answer = result["text"]
-            output_tokens = result["output_tokens"]
+            input_tokens = int(result.get("input_tokens") or input_tokens)
+            output_tokens = int(result.get("output_tokens") or model.count_tokens(answer))
             actual_cost = model.get_cost(input_tokens, output_tokens)
             latency = time.time() - start_time
 

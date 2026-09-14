@@ -574,14 +574,40 @@ async def upload_documents(
 
     from src.retrieval.indexer import DocumentIndexer
 
-    storage = SupabaseStorage.from_env()
+    try:
+        storage = SupabaseStorage.from_env()
+    except RuntimeError as e:
+        logger.error(f"Supabase Storage configuration failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail="Supabase Storage is misconfigured. Check bucket and service role key.",
+        )
+
     saved_files = []
     uploaded_paths = []
 
+    async def cleanup_uploaded_paths() -> None:
+        for storage_path in uploaded_paths:
+            try:
+                await storage.delete(storage_path)
+            except Exception as cleanup_error:
+                logger.warning(
+                    f"Failed to clean up uploaded object {storage_path}: {cleanup_error}"
+                )
+
     try:
-        indexer = DocumentIndexer()
+        try:
+            indexer = DocumentIndexer()
+        except Exception as e:
+            logger.error(f"Document indexer initialization failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=503,
+                detail="Document indexing is unavailable. Check embedding and vector database configuration.",
+            )
+
         documents_to_index = []
         pending_records: List[PendingDocumentRecord] = []
+        indexed_chunks = 0
 
         with TemporaryDirectory() as temp_dir:
             temp_root = Path(temp_dir)
@@ -591,21 +617,42 @@ async def upload_documents(
                 content_type = upload.content_type or guess_content_type(filename)
                 _validate_document_upload(filename, content, content_type)
                 storage_path = storage.object_path(user_id, filename)
-                await storage.upload(storage_path, content, content_type)
+                try:
+                    await storage.upload(storage_path, content, content_type)
+                except Exception as e:
+                    logger.error(
+                        f"Supabase Storage upload failed for {filename}: {e}", exc_info=True
+                    )
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Supabase Storage upload failed. Check bucket and service role key.",
+                    )
                 uploaded_paths.append(storage_path)
 
                 temp_path = temp_root / filename
                 temp_path.write_bytes(content)
-                loaded_docs = await asyncio.to_thread(
-                    indexer.load_file,
-                    temp_path,
-                    source=storage_path,
-                    metadata={
-                        "storage_bucket": storage.bucket,
-                        "storage_path": storage_path,
-                        "user_id": user_id,
-                    },
-                )
+                try:
+                    loaded_docs = await asyncio.to_thread(
+                        indexer.load_file,
+                        temp_path,
+                        source=storage_path,
+                        metadata={
+                            "storage_bucket": storage.bucket,
+                            "storage_path": storage_path,
+                            "user_id": user_id,
+                        },
+                    )
+                except Exception as e:
+                    logger.error(f"Document loading failed for {filename}: {e}", exc_info=True)
+                    raise HTTPException(
+                        status_code=422,
+                        detail="Document loading failed. Check that the file is a valid PDF, TXT, or MD document.",
+                    )
+                if not loaded_docs:
+                    raise HTTPException(
+                        status_code=422,
+                        detail="No readable text found in the uploaded document.",
+                    )
                 documents_to_index.extend(loaded_docs)
                 pending_records.append(
                     {
@@ -618,33 +665,48 @@ async def upload_documents(
                     }
                 )
 
-            await indexer.aindex_documents(documents_to_index)
+            try:
+                indexed_chunks = await indexer.aindex_documents(documents_to_index) or 0
+            except Exception as e:
+                logger.error(f"Vector indexing failed: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=502,
+                    detail="Vector indexing failed. Check Qdrant and embedding provider configuration.",
+                )
 
-        for record in pending_records:
-            saved_files.append(
-                await asyncio.to_thread(create_document_record, pipeline.tracker, **record)
+        try:
+            for record in pending_records:
+                saved_files.append(
+                    await asyncio.to_thread(create_document_record, pipeline.tracker, **record)
+                )
+        except Exception as e:
+            logger.error(f"Document record save failed: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=500,
+                detail="Document record save failed. Check DATABASE_URL and migrations.",
             )
         if hasattr(pipeline.retriever, "reload"):
-            await pipeline.retriever.reload()
+            try:
+                await pipeline.retriever.reload()
+            except Exception as e:
+                logger.warning(f"Retriever reload failed after document upload: {e}")
 
         return {
             "status": "success",
             "documents": saved_files,
             "total": len(saved_files),
-            "stats": indexer.get_stats(),
+            "stats": {**indexer.get_stats(), "indexed_chunks": indexed_chunks},
         }
     except HTTPException:
+        await cleanup_uploaded_paths()
         raise
     except Exception as e:
-        for storage_path in uploaded_paths:
-            try:
-                await storage.delete(storage_path)
-            except Exception as cleanup_error:
-                logger.warning(
-                    f"Failed to clean up uploaded object {storage_path}: {cleanup_error}"
-                )
-        logger.error(f"Document upload failed: {e}")
-        raise HTTPException(status_code=500, detail="Document upload failed")
+        await cleanup_uploaded_paths()
+        logger.error(f"Document upload failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Document upload failed. Check storage, embeddings, vector database, and database configuration.",
+        )
 
 
 @v1.get("/documents")

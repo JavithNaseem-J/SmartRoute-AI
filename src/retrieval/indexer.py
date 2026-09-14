@@ -111,10 +111,10 @@ class DocumentIndexer:
             document.metadata["filename"] = file_path.name
         return documents
 
-    async def aindex_documents(self, documents: List[Document]) -> None:
+    async def aindex_documents(self, documents: List[Document]) -> int:
         """Async index documents into vector store (safe on running event loop)."""
         if not documents:
-            return
+            return 0
 
         chunks = self.chunker.chunk_documents(documents)
         logger.info(f"Chunked into {len(chunks)} chunks")
@@ -124,6 +124,7 @@ class DocumentIndexer:
         except Exception as e:
             logger.error(f"Vector indexing to Qdrant failed: {e}", exc_info=True)
             raise RuntimeError("Vector indexing failed") from e
+        return len(chunks)
 
     def index_documents(self, documents: List[Document]) -> None:
         """Synchronous wrapper for index_documents."""

@@ -1,7 +1,13 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 import { CostAnalytics } from "@/components/CostAnalytics";
 import { ensureDemoAuthToken, getAuthToken } from "@/lib/auth";
+import {
+  clearDocuments,
+  deleteDocument,
+  listDocuments,
+  type StoredDocument,
+} from "@/lib/documents";
 import {
   Sparkles,
   Bot,
@@ -14,7 +20,9 @@ import {
   BarChart3,
   MessagesSquare,
   FileCheck2,
+  FileText,
   AlertCircle,
+  RefreshCw,
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
@@ -57,6 +65,19 @@ const saveSessions = (sessions: Session[]) => {
   localStorage.setItem("smartroute.sessions", JSON.stringify(sessions));
 };
 
+const formatBytes = (bytes: number) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+const formatUploadedAt = (value?: string | null) => {
+  if (!value) return "Just now";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "Recently";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+};
+
 // ─── App Component ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -79,6 +100,10 @@ export default function App() {
   const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
   const [uploadNotice, setUploadNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
+  const [documents, setDocuments] = useState<StoredDocument[]>([]);
+  const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
+  const [documentAction, setDocumentAction] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -110,11 +135,29 @@ export default function App() {
     }
   }, [sessions, activeId, currentView]);
 
+  const refreshDocuments = useCallback(async (showError = false) => {
+    setIsLoadingDocuments(true);
+    try {
+      const data = await listDocuments();
+      setDocuments(data.documents);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to load documents";
+      console.error("Document list error:", err);
+      if (showError) {
+        setUploadNotice({ type: "error", text: message });
+      }
+    } finally {
+      setIsLoadingDocuments(false);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     ensureDemoAuthToken()
-      .then(() => {
-        if (!cancelled) setAuthNotice(null);
+      .then(async () => {
+        if (cancelled) return;
+        setAuthNotice(null);
+        await refreshDocuments();
       })
       .catch((err: unknown) => {
         console.error("Demo authentication error:", err);
@@ -126,7 +169,13 @@ export default function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [refreshDocuments]);
+
+  useEffect(() => {
+    if (!clearConfirm) return;
+    const timer = setTimeout(() => setClearConfirm(false), 4000);
+    return () => clearTimeout(timer);
+  }, [clearConfirm]);
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -155,6 +204,46 @@ export default function App() {
       if (id === activeId) setActiveId(next[0].id);
       return next;
     });
+  };
+
+  const handleDeleteDocument = async (filename: string) => {
+    setDocumentAction(filename);
+    try {
+      await deleteDocument(filename);
+      await refreshDocuments();
+      setUploadNotice({ type: "success", text: `Removed ${filename} from storage and vector index.` });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Document delete failed";
+      console.error("Document delete error:", err);
+      setUploadNotice({ type: "error", text: message });
+    } finally {
+      setDocumentAction(null);
+    }
+  };
+
+  const handleClearDocuments = async () => {
+    if (documents.length === 0) return;
+    if (!clearConfirm) {
+      setClearConfirm(true);
+      return;
+    }
+
+    setDocumentAction("clear-all");
+    try {
+      await clearDocuments();
+      await refreshDocuments();
+      setClearConfirm(false);
+      setUploadNotice({
+        type: "success",
+        text: "Cleared all demo documents from storage and vector index.",
+      });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Document clear failed";
+      console.error("Document clear error:", err);
+      setUploadNotice({ type: "error", text: message });
+    } finally {
+      setDocumentAction(null);
+    }
   };
 
   // ─── Document Upload (RAG) ─────────────────────────────────────────────────
@@ -188,6 +277,7 @@ export default function App() {
       const data = await res.json();
       const count = data.documents?.length || files.length;
       const chunks = data.stats?.indexed_chunks || "multiple";
+      await refreshDocuments();
       setUploadNotice({
         type: "success",
         text: `Successfully uploaded and indexed ${count} document(s) (${chunks} chunks in vector store).`,
@@ -465,6 +555,88 @@ export default function App() {
                     </div>
                   ))
                 )}
+              </div>
+
+              {/* Knowledge Base */}
+              <div className="border-t border-white/10 px-3 py-3">
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-white/55">
+                      <FileText className="h-3.5 w-3.5 text-emerald-300" />
+                      <span>Knowledge Base</span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-white/35">
+                      {documents.length} doc{documents.length === 1 ? "" : "s"} embedded
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => refreshDocuments(true)}
+                    disabled={isLoadingDocuments}
+                    className="rounded-lg p-1.5 text-white/40 transition-colors hover:bg-white/10 hover:text-white disabled:cursor-wait disabled:opacity-60"
+                    title="Refresh documents"
+                  >
+                    <RefreshCw className={`h-3.5 w-3.5 ${isLoadingDocuments ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+
+                <div className="max-h-40 space-y-1 overflow-y-auto pr-1 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+                  {documents.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-white/10 bg-black/15 px-3 py-3 text-[11px] leading-snug text-white/35">
+                      Turn on RAG and upload a PDF, TXT, or MD file to show embedded documents here.
+                    </div>
+                  ) : (
+                    documents.map((doc) => (
+                      <div
+                        key={doc.id}
+                        className="group rounded-xl border border-white/10 bg-black/20 px-2.5 py-2 transition-colors hover:bg-white/10"
+                      >
+                        <div className="flex items-start gap-2">
+                          <FileText className="mt-0.5 h-3.5 w-3.5 flex-shrink-0 text-emerald-300" />
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate text-[12px] font-medium text-white/85">
+                              {doc.filename}
+                            </div>
+                            <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-white/40">
+                              <span>{formatBytes(doc.size_bytes)}</span>
+                              <span>•</span>
+                              <span>{formatUploadedAt(doc.created_at)}</span>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteDocument(doc.filename)}
+                            disabled={documentAction === doc.filename}
+                            className="rounded-md p-1 text-white/35 opacity-0 transition-all hover:bg-red-500/20 hover:text-red-200 group-hover:opacity-100 disabled:cursor-wait disabled:opacity-50"
+                            title={`Delete ${doc.filename}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleClearDocuments}
+                  disabled={documents.length === 0 || documentAction === "clear-all"}
+                  className={`mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-[11px] font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40 ${
+                    clearConfirm
+                      ? "border-red-400/40 bg-red-500/20 text-red-100"
+                      : "border-white/10 bg-white/5 text-white/50 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  <span>
+                    {documentAction === "clear-all"
+                      ? "Clearing..."
+                      : clearConfirm
+                      ? "Click again to clear all"
+                      : "Clear all documents"}
+                  </span>
+                </button>
               </div>
             </div>
           </motion.aside>
