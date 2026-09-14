@@ -341,13 +341,13 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   const uploadInputRef = React.useRef<HTMLInputElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
 
-  const isImageFile = (file: File) => file.type.startsWith("image/");
-  const isDocFile = (file: File) => {
+  const isImageFile = React.useCallback((file: File) => file.type.startsWith("image/"), []);
+  const isDocFile = React.useCallback((file: File) => {
     const ext = file.name.split(".").pop()?.toLowerCase();
     return ["pdf", "txt", "md", "docx", "json"].includes(ext || "");
-  };
+  }, []);
 
-  const processFile = (file: File) => {
+  const processFile = React.useCallback((file: File) => {
     if (!ragEnabled) {
       alert("Please turn on the RAG toggle button to upload documents.");
       return;
@@ -374,7 +374,7 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
     } else {
       setFiles((prev) => [...prev, file]);
     }
-  };
+  }, [isDocFile, isImageFile, onUploadDocument, ragEnabled]);
 
   const handleDragOver = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -394,7 +394,7 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
       const droppedFiles = Array.from(e.dataTransfer.files);
       droppedFiles.forEach((file) => processFile(file));
     },
-    [ragEnabled]
+    [processFile, ragEnabled]
   );
 
   const handleRemoveFile = (index: number) => {

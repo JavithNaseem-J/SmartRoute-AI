@@ -165,7 +165,7 @@ export default function App() {
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
+        const errJson = (await res.json().catch(() => ({}))) as { detail?: string };
         throw new Error(errJson.detail || `Upload failed (HTTP ${res.status})`);
       }
 
@@ -176,11 +176,12 @@ export default function App() {
         type: "success",
         text: `Successfully uploaded and indexed ${count} document(s) (${chunks} chunks in vector store).`,
       });
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
       console.error("Document upload error:", err);
       setUploadNotice({
         type: "error",
-        text: `Document indexing failed: ${err.message || "Unknown error"}`,
+        text: `Document indexing failed: ${message}`,
       });
     } finally {
       setIsUploadingDoc(false);
@@ -189,7 +190,7 @@ export default function App() {
 
   // ─── Messaging ─────────────────────────────────────────────────────────────
 
-  const handleSendMessage = async (rawMessage: string, _files?: File[]) => {
+  const handleSendMessage = async (rawMessage: string) => {
     if (!rawMessage.trim()) return;
 
     const token = getAuthToken();

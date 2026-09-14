@@ -11,7 +11,6 @@ import {
   Layers,
   AlertCircle,
   BarChart3,
-  Calendar,
 } from "lucide-react";
 import { motion } from "framer-motion";
 
@@ -81,9 +80,10 @@ export function CostAnalytics() {
       setStats(statsJson);
       setSavings(savingsJson);
       setBudget(budgetJson);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Failed to load telemetry";
       console.error("Failed to load analytics:", err);
-      setError(err.message || "Failed to load telemetry");
+      setError(message);
     } finally {
       setLoading(false);
     }

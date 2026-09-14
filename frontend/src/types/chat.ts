@@ -43,5 +43,5 @@ export interface StatsResponse {
   estimated_baseline_cost?: number;
   savings_amount?: number;
   savings_percentage?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
