@@ -119,7 +119,11 @@ class DocumentIndexer:
         chunks = self.chunker.chunk_documents(documents)
         logger.info(f"Chunked into {len(chunks)} chunks")
 
-        await self._async_add_documents(chunks)
+        try:
+            await self._async_add_documents(chunks)
+        except Exception as e:
+            logger.error(f"Vector indexing to Qdrant failed: {e}", exc_info=True)
+            raise RuntimeError("Vector indexing failed") from e
 
     def index_documents(self, documents: List[Document]) -> None:
         """Synchronous wrapper for index_documents."""
@@ -203,11 +207,35 @@ class DocumentIndexer:
         await self.qdrant.upsert(collection_name=self.collection_name, points=points)
         logger.info(f"Added {len(chunks)} document chunks to index")
 
+    async def _invalidate_user_cache(self, user_id: Optional[str]) -> None:
+        if not user_id:
+            return
+        try:
+            if await self.qdrant.collection_exists("semantic-cache"):
+                await self.qdrant.delete(
+                    collection_name="semantic-cache",
+                    points_selector=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="user_id",
+                                match=models.MatchValue(value=user_id),
+                            )
+                        ]
+                    ),
+                )
+            redis = get_redis_client()
+            async for key in redis.scan_iter(match=f"semantic_cache:{user_id}:*"):
+                await redis.delete(key)
+            logger.info(f"Invalidated semantic cache for user {user_id}.")
+        except Exception as e:
+            logger.warning(f"Failed to invalidate semantic cache for user {user_id}: {e}")
+
     async def adelete_document(
         self,
         filename: str,
         docs_dir: Path = Path("data/documents"),
         source: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> bool:
         """Delete a document file from disk and purge its vectors from Qdrant and Redis cache."""
         target_file = docs_dir / filename
@@ -222,69 +250,81 @@ class DocumentIndexer:
         # 2. Delete vectors from Qdrant matching metadata source
         try:
             if await self.qdrant.collection_exists(self.collection_name):
-                # Match metadata source equal or ending with filename
+                source_conditions = [
+                    models.FieldCondition(
+                        key="metadata.source",
+                        match=models.MatchValue(value=source),
+                    )
+                    if source
+                    else models.FieldCondition(
+                        key="metadata.filename",
+                        match=models.MatchValue(value=filename),
+                    ),
+                    models.FieldCondition(
+                        key="metadata.source",
+                        match=models.MatchValue(value=str(target_file)),
+                    ),
+                ]
+                must_conditions = []
+                if user_id:
+                    must_conditions.append(
+                        models.FieldCondition(
+                            key="metadata.user_id",
+                            match=models.MatchValue(value=user_id),
+                        )
+                    )
                 await self.qdrant.delete(
                     collection_name=self.collection_name,
                     points_selector=models.Filter(
-                        should=[
-                            models.FieldCondition(
-                                key="metadata.source",
-                                match=models.MatchValue(value=source),
-                            )
-                            if source
-                            else models.FieldCondition(
-                                key="metadata.filename",
-                                match=models.MatchValue(value=filename),
-                            ),
-                            models.FieldCondition(
-                                key="metadata.source",
-                                match=models.MatchValue(value=str(target_file)),
-                            ),
-                            models.FieldCondition(
-                                key="metadata.source",
-                                match=models.MatchText(text=filename),
-                            ),
-                        ]
+                        must=must_conditions or None,
+                        should=source_conditions,
                     ),
                 )
                 logger.info(f"Purged vector points for document: {filename}")
         except Exception as e:
             logger.error(f"Error purging vectors for {filename}: {e}")
 
-        # 3. Flush Redis semantic cache so stale answers aren't served
-        try:
-            redis = get_redis_client()
-            await redis.flushdb()
-            logger.info("Flushed Redis semantic cache after document deletion.")
-        except Exception as e:
-            logger.warning(f"Failed to flush Redis on document deletion: {e}")
+        # 3. Invalidate only this user's semantic cache so stale answers aren't served.
+        await self._invalidate_user_cache(user_id)
 
         return deleted
 
-    async def aclear_all_documents(self, docs_dir: Path = Path("data/documents")) -> None:
+    async def aclear_all_documents(
+        self, docs_dir: Path = Path("data/documents"), user_id: Optional[str] = None
+    ) -> None:
         """Clear all document files from disk, reset Qdrant collection, and flush Redis cache."""
-        # 1. Remove all files from docs_dir
-        if docs_dir.exists():
+        # 1. Local directory indexing is shared; only clear files for legacy non-user calls.
+        if not user_id and docs_dir.exists():
             for file_path in docs_dir.glob("*"):
                 if file_path.is_file():
                     file_path.unlink()
             logger.info(f"Cleared all document files from {docs_dir}")
 
-        # 2. Delete Qdrant collection
+        # 2. Delete only the current user's vectors from Qdrant.
         try:
             if await self.qdrant.collection_exists(self.collection_name):
-                await self.qdrant.delete_collection(self.collection_name)
-                logger.info(f"Deleted Qdrant collection {self.collection_name}")
+                points_selector = (
+                    models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="metadata.user_id",
+                                match=models.MatchValue(value=user_id),
+                            )
+                        ]
+                    )
+                    if user_id
+                    else models.Filter()
+                )
+                await self.qdrant.delete(
+                    collection_name=self.collection_name,
+                    points_selector=points_selector,
+                )
+                logger.info(f"Deleted document vectors for user {user_id or 'all users'}")
         except Exception as e:
-            logger.error(f"Error deleting Qdrant collection: {e}")
+            logger.error(f"Error deleting Qdrant vectors: {e}")
 
-        # 3. Flush Redis cache
-        try:
-            redis = get_redis_client()
-            await redis.flushdb()
-            logger.info("Flushed Redis semantic cache on clear all.")
-        except Exception as e:
-            logger.warning(f"Failed to flush Redis on clear all: {e}")
+        # 3. Invalidate only this user's semantic cache.
+        await self._invalidate_user_cache(user_id)
 
     def get_stats(self) -> dict:
         """Get indexer statistics."""

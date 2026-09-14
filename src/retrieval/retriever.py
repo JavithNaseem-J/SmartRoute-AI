@@ -29,16 +29,36 @@ class DocumentRetriever:
         logger.info("####### DocumentRetriever initialized #######")
 
     async def ensure_ready(self):
-        self.dense_ready = await self.qdrant.collection_exists(self.collection_name)
+        try:
+            self.dense_ready = await self.qdrant.collection_exists(self.collection_name)
+        except Exception as e:
+            logger.warning(f"Qdrant collection check failed: {e}. Vector retrieval disabled.")
+            self.dense_ready = False
 
     async def reload(self) -> None:
         """Reload all indexes (call after new documents are added)."""
         logger.info("Reloading retrieval indexes...")
         await self.ensure_ready()
 
-    async def _search_qdrant(self, query: str, k: int) -> List[Tuple[Document, float]]:
+    @staticmethod
+    def _user_filter(user_id: Optional[str]) -> Optional[models.Filter]:
+        if not user_id:
+            return None
+        return models.Filter(
+            must=[
+                models.FieldCondition(
+                    key="metadata.user_id",
+                    match=models.MatchValue(value=user_id),
+                )
+            ]
+        )
+
+    async def _search_qdrant(
+        self, query: str, k: int, user_id: Optional[str] = None
+    ) -> List[Tuple[Document, float]]:
         """Perform native hybrid search using Qdrant client (RRF)."""
         vector = await self.embeddings.aembed_query(query)
+        query_filter = self._user_filter(user_id)
 
         try:
             sparse_vector = get_sparse_vector(self.qdrant, query)
@@ -64,6 +84,7 @@ class DocumentRetriever:
                     collection_name=self.collection_name,
                     prefetch=prefetch,
                     query=models.FusionQuery(fusion=models.Fusion.RRF),
+                    query_filter=query_filter,
                     limit=k,
                     with_payload=True,
                 )
@@ -73,6 +94,7 @@ class DocumentRetriever:
                     collection_name=self.collection_name,
                     query=vector,
                     using="dense",
+                    query_filter=query_filter,
                     limit=k,
                     with_payload=True,
                 )
@@ -92,23 +114,27 @@ class DocumentRetriever:
             logger.error(f"Qdrant search failed: {e}")
             return []
 
-    async def retrieve(self, query: str) -> Tuple[str, List[str]]:
-        if not hasattr(self, "dense_ready"):
-            await self.ensure_ready()
-
-        if not self.dense_ready:
-            logger.warning("No vector store available")
-            return "", []
-
+    async def retrieve(self, query: str, user_id: Optional[str] = None) -> Tuple[str, List[str]]:
         try:
-            context, sources = await self._retrieve_hybrid(query)
+            if not user_id:
+                logger.warning("No user ID provided; document retrieval disabled")
+                return "", []
+
+            if not hasattr(self, "dense_ready"):
+                await self.ensure_ready()
+
+            if not self.dense_ready:
+                logger.warning("No vector store available")
+                return "", []
+
+            context, sources = await self._retrieve_hybrid(query, user_id=user_id)
             return context, sources
         except Exception as e:
             logger.error(f"Retrieval failed: {e}", exc_info=True)
             return "", []
 
     async def _retrieve_hybrid(
-        self, query: str, top_k: Optional[int] = None
+        self, query: str, top_k: Optional[int] = None, user_id: Optional[str] = None
     ) -> Tuple[str, List[str]]:
         """Retrieve using native Qdrant hybrid search with RRF Fusion."""
         logger.info("Using native Qdrant hybrid search")
@@ -123,7 +149,7 @@ class DocumentRetriever:
         effective_k = top_k or (15 if is_list_query else self.top_k)
 
         # Fetch effective_k * 2 candidates from Qdrant
-        results = await self._search_qdrant(query, effective_k * 2)
+        results = await self._search_qdrant(query, effective_k * 2, user_id=user_id)
 
         candidate_docs = [doc for doc, _ in results]
 

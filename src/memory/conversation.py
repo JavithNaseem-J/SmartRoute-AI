@@ -16,22 +16,34 @@ class ConversationMemory:
     ):
         self.max_turns = max_turns
         self.session_ttl = session_ttl
-        self._redis = get_redis_client()
-
-    def _key(self, session_id: str) -> str:
-        return f"smartroute:memory:{session_id}"
-
-    async def get_history(self, session_id: str) -> List[Dict]:
         try:
-            raw = await self._redis.get(self._key(session_id))
+            self._redis = get_redis_client()
+        except Exception as e:
+            logger.warning(
+                f"ConversationMemory: Redis unavailable ({e}). Multi-turn memory disabled."
+            )
+            self._redis = None
+
+    def _key(self, user_id: str, session_id: str) -> str:
+        return f"smartroute:memory:{user_id}:{session_id}"
+
+    async def get_history(self, user_id: str, session_id: str) -> List[Dict]:
+        try:
+            if self._redis is None:
+                return []
+            raw = await self._redis.get(self._key(user_id, session_id))
             return json.loads(raw) if raw else []
         except Exception as e:
             logger.warning(f"ConversationMemory get failed: {e}")
             return []
 
-    async def add_turn(self, session_id: str, user_msg: str, assistant_msg: str) -> None:
+    async def add_turn(
+        self, user_id: str, session_id: str, user_msg: str, assistant_msg: str
+    ) -> None:
         try:
-            key = self._key(session_id)
+            if self._redis is None:
+                return
+            key = self._key(user_id, session_id)
             raw = await self._redis.get(key)
             history: List[Dict] = json.loads(raw) if raw else []
 
@@ -47,8 +59,10 @@ class ConversationMemory:
         except Exception as e:
             logger.warning(f"ConversationMemory add failed: {e}")
 
-    async def clear(self, session_id: str) -> None:
+    async def clear(self, user_id: str, session_id: str) -> None:
         try:
-            await self._redis.delete(self._key(session_id))
+            if self._redis is None:
+                return
+            await self._redis.delete(self._key(user_id, session_id))
         except Exception as e:
             logger.warning(f"ConversationMemory clear failed: {e}")

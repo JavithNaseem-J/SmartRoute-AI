@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -45,10 +46,12 @@ def client():
 
 @pytest.fixture
 def api_key():
-    jwt_secret = os.getenv(
-        "SUPABASE_JWT_SECRET", "super-secret-jwt-token-with-at-least-32-characters-long"
+    jwt_secret = os.getenv("SUPABASE_JWT_SECRET", "test-supabase-jwt-secret-for-unit-tests")
+    return jwt.encode(
+        {"sub": "test_user", "exp": int(time.time()) + 3600},
+        jwt_secret,
+        algorithm="HS256",
     )
-    return jwt.encode({"sub": "test_user"}, jwt_secret, algorithm="HS256")
 
 
 def test_health_check(client):
@@ -89,6 +92,26 @@ def test_query_with_auth(client, api_key):
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+def test_query_rejects_insecure_default_jwt_secret(client, monkeypatch):
+    """The app must not accept tokens signed with the public sample secret."""
+    from src.utils.security import _INSECURE_DEFAULT_SECRET
+
+    monkeypatch.setenv("SUPABASE_JWT_SECRET", _INSECURE_DEFAULT_SECRET)
+    token = jwt.encode(
+        {"sub": "test_user", "exp": int(time.time()) + 3600},
+        _INSECURE_DEFAULT_SECRET,
+        algorithm="HS256",
+    )
+
+    response = client.post(
+        "/v1/query",
+        json={"query": "What is AI?"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 503
 
 
 def test_stats_endpoint(client, api_key):
@@ -158,3 +181,124 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
     assert response.status_code == 200
     assert uploaded == [("test_user/test-note.txt", b"hello", "text/plain")]
     assert response.json()["documents"][0]["storage_path"] == "test_user/test-note.txt"
+
+
+def test_upload_rejects_invalid_pdf_before_storage(client, api_key, monkeypatch):
+    """A .pdf extension alone is not enough; content must look like a PDF."""
+    import api.main as api_module
+
+    uploaded = []
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/test-{filename}"
+
+        async def upload(self, path, content, content_type):
+            uploaded.append((path, content, content_type))
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("fake.pdf", b"not a pdf", "application/pdf")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 422
+    assert uploaded == []
+
+
+def test_upload_rejects_oversized_document_before_storage(client, api_key, monkeypatch):
+    """Oversized documents are rejected before cloud upload."""
+    import api.main as api_module
+
+    uploaded = []
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/test-{filename}"
+
+        async def upload(self, path, content, content_type):
+            uploaded.append((path, content, content_type))
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(api_module, "MAX_DOCUMENT_UPLOAD_BYTES", 4)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("large.txt", b"hello", "text/plain")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 413
+    assert uploaded == []
+
+
+def test_upload_rolls_back_storage_when_indexing_fails(client, api_key, monkeypatch):
+    """If vector indexing fails, uploaded storage objects are removed and no record is written."""
+    from langchain_core.documents import Document
+
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    operations = []
+    records = []
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/test-{filename}"
+
+        async def upload(self, path, content, content_type):
+            operations.append(("upload", path, content_type))
+
+        async def delete(self, path):
+            operations.append(("delete", path, ""))
+
+    class FakeIndexer:
+        def load_file(self, file_path, *, source, metadata=None):
+            return [Document(page_content="hello", metadata={"source": source, **(metadata or {})})]
+
+        async def aindex_documents(self, documents):
+            raise RuntimeError("Vector indexing failed")
+
+        def get_stats(self):
+            return {"chunker": {}}
+
+    def fake_create_document_record(_tracker, **record):
+        records.append(record)
+        return record
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(api_module, "create_document_record", fake_create_document_record)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("note.txt", b"hello", "text/plain")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 500
+    assert operations == [
+        ("upload", "test_user/test-note.txt", "text/plain"),
+        ("delete", "test_user/test-note.txt", ""),
+    ]
+    assert records == []

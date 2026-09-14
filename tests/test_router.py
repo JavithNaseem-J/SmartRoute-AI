@@ -22,9 +22,10 @@ def router():
 async def test_router_routes_simple_query(router):
     """Test simple query gets routed to small model."""
     decision = await router.route("What is AI?")
+    expected_model = router.config["strategies"]["cost_optimized"]["simple"]["model"]
 
     assert decision["complexity"] == "simple"
-    assert decision["model_id"] == "nvidia/nemotron-nano-9b-v2:free"
+    assert decision["model_id"] == expected_model
     assert 0 <= decision["confidence"] <= 1
 
 
@@ -35,9 +36,10 @@ async def test_router_routes_complex_query(router):
         "Analyze the ethical implications of AI in healthcare, "
         "evaluate regulatory approaches, and synthesize recommendations."
     )
+    expected_model = router.config["strategies"]["cost_optimized"]["complex"]["model"]
 
     assert decision["complexity"] == "complex"
-    assert decision["model_id"] == "google/gemma-4-31b-it:free"
+    assert decision["model_id"] == expected_model
 
 
 @pytest.mark.asyncio
@@ -47,10 +49,11 @@ async def test_router_strategy_changes_model(router):
 
     cost_decision = await router.route(query, strategy="cost_optimized")
     quality_decision = await router.route(query, strategy="quality_first")
+    expected_quality_model = router.config["strategies"]["quality_first"]["simple"]["model"]
 
     # Quality-first should use bigger model even for simple queries
-    assert quality_decision["model_id"] == "google/gemma-4-31b-it:free"
-    assert cost_decision["model_id"] != "google/gemma-4-31b-it:free"
+    assert quality_decision["model_id"] == expected_quality_model
+    assert cost_decision["model_id"] != expected_quality_model
 
 
 @pytest.mark.asyncio

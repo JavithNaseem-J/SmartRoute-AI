@@ -120,10 +120,14 @@ class InferencePipeline:
         strategy: Optional[str],
         use_retrieval: bool,
         start_time: float,
+        user_id: Optional[str],
     ) -> Dict:
         """Extract common pipeline setup steps."""
         # 0. Check Semantic Cache
-        cached_result = await self.semantic_cache.get(query)
+        cache_scope = f"strategy={strategy or 'default'}|retrieval={use_retrieval}"
+        cached_result = await self.semantic_cache.get(
+            query, user_id=user_id, cache_scope=cache_scope
+        )
         if cached_result:
             cached_result["latency"] = time.time() - start_time
             await self._log_query_metrics(
@@ -149,7 +153,7 @@ class InferencePipeline:
         can_afford, reason = await self.budget_manager.check_budget(estimated_cost)
         if not can_afford:
             logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
-            model_id = "llama_3_1_8b"
+            model_id = routing_decision.get("fallback_model", "openrouter/free")
             routing_decision["model_id"] = model_id
             routing_decision["reason"] = f"budget_{reason}"
 
@@ -157,7 +161,7 @@ class InferencePipeline:
         context = ""
         sources: List[str] = []
         if use_retrieval:
-            context, sources = await self.retriever.retrieve(query)
+            context, sources = await self.retriever.retrieve(query, user_id=user_id)
             logger.info(f"Retrieved {len(sources)} sources")
 
         return {
@@ -167,6 +171,7 @@ class InferencePipeline:
             "routing_decision": routing_decision,
             "context": context,
             "sources": sources,
+            "cache_scope": cache_scope,
         }
 
     async def _finalize_response(
@@ -183,6 +188,8 @@ class InferencePipeline:
         context: str,
         sources: List[str],
         session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+        cache_scope: str = "default",
     ) -> Dict:
         """Log metrics, update session memory, build response payload, and update cache."""
         await self._log_query_metrics(
@@ -197,8 +204,8 @@ class InferencePipeline:
             success=True,
         )
 
-        if session_id:
-            await self.memory.add_turn(session_id, query, answer)
+        if session_id and user_id:
+            await self.memory.add_turn(user_id, session_id, query, answer)
 
         logger.info(f"Query done: cost=${actual_cost:.4f}, latency={latency:.2f}s")
 
@@ -218,7 +225,15 @@ class InferencePipeline:
             "error": None,
         }
 
-        asyncio.create_task(self.semantic_cache.set(query, response_payload))
+        if user_id:
+            asyncio.create_task(
+                self.semantic_cache.set(
+                    query,
+                    response_payload,
+                    user_id=user_id,
+                    cache_scope=cache_scope,
+                )
+            )
         return response_payload
 
     @observe()
@@ -228,6 +243,7 @@ class InferencePipeline:
         strategy: Optional[str] = None,
         use_retrieval: bool = True,
         session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Dict:
         """Process a single query through the full pipeline."""
         if session_id:
@@ -241,7 +257,7 @@ class InferencePipeline:
             return self._error_response(str(e), "guardrail_violation", time.time() - start_time)
 
         try:
-            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
+            prep = await self._prepare_context(query, strategy, use_retrieval, start_time, user_id)
             if prep["is_cached"]:
                 return dict(prep["cached_result"])
 
@@ -250,10 +266,13 @@ class InferencePipeline:
             routing_decision = prep["routing_decision"]
             context = prep["context"]
             sources = prep["sources"]
+            cache_scope = prep["cache_scope"]
 
             # Generate
             model = self.model_manager.load_model(model_id)
-            history = await self.memory.get_history(session_id) if session_id else []
+            history = (
+                await self.memory.get_history(user_id, session_id) if session_id and user_id else []
+            )
             messages = self._build_messages(query, context, history)
 
             # Rough token estimate (we might need a real tokenizer for messages eventually)
@@ -284,6 +303,8 @@ class InferencePipeline:
                 context=context,
                 sources=sources,
                 session_id=session_id,
+                user_id=user_id,
+                cache_scope=cache_scope,
             )
 
         except Exception as e:
@@ -298,7 +319,9 @@ class InferencePipeline:
                     latency=latency,
                     success=False,
                 )
-            return self._error_response(str(e), str(e), latency)
+            return self._error_response(
+                "Request failed. Please try again.", "pipeline_error", latency
+            )
 
     @observe()
     async def astream_run(
@@ -307,6 +330,7 @@ class InferencePipeline:
         strategy: Optional[str] = None,
         use_retrieval: bool = True,
         session_id: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> AsyncIterator[Dict]:
         """
         Process query and stream the response.
@@ -332,7 +356,7 @@ class InferencePipeline:
             return
 
         try:
-            prep = await self._prepare_context(query, strategy, use_retrieval, start_time)
+            prep = await self._prepare_context(query, strategy, use_retrieval, start_time, user_id)
             if prep["is_cached"]:
                 cached_result = prep["cached_result"]
                 yield {
@@ -354,6 +378,7 @@ class InferencePipeline:
             routing_decision = prep["routing_decision"]
             context = prep["context"]
             sources = prep["sources"]
+            cache_scope = prep["cache_scope"]
 
             yield {
                 "type": "metadata",
@@ -362,7 +387,9 @@ class InferencePipeline:
 
             # Generate (Stream)
             model = self.model_manager.load_model(model_id)
-            history = await self.memory.get_history(session_id) if session_id else []
+            history = (
+                await self.memory.get_history(user_id, session_id) if session_id and user_id else []
+            )
             messages = self._build_messages(query, context, history)
 
             full_prompt = f"{context}\n\n{query}" if context else query
@@ -381,12 +408,13 @@ class InferencePipeline:
 
             # If fallback needed due to error
             if full_answer.startswith("Error:"):
-                fallback_id = routing_decision.get("fallback", "openrouter/free")
+                fallback_id = routing_decision.get("fallback_model", "openrouter/free")
                 model_id = fallback_id
                 routing_decision["strategy"] = "model_fallback"
                 fallback_model = self.model_manager.load_model(model_id)
                 input_tokens = fallback_model.count_tokens(full_prompt)
 
+                yield {"type": "replace", "content": ""}
                 stream = fallback_model.astream(messages=messages, max_tokens=1000, temperature=0.7)
                 full_answer = ""
                 async for chunk in stream:
@@ -411,16 +439,20 @@ class InferencePipeline:
                 context=context,
                 sources=sources,
                 session_id=session_id,
+                user_id=user_id,
+                cache_scope=cache_scope,
             )
             yield {"type": "done", "result": response_payload}
 
         except Exception as e:
             latency = time.time() - start_time
             logger.error(f"Pipeline stream failed: {e}", exc_info=True)
-            yield {"type": "chunk", "content": f"\n\nError: {str(e)}"}
+            yield {"type": "chunk", "content": "\n\nError: request failed. Please try again."}
             yield {
                 "type": "done",
-                "result": self._error_response(str(e), str(e), latency),
+                "result": self._error_response(
+                    "Request failed. Please try again.", "pipeline_error", latency
+                ),
             }
 
     async def batch_run(
@@ -428,12 +460,21 @@ class InferencePipeline:
         queries: List[str],
         strategy: Optional[str] = None,
         use_retrieval: bool = True,
+        user_id: Optional[str] = None,
     ) -> List[Dict]:
         """Process multiple queries concurrently via asyncio.gather."""
         if not queries:
             return []
         logger.info(f"Batch processing {len(queries)} queries...")
-        tasks = [self.run(query=q, strategy=strategy, use_retrieval=use_retrieval) for q in queries]
+        tasks = [
+            self.run(
+                query=q,
+                strategy=strategy,
+                use_retrieval=use_retrieval,
+                user_id=user_id,
+            )
+            for q in queries
+        ]
         return list(await asyncio.gather(*tasks))
 
     def get_statistics(self, days: int = 1) -> Dict:

@@ -22,7 +22,7 @@ async def test_semantic_cache_miss(cache, mock_qdrant):
     mock_res = AsyncMock()
     mock_res.points = []
     mock_qdrant.query_points = AsyncMock(return_value=mock_res)
-    result = await cache.get("What is SmartRoute?")
+    result = await cache.get("What is SmartRoute?", user_id="user-1")
     assert result is None
     mock_qdrant.query_points.assert_called_once()
 
@@ -43,11 +43,14 @@ async def test_semantic_cache_hit(cache, mock_qdrant, mock_redis):
     expected_payload = {"answer": "It is an enterprise AI routing system."}
     mock_redis.get = AsyncMock(return_value=json.dumps(expected_payload))
 
-    result = await cache.get("What is SmartRoute?")
+    result = await cache.get("What is SmartRoute?", user_id="user-1")
 
     assert result == expected_payload
     mock_qdrant.query_points.assert_called_once()
-    mock_redis.get.assert_called_once_with("semantic_cache:mock-uuid")
+    call_kwargs = mock_qdrant.query_points.call_args.kwargs
+    assert call_kwargs["query_filter"].must[0].key == "user_id"
+    assert call_kwargs["query_filter"].must[0].match.value == "user-1"
+    mock_redis.get.assert_called_once_with("semantic_cache:user-1:mock-uuid")
 
 
 async def test_semantic_cache_set(cache, mock_qdrant, mock_redis):
@@ -56,7 +59,19 @@ async def test_semantic_cache_set(cache, mock_qdrant, mock_redis):
     mock_qdrant.upsert = AsyncMock(return_value=None)
 
     payload = {"answer": "It is an enterprise AI routing system."}
-    await cache.set("What is SmartRoute?", payload)
+    await cache.set("What is SmartRoute?", payload, user_id="user-1")
 
     mock_redis.setex.assert_called_once()
     mock_qdrant.upsert.assert_called_once()
+    point = mock_qdrant.upsert.call_args.kwargs["points"][0]
+    assert point.payload["user_id"] == "user-1"
+
+
+async def test_semantic_cache_skips_anonymous_user(cache, mock_qdrant, mock_redis):
+    """Anonymous calls must not use a shared global semantic cache."""
+    assert await cache.get("What is SmartRoute?", user_id=None) is None
+    await cache.set("What is SmartRoute?", {"answer": "x"}, user_id=None)
+
+    mock_qdrant.query_points.assert_not_called()
+    mock_qdrant.upsert.assert_not_called()
+    assert await mock_redis.keys("*") == []

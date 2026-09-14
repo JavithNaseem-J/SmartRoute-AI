@@ -46,6 +46,7 @@ _REQUIRED_ENV_VARS = [
     ("SUPABASE_URL", "Supabase Project URL -> https://supabase.com"),
     ("SUPABASE_SERVICE_ROLE_KEY", "Supabase service key -> Project Settings / API"),
     ("SUPABASE_STORAGE_BUCKET", "Supabase Storage bucket"),
+    ("SUPABASE_JWT_SECRET", "Supabase JWT secret -> Project Settings / API"),
 ]
 
 
@@ -81,6 +82,50 @@ pipeline: Optional[InferencePipeline] = None
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
 DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_DIR", "data/documents"))
 ALLOWED_DOCUMENT_SUFFIXES = {".pdf", ".txt", ".md"}
+MAX_DOCUMENT_UPLOAD_BYTES = int(os.getenv("MAX_DOCUMENT_UPLOAD_BYTES", str(10 * 1024 * 1024)))
+
+
+def _validate_document_upload(filename: str, content: bytes, content_type: str) -> None:
+    suffix = Path(filename).suffix.lower()
+    if not filename or suffix not in ALLOWED_DOCUMENT_SUFFIXES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported document type for {filename or 'unnamed file'}",
+        )
+    if not content:
+        raise HTTPException(status_code=422, detail=f"Uploaded document is empty: {filename}")
+    if len(content) > MAX_DOCUMENT_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"Document is too large: {filename}. "
+                f"Maximum size is {MAX_DOCUMENT_UPLOAD_BYTES} bytes."
+            ),
+        )
+
+    normalized_type = (content_type or "").split(";")[0].strip().lower()
+    if suffix == ".pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(status_code=422, detail=f"Invalid PDF content: {filename}")
+        if normalized_type and normalized_type not in {
+            "application/pdf",
+            "application/octet-stream",
+        }:
+            raise HTTPException(status_code=422, detail=f"Invalid PDF content type: {filename}")
+        return
+
+    if b"\x00" in content[:4096]:
+        raise HTTPException(status_code=422, detail=f"Invalid text document content: {filename}")
+    try:
+        content[:4096].decode("utf-8")
+    except UnicodeDecodeError:
+        raise HTTPException(status_code=422, detail=f"Document must be UTF-8 text: {filename}")
+
+    if normalized_type and not (
+        normalized_type.startswith("text/")
+        or normalized_type in {"application/octet-stream", "application/markdown"}
+    ):
+        raise HTTPException(status_code=422, detail=f"Invalid text content type: {filename}")
 
 
 @asynccontextmanager
@@ -207,7 +252,8 @@ async def _component_status() -> dict:
         if await redis_client.ping():
             components["redis"] = "ok"
     except Exception as e:
-        components["redis"] = f"error: {str(e)}"
+        logger.warning(f"Redis readiness check failed: {e}")
+        components["redis"] = "error"
 
     try:
         from src.core.dependencies import get_qdrant_client
@@ -216,7 +262,8 @@ async def _component_status() -> dict:
         await qdrant_client.get_collections()
         components["qdrant"] = "ok"
     except Exception as e:
-        components["qdrant"] = f"error: {str(e)}"
+        logger.warning(f"Qdrant readiness check failed: {e}")
+        components["qdrant"] = "error"
 
     try:
         if pipeline.tracker and pipeline.tracker.engine:
@@ -231,7 +278,8 @@ async def _component_status() -> dict:
             await asyncio.to_thread(ping_db)
             components["postgres"] = "ok"
     except Exception as e:
-        components["postgres"] = f"error: {str(e)}"
+        logger.warning(f"Postgres readiness check failed: {e}")
+        components["postgres"] = "error"
 
     return components
 
@@ -256,7 +304,7 @@ async def readiness_check():
 
 def require_api_key(payload: dict = Depends(require_jwt)) -> str:
     """JWT validation facade. Returns the user ID (sub) from the token."""
-    return str(payload.get("sub", "unknown_user"))
+    return str(payload["sub"])
 
 
 # ── Request / Response models ─────────────────────────────────────────────────
@@ -334,7 +382,7 @@ v1 = APIRouter(prefix="/v1", tags=["v1"])
 async def query(
     request: Request,
     query_request: QueryRequest,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     """Process a query — fully async, no thread pool required."""
     if not pipeline:
@@ -345,6 +393,7 @@ async def query(
             strategy=query_request.strategy,
             use_retrieval=query_request.use_retrieval,
             session_id=query_request.session_id,
+            user_id=user_id,
         )
         if result.get("latency", 0) > 10.0:
             from src.utils.alerting import send_alert
@@ -359,7 +408,7 @@ async def query(
         return QueryResponse(**result)
     except Exception as e:
         logger.error(f"Query failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Query failed")
 
 
 @v1.post("/query/batch")
@@ -369,7 +418,7 @@ async def query_batch(
     queries: List[str],
     strategy: Optional[str] = None,
     use_retrieval: bool = True,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     """Process multiple queries concurrently. Max 10 queries per call."""
     if not pipeline:
@@ -379,7 +428,7 @@ async def query_batch(
     if len(queries) > 10:
         raise HTTPException(status_code=422, detail="Maximum 10 queries per batch request")
     results = await pipeline.batch_run(
-        queries=queries, strategy=strategy, use_retrieval=use_retrieval
+        queries=queries, strategy=strategy, use_retrieval=use_retrieval, user_id=user_id
     )
     return results
 
@@ -389,7 +438,7 @@ async def query_batch(
 async def query_stream(
     request: Request,
     query_request: QueryRequest,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     """Stream LLM tokens as Server-Sent Events (async generator)."""
     if not pipeline:
@@ -404,11 +453,12 @@ async def query_stream(
                 strategy=query_request.strategy,
                 use_retrieval=query_request.use_retrieval,
                 session_id=query_request.session_id,
+                user_id=user_id,
             ):
                 yield f"data: {json.dumps(item)}\n\n"
         except Exception as e:
             logger.error(f"Stream failed: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Stream failed'})}\n\n"
 
     return StreamingResponse(
         _token_generator(),
@@ -462,11 +512,11 @@ async def list_models(_: str = Depends(require_api_key)):
 
 
 @v1.delete("/memory/{session_id}")
-async def clear_memory(session_id: str, _: str = Depends(require_api_key)):
+async def clear_memory(session_id: str, user_id: str = Depends(require_api_key)):
     """Clear conversation history for a session."""
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    await pipeline.memory.clear(session_id)
+    await pipeline.memory.clear(user_id, session_id)
     return {"status": "cleared", "session_id": session_id}
 
 
@@ -488,7 +538,7 @@ async def index_documents(_: str = Depends(require_api_key)):
         return {"status": "success", "stats": stats}
     except Exception as e:
         logger.error(f"Indexing failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Indexing failed")
 
 
 @v1.post("/documents/upload")
@@ -517,15 +567,9 @@ async def upload_documents(
             temp_root = Path(temp_dir)
             for upload in files:
                 filename = Path(upload.filename or "").name
-                suffix = Path(filename).suffix.lower()
-                if not filename or suffix not in ALLOWED_DOCUMENT_SUFFIXES:
-                    raise HTTPException(
-                        status_code=422,
-                        detail=f"Unsupported document type for {filename or 'unnamed file'}",
-                    )
-
                 content = await upload.read()
                 content_type = upload.content_type or guess_content_type(filename)
+                _validate_document_upload(filename, content, content_type)
                 storage_path = storage.object_path(user_id, filename)
                 await storage.upload(storage_path, content, content_type)
                 uploaded_paths.append(storage_path)
@@ -580,7 +624,7 @@ async def upload_documents(
                     f"Failed to clean up uploaded object {storage_path}: {cleanup_error}"
                 )
         logger.error(f"Document upload failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Document upload failed")
 
 
 @v1.get("/documents")
@@ -613,6 +657,7 @@ async def delete_document(filename: str, user_id: str = Depends(require_api_key)
             filename,
             DOCUMENTS_DIR,
             source=document["storage_path"],
+            user_id=user_id,
         )
         await asyncio.to_thread(mark_document_deleted, pipeline.tracker, document["storage_path"])
         if hasattr(pipeline.retriever, "reload"):
@@ -627,7 +672,7 @@ async def delete_document(filename: str, user_id: str = Depends(require_api_key)
         raise
     except Exception as e:
         logger.error(f"Deleting document {filename} failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Document deletion failed")
 
 
 @v1.delete("/documents")
@@ -647,13 +692,13 @@ async def clear_all_documents(user_id: str = Depends(require_api_key)):
             )
 
         indexer = DocumentIndexer()
-        await indexer.aclear_all_documents(DOCUMENTS_DIR)
+        await indexer.aclear_all_documents(DOCUMENTS_DIR, user_id=user_id)
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
         return {"status": "success", "message": "All documents cleared"}
     except Exception as e:
         logger.error(f"Clearing all documents failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Document clear failed")
 
 
 # Mount versioned router — all /v1/* routes are now live

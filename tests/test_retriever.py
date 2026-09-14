@@ -1,8 +1,38 @@
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from langchain_core.documents import Document
 
 from src.retrieval.reranker import DocumentReranker
 from src.retrieval.chunking import DocumentChunker
+from src.retrieval.retriever import DocumentRetriever
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_requires_user_id(mock_qdrant):
+    """Document retrieval must not use a shared global corpus without a user."""
+    retriever = DocumentRetriever()
+
+    context, sources = await retriever.retrieve("What is SmartRoute?")
+
+    assert context == ""
+    assert sources == []
+    mock_qdrant.query_points.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_filters_qdrant_by_user_id(mock_qdrant, monkeypatch):
+    """Qdrant searches include metadata.user_id so tenants cannot see each other's chunks."""
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+    mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
+    monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: None)
+
+    await retriever.retrieve("What is SmartRoute?", user_id="user-1")
+
+    query_filter = mock_qdrant.query_points.call_args.kwargs["query_filter"]
+    assert query_filter.must[0].key == "metadata.user_id"
+    assert query_filter.must[0].match.value == "user-1"
 
 
 @pytest.fixture

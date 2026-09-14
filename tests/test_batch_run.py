@@ -7,7 +7,7 @@ import pytest
 from src.pipeline.inference import InferencePipeline
 
 
-async def mock_run_1s(query, strategy=None, use_retrieval=True, session_id=None):
+async def mock_run_1s(query, strategy=None, use_retrieval=True, session_id=None, user_id=None):
     """Simulates a 1-second async LLM call."""
     await asyncio.sleep(1)
     return {"query": query, "answer": "mock answer", "success": True}
