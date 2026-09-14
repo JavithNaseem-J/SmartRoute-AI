@@ -3,7 +3,7 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Dict
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit, urlunsplit
 from uuid import uuid4
 
 import aiohttp
@@ -19,6 +19,15 @@ def safe_segment(value: str) -> str:
 
 def guess_content_type(filename: str, fallback: str = "application/octet-stream") -> str:
     return mimetypes.guess_type(filename)[0] or fallback
+
+
+def normalize_supabase_url(value: str) -> str:
+    """Return the project origin even if a REST/Storage endpoint was pasted."""
+    raw_url = value.strip().rstrip("/")
+    parsed = urlsplit(raw_url)
+    if parsed.scheme and parsed.netloc:
+        return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+    return raw_url
 
 
 @dataclass(frozen=True)
@@ -38,13 +47,10 @@ class SupabaseStorage:
             raise RuntimeError(
                 f"Missing Supabase Storage environment variables: {', '.join(missing)}"
             )
-        raw_url = os.environ["SUPABASE_URL"].rstrip("/")
-        if raw_url.endswith("/rest/v1"):
-            raw_url = raw_url[:-8].rstrip("/")
         return cls(
-            url=raw_url,
-            service_role_key=os.environ["SUPABASE_SERVICE_ROLE_KEY"],
-            bucket=os.environ["SUPABASE_STORAGE_BUCKET"],
+            url=normalize_supabase_url(os.environ["SUPABASE_URL"]),
+            service_role_key=os.environ["SUPABASE_SERVICE_ROLE_KEY"].strip(),
+            bucket=os.environ["SUPABASE_STORAGE_BUCKET"].strip(),
         )
 
     @property
