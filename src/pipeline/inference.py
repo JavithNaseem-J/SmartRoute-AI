@@ -1,7 +1,7 @@
 """
-Async InferencePipeline — orchestrates the full query pipeline.
+Async InferencePipeline - orchestrates the full query pipeline.
 
-Flow: Guardrails → Routing → Budget → Retrieval → Generation → Tracking
+Flow: Guardrails -> Routing -> Budget -> Retrieval -> Generation -> Tracking
 """
 
 import asyncio
@@ -101,18 +101,21 @@ class InferencePipeline:
         success: bool = True,
     ) -> None:
         """Centralized async logging helper to log query metrics."""
-        await asyncio.to_thread(
-            self.tracker.log_query,
-            query=query,
-            model_id=model_id,
-            complexity=complexity,
-            strategy=strategy,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            cost=cost,
-            latency=latency,
-            success=success,
-        )
+        try:
+            await asyncio.to_thread(
+                self.tracker.log_query,
+                query=query,
+                model_id=model_id,
+                complexity=complexity,
+                strategy=strategy,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost,
+                latency=latency,
+                success=success,
+            )
+        except Exception as e:
+            logger.warning(f"Query metric logging failed: {e}")
 
     async def _prepare_context(
         self,
@@ -144,7 +147,7 @@ class InferencePipeline:
         model_id = routing_decision["model_id"]
         complexity = routing_decision["complexity"]
         logger.info(
-            f"Routed → {model_id} "
+            f"Routed -> {model_id} "
             f"(complexity={complexity}, confidence={routing_decision['confidence']:.2f})"
         )
 
@@ -152,7 +155,7 @@ class InferencePipeline:
         estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
         can_afford, reason = await self.budget_manager.check_budget(estimated_cost)
         if not can_afford:
-            logger.warning(f"Budget exceeded ({reason}) — falling back to cheapest model")
+            logger.warning(f"Budget exceeded ({reason}) - falling back to cheapest model")
             model_id = routing_decision.get("fallback_model", "openrouter/free")
             routing_decision["model_id"] = model_id
             routing_decision["reason"] = f"budget_{reason}"

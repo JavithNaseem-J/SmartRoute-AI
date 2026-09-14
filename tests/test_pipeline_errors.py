@@ -102,6 +102,18 @@ async def test_pipeline_error_response_does_not_expose_exception_text():
 
 
 @pytest.mark.asyncio
+async def test_pipeline_error_response_survives_metric_logging_failure():
+    pipeline = make_pipeline(FailingModelManager())
+    pipeline.tracker.log_query.side_effect = RuntimeError("database unavailable")
+
+    result = await pipeline.run("hello", user_id="user-1")
+
+    assert result["success"] is False
+    assert result["answer"] == "Request failed. Please try again."
+    assert result["error"] == "pipeline_error"
+
+
+@pytest.mark.asyncio
 async def test_streaming_fallback_uses_fallback_model_key():
     manager = StreamingModelManager()
     pipeline = make_pipeline(manager)
