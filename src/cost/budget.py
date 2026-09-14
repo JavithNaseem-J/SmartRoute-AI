@@ -34,7 +34,11 @@ class BudgetManager:
     ):
         self.tracker = tracker
 
-        self._redis = get_redis_client()
+        try:
+            self._redis = get_redis_client()
+        except Exception as e:
+            logger.warning(f"BudgetManager: Redis unavailable ({e}). Budget enforcement disabled.")
+            self._redis = None
 
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
@@ -68,7 +72,12 @@ class BudgetManager:
         INCRBYFLOAT increments the key and returns the new total atomically.
         If over budget, immediately decrements back and rejects the request.
         No two concurrent requests can both pass the limit simultaneously.
+        Falls back to allow-all when Redis is unavailable.
         """
+        if self._redis is None:
+            logger.warning("BudgetManager: Redis unavailable, skipping budget check (fail-open).")
+            return True, "redis_unavailable"
+
         key = self._redis_key("daily")
         try:
             new_total = float(await self._redis.incrbyfloat(key, estimated_cost))
@@ -93,8 +102,8 @@ class BudgetManager:
             return True, "within_budget"
 
         except Exception as e:
-            logger.error(f"Redis budget check failed: {e}")
-            raise
+            logger.error(f"Redis budget check failed: {e} — allowing query (fail-open)")
+            return True, "redis_error"
 
     def get_budget_status(self) -> Dict:
         daily_spent = self.tracker.get_statistics(days=1)["total_cost"]

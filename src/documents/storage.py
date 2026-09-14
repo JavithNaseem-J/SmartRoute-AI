@@ -38,8 +38,11 @@ class SupabaseStorage:
             raise RuntimeError(
                 f"Missing Supabase Storage environment variables: {', '.join(missing)}"
             )
+        raw_url = os.environ["SUPABASE_URL"].rstrip("/")
+        if raw_url.endswith("/rest/v1"):
+            raw_url = raw_url[:-8].rstrip("/")
         return cls(
-            url=os.environ["SUPABASE_URL"].rstrip("/"),
+            url=raw_url,
             service_role_key=os.environ["SUPABASE_SERVICE_ROLE_KEY"],
             bucket=os.environ["SUPABASE_STORAGE_BUCKET"],
         )
