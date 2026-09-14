@@ -176,11 +176,15 @@ def _read_build_metadata_file(filename: str) -> str:
 
 
 def _deployment_commit_sha() -> str:
+    metadata_sha = _read_build_metadata_file(".commit_sha")
+    if metadata_sha and metadata_sha != "unknown":
+        return metadata_sha
+
     for env_name in ("SMARTROUTE_COMMIT_SHA", "RENDER_GIT_COMMIT"):
         value = os.getenv(env_name, "").strip()
         if value:
             return value
-    return _read_build_metadata_file(".commit_sha") or "unknown"
+    return metadata_sha or "unknown"
 
 
 def _deployment_build_time() -> str:
