@@ -1,9 +1,10 @@
 import json
 import uuid
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from qdrant_client import models
 from qdrant_client.models import PointStruct
+from redis.asyncio import Redis
 
 from src.core.dependencies import get_embeddings, get_qdrant_client, get_redis_client
 from src.utils.logger import logger
@@ -14,6 +15,7 @@ class SemanticCache:
         self.threshold = threshold
         self.collection_name = collection_name
         self.embeddings = get_embeddings()
+        self.redis: Optional[Redis[Any]] = None
 
         try:
             self.redis = get_redis_client()

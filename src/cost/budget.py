@@ -9,8 +9,9 @@ Get your free Upstash Redis URL at: https://upstash.com
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
+from redis.asyncio import Redis
 import yaml  # type: ignore
 
 from src.core.dependencies import get_redis_client
@@ -33,6 +34,7 @@ class BudgetManager:
         config_path: Path = _PROJECT_ROOT / "config" / "routing.yaml",
     ):
         self.tracker = tracker
+        self._redis: Optional[Redis[Any]] = None
 
         try:
             self._redis = get_redis_client()

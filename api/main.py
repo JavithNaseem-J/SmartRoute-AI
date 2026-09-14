@@ -5,7 +5,7 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import AsyncIterator, List, Optional, TypedDict
+from typing import Any, AsyncIterator, List, Optional, TypedDict
 
 from dotenv import load_dotenv
 
@@ -583,8 +583,8 @@ async def upload_documents(
             detail="Supabase Storage is misconfigured. Check bucket and service role key.",
         )
 
-    saved_files = []
-    uploaded_paths = []
+    saved_files: List[dict[str, Any]] = []
+    uploaded_paths: List[str] = []
 
     async def cleanup_uploaded_paths() -> None:
         for storage_path in uploaded_paths:

@@ -1,5 +1,7 @@
 import json
-from typing import Dict, List
+from typing import Any, Dict, List, Optional
+
+from redis.asyncio import Redis
 
 from src.core.dependencies import get_redis_client
 from src.utils.logger import logger
@@ -16,6 +18,7 @@ class ConversationMemory:
     ):
         self.max_turns = max_turns
         self.session_ttl = session_ttl
+        self._redis: Optional[Redis[Any]] = None
         try:
             self._redis = get_redis_client()
         except Exception as e:
