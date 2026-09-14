@@ -4,13 +4,13 @@ strategies:
   cost_optimized:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
-      model: "nvidia/nemotron-nano-9b-v2:free"
+      model: "liquid/lfm-2.5-2.6b:free"
       fallback: "openrouter/free"
       quality_threshold: 0.7
       max_latency: 3.0
 
     medium:
-      model: "openai/gpt-oss-20b:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.75
       max_latency: 5.0
@@ -24,34 +24,34 @@ strategies:
   quality_first:
     description: "Always use the most capable model (best quality, slower)"
     simple:
-      model: "google/gemma-4-31b-it:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.70
 
     medium:
-      model: "google/gemma-4-31b-it:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.85
 
     complex:
-      model: "google/gemma-4-31b-it:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.9
 
   balanced:
     description: "Balance between cost and quality"
     simple:
-      model: "nvidia/nemotron-nano-9b-v2:free"
+      model: "liquid/lfm-2.5-2.6b:free"
       fallback: "openrouter/free"
       quality_threshold: 0.75
 
     medium:
-      model: "openai/gpt-oss-20b:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.8
 
     complex:
-      model: "google/gemma-4-31b-it:free"
+      model: "nvidia/nemotron-3.5-lightning:free"
       fallback: "openrouter/free"
       quality_threshold: 0.85
 

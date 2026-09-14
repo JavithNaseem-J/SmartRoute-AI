@@ -1,14 +1,14 @@
 openrouter_models:
-  nvidia/nemotron-nano-9b-v2:free:
-    model_id: "nvidia/nemotron-nano-9b-v2:free"
+  liquid/lfm-2.5-2.6b:free:
+    model_id: "liquid/lfm-2.5-2.6b:free"
     cost_per_1k_input: 0.0
     cost_per_1k_output: 0.0
     max_tokens: 8192
     tier: "simple"
     suitable_for: ["simple"]
 
-  openai/gpt-oss-20b:free:
-    model_id: "openai/gpt-oss-20b:free"
+  nvidia/nemotron-3.5-lightning:free:
+    model_id: "nvidia/nemotron-3.5-lightning:free"
     cost_per_1k_input: 0.0
     cost_per_1k_output: 0.0
     max_tokens: 8192
