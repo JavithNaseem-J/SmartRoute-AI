@@ -22,7 +22,9 @@ os.environ.setdefault("REDIS_URL", "rediss://default:test@test.upstash.io:6379")
 os.environ.setdefault("QDRANT_URL", "https://test.qdrant.io")
 os.environ.setdefault("QDRANT_API_KEY", "test-key")
 os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
-os.environ.setdefault("SUPABASE_JWT_SECRET", "test-supabase-jwt-secret-for-unit-tests")
+# Force a deterministic test-only secret even when CI provides a production-like
+# env block. The app intentionally rejects the public sample secret used in docs.
+os.environ["SUPABASE_JWT_SECRET"] = "unit-test-jwt-secret-not-for-production-32-chars-minimum"
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_STORAGE_BUCKET", "smartroute-documents")
