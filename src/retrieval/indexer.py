@@ -250,7 +250,7 @@ class DocumentIndexer:
         # 2. Delete vectors from Qdrant matching metadata source
         try:
             if await self.qdrant.collection_exists(self.collection_name):
-                source_conditions = [
+                source_conditions: List[models.Condition] = [
                     models.FieldCondition(
                         key="metadata.source",
                         match=models.MatchValue(value=source),
@@ -265,7 +265,7 @@ class DocumentIndexer:
                         match=models.MatchValue(value=str(target_file)),
                     ),
                 ]
-                must_conditions = []
+                must_conditions: List[models.Condition] = []
                 if user_id:
                     must_conditions.append(
                         models.FieldCondition(
