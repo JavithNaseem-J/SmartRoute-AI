@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 
@@ -68,15 +68,21 @@ class FeatureExtractor:
         else:
             self._ref_embeddings_ready = False
 
-        # FastEmbed fallback model initialized ONCE
+        # FastEmbed is a heavy local ONNX fallback. Keep it lazy so Render's
+        # 512 MiB instances do not OOM during startup.
+        self.fastembed_model: Optional[Any] = None
+
+    def _get_fastembed_model(self) -> Optional[Any]:
+        if self.fastembed_model is not None:
+            return self.fastembed_model
         try:
             from fastembed import TextEmbedding
 
             self.fastembed_model = TextEmbedding("BAAI/bge-small-en-v1.5")
         except Exception as e:
             logger.warning(f"Could not load fastembed local model: {e}")
-            # pyrefly: ignore [bad-assignment]
             self.fastembed_model = None
+        return self.fastembed_model
 
     def _cosine_similarity_max(self, a: np.ndarray, b: np.ndarray) -> "np.ndarray[Any, Any]":
         """Compute max cosine similarity of a (N, D) against b (M, D). Returns (N,)."""
@@ -130,10 +136,9 @@ class FeatureExtractor:
                 embeddings_list = await self.embedder.aembed_documents(queries)
                 embeddings = np.array(embeddings_list, dtype=np.float32)
             except Exception:
-                if self.fastembed_model is not None:
-                    embeddings = np.array(
-                        list(self.fastembed_model.embed(queries)), dtype=np.float32
-                    )
+                fastembed_model = self._get_fastembed_model()
+                if fastembed_model is not None:
+                    embeddings = np.array(list(fastembed_model.embed(queries)), dtype=np.float32)
                 else:
                     embeddings = np.zeros((n, 384), dtype=np.float32)
 
