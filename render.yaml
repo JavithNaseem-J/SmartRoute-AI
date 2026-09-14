@@ -43,7 +43,7 @@ services:
       - key: ALLOWED_ORIGINS
         value: ""
       - key: OTEL_EXPORTER_OTLP_ENDPOINT
-        value: "https://cloud.langfuse.com/api/public/otel"
+        value: "https://cloud.langfuse.com/api/public/otel/v1/traces"
       - key: LANGFUSE_PUBLIC_KEY
         sync: false
       - key: LANGFUSE_SECRET_KEY

@@ -13,6 +13,7 @@ import {
   BarChart3,
 } from "lucide-react";
 import { motion } from "framer-motion";
+import { ensureDemoAuthToken, getAuthToken } from "@/lib/auth";
 
 interface StatsData {
   total_queries: number;
@@ -39,8 +40,6 @@ interface BudgetData {
   monthly: { spent: number; limit: number; remaining: number; percentage: number; alert: boolean };
 }
 
-const getAuthToken = () => localStorage.getItem("smartroute.jwt")?.trim() || null;
-
 export function CostAnalytics() {
   const [days, setDays] = useState<number>(1);
   const [loading, setLoading] = useState(true);
@@ -50,19 +49,11 @@ export function CostAnalytics() {
   const [savings, setSavings] = useState<SavingsData | null>(null);
   const [budget, setBudget] = useState<BudgetData | null>(null);
 
-  const token = getAuthToken();
-
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      if (!token) {
-        setStats(null);
-        setSavings(null);
-        setBudget(null);
-        setError("Authentication token is missing. Sign in again to view analytics.");
-        return;
-      }
+      const token = getAuthToken() || (await ensureDemoAuthToken());
 
       const headers = { Authorization: `Bearer ${token}` };
 
@@ -87,7 +78,7 @@ export function CostAnalytics() {
     } finally {
       setLoading(false);
     }
-  }, [days, token]);
+  }, [days]);
 
   useEffect(() => {
     fetchData();

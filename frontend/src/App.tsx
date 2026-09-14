@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 import { CostAnalytics } from "@/components/CostAnalytics";
+import { ensureDemoAuthToken, getAuthToken } from "@/lib/auth";
 import {
   Sparkles,
   Bot,
@@ -35,8 +36,6 @@ interface Session {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const getAuthToken = () => localStorage.getItem("smartroute.jwt")?.trim() || null;
 
 const newSession = (): Session => ({
   id: crypto.randomUUID(),
@@ -79,6 +78,7 @@ export default function App() {
   const [ragEnabled, setRagEnabled] = useState<boolean>(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
   const [uploadNotice, setUploadNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [authNotice, setAuthNotice] = useState<string | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -109,6 +109,24 @@ export default function App() {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [sessions, activeId, currentView]);
+
+  useEffect(() => {
+    let cancelled = false;
+    ensureDemoAuthToken()
+      .then(() => {
+        if (!cancelled) setAuthNotice(null);
+      })
+      .catch((err: unknown) => {
+        console.error("Demo authentication error:", err);
+        if (!cancelled) {
+          setAuthNotice("Demo authentication is temporarily unavailable. Refresh to retry.");
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeSession = sessions.find((s) => s.id === activeId);
 
@@ -152,10 +170,8 @@ export default function App() {
     }
 
     try {
-      const token = getAuthToken();
-      if (!token) {
-        throw new Error("Authentication token is missing. Sign in again before uploading documents.");
-      }
+      const token = getAuthToken() || (await ensureDemoAuthToken());
+      setAuthNotice(null);
       const res = await fetch("/v1/documents/upload", {
         method: "POST",
         headers: {
@@ -193,16 +209,18 @@ export default function App() {
   const handleSendMessage = async (rawMessage: string) => {
     if (!rawMessage.trim()) return;
 
-    const token = getAuthToken();
+    let token: string;
+    try {
+      token = getAuthToken() || (await ensureDemoAuthToken());
+      setAuthNotice(null);
+    } catch (err: unknown) {
+      console.error("Demo authentication error:", err);
+      setAuthNotice("Demo authentication is temporarily unavailable. Refresh to retry.");
+      return;
+    }
+
     const userMsg: Message = { role: "user", content: rawMessage };
-    const asstMsg: Message = token
-      ? { role: "assistant", content: "", streaming: true }
-      : {
-          role: "assistant",
-          content: "Authentication token is missing. Sign in again before sending a query.",
-          streaming: false,
-          model: "auth-required",
-        };
+    const asstMsg: Message = { role: "assistant", content: "", streaming: true };
 
     const isFirstMessage = !activeSession || activeSession.messages.length === 0;
     const newTitle = isFirstMessage
@@ -220,8 +238,6 @@ export default function App() {
           : s
       )
     );
-
-    if (!token) return;
 
     setIsLoading(true);
 
@@ -504,6 +520,23 @@ export default function App() {
         </AnimatePresence>
 
         {/* ── CONDITIONALLY RENDER: Cost Analytics vs Chat Canvas ─────────── */}
+        {/* Demo Auth Status Toast */}
+        <AnimatePresence>
+          {authNotice && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-4 left-1/2 z-50 w-[calc(100%-2rem)] max-w-md -translate-x-1/2"
+            >
+              <div className="flex items-center gap-2.5 rounded-2xl border border-amber-400/40 bg-stone-950/85 px-4 py-3 text-xs text-amber-100 shadow-2xl backdrop-blur-xl">
+                <AlertCircle className="h-4 w-4 flex-shrink-0 text-amber-300" />
+                <span className="flex-1 leading-snug">{authNotice}</span>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {currentView === "analytics" ? (
           <CostAnalytics />
         ) : messages.length === 0 ? (

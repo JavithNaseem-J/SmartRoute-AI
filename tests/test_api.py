@@ -94,6 +94,26 @@ def test_query_with_auth(client, api_key):
     assert response.json()["success"] is True
 
 
+def test_demo_token_allows_portfolio_query(client):
+    """The public portfolio can obtain a short-lived JWT without a sign-in screen."""
+    token_response = client.post(
+        "/v1/auth/demo-token",
+        json={"session_id": "9924ac52-3a1c-4109-8433-d756e1dc52da"},
+    )
+
+    assert token_response.status_code == 200
+    token = token_response.json()["access_token"]
+
+    response = client.post(
+        "/v1/query",
+        json={"query": "What is AI?"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+
 def test_query_rejects_insecure_default_jwt_secret(client, monkeypatch):
     """The app must not accept tokens signed with the public sample secret."""
     from src.utils.security import _INSECURE_DEFAULT_SECRET

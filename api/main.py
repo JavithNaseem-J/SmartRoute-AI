@@ -32,7 +32,7 @@ from src.documents import (  # noqa: E402
 from src.documents.storage import guess_content_type  # noqa: E402
 from src.utils.alerting import send_alert  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
-from src.utils.security import require_jwt  # noqa: E402
+from src.utils.security import create_demo_jwt, require_jwt  # noqa: E402
 from src.utils.tracing import setup_tracing  # noqa: E402
 
 #  validation
@@ -331,6 +331,19 @@ class QueryResponse(BaseModel):
     error: Optional[str] = None
 
 
+class DemoTokenRequest(BaseModel):
+    session_id: Optional[str] = Field(
+        None, description="Client-generated browser session ID for demo isolation"
+    )
+
+
+class DemoTokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_at: int
+    session_id: str
+
+
 class PendingDocumentRecord(TypedDict):
     user_id: str
     filename: str
@@ -375,6 +388,13 @@ async def root(request: Request):
 # without touching existing client code. The prefix is injected at mount time.
 
 v1 = APIRouter(prefix="/v1", tags=["v1"])
+
+
+@v1.post("/auth/demo-token", response_model=DemoTokenResponse)
+@limiter.limit("20/hour")
+async def demo_token(request: Request, token_request: DemoTokenRequest):
+    """Issue a short-lived server-signed JWT for the frictionless portfolio demo."""
+    return create_demo_jwt(token_request.session_id)
 
 
 @v1.post("/query", response_model=QueryResponse)

@@ -23,9 +23,22 @@ except ImportError:
     _OTEL_AVAILABLE = False
 
 
+def _normalize_otlp_endpoint(endpoint: str) -> str:
+    """Normalize Langfuse OTLP base endpoints for Python trace exporters."""
+    normalized = endpoint.rstrip("/")
+    if "langfuse" in normalized.lower() and normalized.endswith("/api/public/otel"):
+        return f"{normalized}/v1/traces"
+    return normalized
+
+
 def _build_exporter(endpoint: str):
     """Return the right OTEL exporter based on OTEL_EXPORTER_OTLP_PROTOCOL or endpoint URL."""
+    endpoint = _normalize_otlp_endpoint(endpoint)
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "").lower()
+    is_langfuse = "langfuse" in endpoint.lower() or bool(os.getenv("LANGFUSE_PUBLIC_KEY"))
+    if is_langfuse and protocol == "grpc":
+        logger.warning("Langfuse does not support OTLP/gRPC; using OTLP HTTP/protobuf.")
+        protocol = "http/protobuf"
 
     # Parse headers from OTEL_EXPORTER_OTLP_HEADERS
     headers_str = os.getenv("OTEL_EXPORTER_OTLP_HEADERS", "")
@@ -37,12 +50,13 @@ def _build_exporter(endpoint: str):
                 headers[k.strip()] = v.strip()
 
     # Auto-generate Basic Auth for Langfuse if keys are present
-    if not headers and ("langfuse" in endpoint.lower() or os.getenv("LANGFUSE_PUBLIC_KEY")):
+    if is_langfuse:
         import base64
 
+        headers.setdefault("x-langfuse-ingestion-version", "4")
         pub_key = os.getenv("LANGFUSE_PUBLIC_KEY", "")
         sec_key = os.getenv("LANGFUSE_SECRET_KEY", "")
-        if pub_key and sec_key:
+        if pub_key and sec_key and "Authorization" not in headers:
             auth = base64.b64encode(f"{pub_key}:{sec_key}".encode()).decode()
             headers["Authorization"] = f"Basic {auth}"
 
@@ -75,6 +89,8 @@ def setup_tracing(app=None) -> None:
     if not endpoint:
         logger.info("Tracing disabled — set OTEL_EXPORTER_OTLP_ENDPOINT to enable.")
         return
+
+    endpoint = _normalize_otlp_endpoint(endpoint)
 
     if "langfuse" in endpoint.lower():
         pub_key = os.getenv("LANGFUSE_PUBLIC_KEY")
