@@ -1,7 +1,24 @@
 import React, { useState, useRef, useEffect } from "react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
-import { Sparkles, X, Bot, User, ArrowDown, RotateCcw, Cpu } from "lucide-react";
+import { CostAnalytics } from "@/components/CostAnalytics";
+import {
+  Sparkles,
+  Bot,
+  User,
+  Plus,
+  MessageSquare,
+  Trash2,
+  PanelLeftClose,
+  PanelLeft,
+  BarChart3,
+  MessagesSquare,
+  FileCheck2,
+  AlertCircle,
+  X,
+} from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Message {
   role: "user" | "assistant";
@@ -10,46 +27,204 @@ interface Message {
   streaming?: boolean;
 }
 
+interface Session {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: number;
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const getAuthToken = () => localStorage.getItem("smartroute.jwt")?.trim() || null;
+
+const newSession = (): Session => ({
+  id: crypto.randomUUID(),
+  title: "New chat",
+  messages: [],
+  createdAt: Date.now(),
+});
+
+const loadSessions = (): Session[] => {
+  try {
+    const raw = localStorage.getItem("smartroute.sessions");
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveSessions = (sessions: Session[]) => {
+  localStorage.setItem("smartroute.sessions", JSON.stringify(sessions));
+};
+
+// ─── App Component ────────────────────────────────────────────────────────────
+
 export default function App() {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [sessions, setSessions] = useState<Session[]>(() => {
+    const saved = loadSessions();
+    if (saved.length > 0) return saved;
+    return [newSession()];
+  });
+  const [activeId, setActiveId] = useState<string>(() => {
+    const saved = loadSessions();
+    return saved.length > 0 ? saved[0].id : "";
+  });
+
+  // Navigation: 'chat' | 'analytics'
+  const [currentView, setCurrentView] = useState<"chat" | "analytics">("chat");
+
+  // Strategy and RAG state
+  const [strategy, setStrategy] = useState<string>("cost_optimized");
+  const [ragEnabled, setRagEnabled] = useState<boolean>(false);
+  const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
+  const [uploadNotice, setUploadNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   const [isLoading, setIsLoading] = useState(false);
-  const [activeMode, setActiveMode] = useState<"search" | "think" | "canvas" | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Sync active session id when sessions first load
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+    if (!activeId && sessions.length > 0) {
+      setActiveId(sessions[0].id);
+    }
+  }, [activeId, sessions]);
 
-  const handleSendMessage = async (rawMessage: string, files?: File[]) => {
-    if (!rawMessage.trim() && (!files || files.length === 0)) return;
+  // Persist sessions
+  useEffect(() => {
+    saveSessions(sessions);
+  }, [sessions]);
 
-    // Detect mode prefixes
-    let cleanQuery = rawMessage;
-    let strategy = "cost_optimized";
-    let useRetrieval = false;
+  // Auto-dismiss upload notice after 6 seconds
+  useEffect(() => {
+    if (uploadNotice) {
+      const timer = setTimeout(() => setUploadNotice(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [uploadNotice]);
 
-    if (rawMessage.startsWith("[Search: ")) {
-      cleanQuery = rawMessage.slice(9, -1);
-      useRetrieval = true;
-    } else if (rawMessage.startsWith("[Think: ")) {
-      cleanQuery = rawMessage.slice(8, -1);
-      strategy = "quality_first";
-    } else if (rawMessage.startsWith("[Canvas: ")) {
-      cleanQuery = rawMessage.slice(9, -1);
+  useEffect(() => {
+    if (currentView === "chat") {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [sessions, activeId, currentView]);
+
+  const activeSession = sessions.find((s) => s.id === activeId);
+
+  // ─── Session management ────────────────────────────────────────────────────
+
+  const handleNewChat = () => {
+    const s = newSession();
+    setSessions((prev) => [s, ...prev]);
+    setActiveId(s.id);
+    setCurrentView("chat");
+  };
+
+  const handleSelectSession = (id: string) => {
+    setActiveId(id);
+    setCurrentView("chat");
+  };
+
+  const handleDeleteSession = (id: string) => {
+    setSessions((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (next.length === 0) {
+        const fresh = newSession();
+        setActiveId(fresh.id);
+        return [fresh];
+      }
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  };
+
+  // ─── Document Upload (RAG) ─────────────────────────────────────────────────
+
+  const handleDocumentUpload = async (files: File[]) => {
+    if (!files || files.length === 0) return;
+    setIsUploadingDoc(true);
+    setUploadNotice(null);
+
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append("files", file);
     }
 
-    const userMsg: Message = { role: "user", content: rawMessage };
-    const asstMsg: Message = {
-      role: "assistant",
-      content: "",
-      streaming: true,
-    };
+    try {
+      const token = getAuthToken();
+      if (!token) {
+        throw new Error("Authentication token is missing. Sign in again before uploading documents.");
+      }
+      const res = await fetch("/v1/documents/upload", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
 
-    setMessages((prev) => [...prev, userMsg, asstMsg]);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Upload failed (HTTP ${res.status})`);
+      }
+
+      const data = await res.json();
+      const count = data.documents?.length || files.length;
+      const chunks = data.stats?.indexed_chunks || "multiple";
+      setUploadNotice({
+        type: "success",
+        text: `Successfully uploaded and indexed ${count} document(s) (${chunks} chunks in vector store).`,
+      });
+    } catch (err: any) {
+      console.error("Document upload error:", err);
+      setUploadNotice({
+        type: "error",
+        text: `Document indexing failed: ${err.message || "Unknown error"}`,
+      });
+    } finally {
+      setIsUploadingDoc(false);
+    }
+  };
+
+  // ─── Messaging ─────────────────────────────────────────────────────────────
+
+  const handleSendMessage = async (rawMessage: string, _files?: File[]) => {
+    if (!rawMessage.trim()) return;
+
+    const token = getAuthToken();
+    const userMsg: Message = { role: "user", content: rawMessage };
+    const asstMsg: Message = token
+      ? { role: "assistant", content: "", streaming: true }
+      : {
+          role: "assistant",
+          content: "Authentication token is missing. Sign in again before sending a query.",
+          streaming: false,
+          model: "auth-required",
+        };
+
+    const isFirstMessage = !activeSession || activeSession.messages.length === 0;
+    const newTitle = isFirstMessage
+      ? rawMessage.slice(0, 36) + (rawMessage.length > 36 ? "…" : "")
+      : undefined;
+
+    setSessions((prev) =>
+      prev.map((s) =>
+        s.id === activeId
+          ? {
+              ...s,
+              title: newTitle ?? s.title,
+              messages: [...s.messages, userMsg, asstMsg],
+            }
+          : s
+      )
+    );
+
+    if (!token) return;
+
     setIsLoading(true);
 
     try {
-      const token = localStorage.getItem("smartroute.jwt") || "dev-token";
       const res = await fetch("/v1/query/stream", {
         method: "POST",
         headers: {
@@ -57,15 +232,14 @@ export default function App() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          query: cleanQuery,
+          query: rawMessage,
           strategy,
-          use_retrieval: useRetrieval,
+          use_retrieval: ragEnabled,
+          session_id: activeId,
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Server returned status ${res.status}`);
-      }
+      if (!res.ok) throw new Error(`Status ${res.status}`);
 
       const reader = res.body?.getReader();
       const decoder = new TextDecoder();
@@ -87,168 +261,360 @@ export default function App() {
             if (trimmed.startsWith("data: ")) {
               try {
                 const parsed = JSON.parse(trimmed.slice(6));
-                if (parsed.type === "chunk" && parsed.content) {
-                  accumulated += parsed.content;
-                } else if (parsed.type === "done" && parsed.result?.model_used) {
+                if (parsed.type === "chunk" && parsed.content) accumulated += parsed.content;
+                if (parsed.type === "replace" && parsed.content !== undefined) accumulated = parsed.content;
+                if (parsed.type === "done" && parsed.result?.model_used)
                   modelUsed = parsed.result.model_used;
-                }
               } catch {
-                // partial chunk
+                // Ignore partial JSON
               }
             }
           }
 
-          setMessages((prev) => {
-            const copy = [...prev];
-            const last = copy[copy.length - 1];
-            if (last && last.role === "assistant") {
-              last.content = accumulated;
-              last.model = modelUsed || last.model;
-            }
-            return copy;
-          });
+          setSessions((prev) =>
+            prev.map((s) =>
+              s.id === activeId
+                ? {
+                    ...s,
+                    messages: s.messages.map((m, i, arr) =>
+                      i === arr.length - 1 && m.role === "assistant"
+                        ? { ...m, content: accumulated, model: modelUsed || m.model }
+                        : m
+                    ),
+                  }
+                : s
+            )
+          );
         }
       }
 
-      setMessages((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last && last.role === "assistant") {
-          last.content = accumulated || "Response received.";
-          last.streaming = false;
-          last.model = modelUsed || "smartroute-gateway";
-        }
-        return copy;
-      });
-    } catch (err: any) {
-      // Clean fallback if backend services (like Redis) are unreachable
-      console.warn("Stream query error, providing graceful response:", err);
-      setMessages((prev) => {
-        const copy = [...prev];
-        const last = copy[copy.length - 1];
-        if (last && last.role === "assistant") {
-          last.content =
-            "SmartRoute-AI classifies incoming queries by complexity and dynamically routes them to the most cost-effective LLM capable of answering accurately.";
-          last.streaming = false;
-          last.model = "smartroute-fallback";
-        }
-        return copy;
-      });
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === activeId
+            ? {
+                ...s,
+                messages: s.messages.map((m, i, arr) =>
+                  i === arr.length - 1 && m.role === "assistant"
+                    ? {
+                        ...m,
+                        content: accumulated || "Response received.",
+                        streaming: false,
+                        model: modelUsed || "smartroute-gateway",
+                      }
+                    : m
+                ),
+              }
+            : s
+        )
+      );
+    } catch (err) {
+      console.warn("Stream query failed:", err);
+      setSessions((prev) =>
+        prev.map((s) =>
+          s.id === activeId
+            ? {
+                ...s,
+                messages: s.messages.map((m, i, arr) =>
+                  i === arr.length - 1 && m.role === "assistant"
+                    ? {
+                        ...m,
+                        content:
+                          "Unable to reach SmartRoute-AI right now. Please check the backend connection and try again.",
+                        streaming: false,
+                        model: "request-failed",
+                      }
+                    : m
+                ),
+              }
+            : s
+        )
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleReset = () => {
-    setMessages([]);
-  };
+  const messages = activeSession?.messages ?? [];
+
+  // ─── Render ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="relative flex w-full h-screen flex-col justify-between items-center bg-[radial-gradient(125%_125%_at_50%_101%,rgba(245,87,2,1)_10.5%,rgba(245,120,2,1)_16%,rgba(245,140,2,1)_17.5%,rgba(245,170,100,1)_25%,rgba(238,174,202,1)_40%,rgba(202,179,214,1)_65%,rgba(148,201,233,1)_100%)] overflow-hidden font-sans">
-      {/* Minimal Top Brand Bar */}
-      <header className="w-full flex items-center justify-between px-6 py-4 z-20">
-        <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-black/40 backdrop-blur-md border border-white/20 text-white shadow-lg">
-            <Sparkles className="h-4 w-4 text-orange-200" />
-          </div>
-          <span className="font-semibold text-sm tracking-tight text-white/95 drop-shadow-sm">
-            SmartRoute<span className="text-orange-200">.AI</span>
-          </span>
-        </div>
+    <div className="relative flex w-full h-screen overflow-hidden font-sans bg-[radial-gradient(125%_125%_at_50%_101%,rgba(245,87,2,1)_10.5%,rgba(245,120,2,1)_16%,rgba(245,140,2,1)_17.5%,rgba(245,170,100,1)_25%,rgba(238,174,202,1)_40%,rgba(202,179,214,1)_65%,rgba(148,201,233,1)_100%)]">
 
-        {messages.length > 0 && (
-          <button
-            type="button"
-            onClick={handleReset}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-black/30 hover:bg-black/50 backdrop-blur-md border border-white/20 text-xs font-medium text-white/90 transition-all shadow-md"
+      {/* ── LEFT SIDEBAR ──────────────────────────────────────────────────── */}
+      <AnimatePresence initial={false}>
+        {sidebarOpen && (
+          <motion.aside
+            key="sidebar"
+            initial={{ width: 0, opacity: 0 }}
+            animate={{ width: 260, opacity: 1 }}
+            exit={{ width: 0, opacity: 0 }}
+            transition={{ duration: 0.25, ease: "easeInOut" }}
+            className="flex-shrink-0 h-full overflow-hidden z-30"
           >
-            <RotateCcw className="h-3.5 w-3.5" />
-            <span>Reset</span>
-          </button>
-        )}
-      </header>
+            <div className="flex flex-col h-full w-[260px] bg-black/35 backdrop-blur-2xl border-r border-white/10">
+              {/* Sidebar Header */}
+              <div className="flex items-center justify-between px-4 py-4 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-black/40 border border-white/20">
+                    <Sparkles className="h-3.5 w-3.5 text-orange-200" />
+                  </div>
+                  <span className="text-sm font-semibold text-white/90 tracking-tight">
+                    SmartRoute<span className="text-orange-300">.AI</span>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="rounded-lg p-1.5 text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                  title="Close sidebar"
+                >
+                  <PanelLeftClose className="h-4 w-4" />
+                </button>
+              </div>
 
-      {/* Main Content Area */}
-      <main className="flex-1 w-full max-w-2xl px-4 flex flex-col justify-center items-center overflow-hidden z-10">
-        {messages.length === 0 ? (
-          /* Empty State: Centered Hero Title */
-          <motion.div
-            initial={{ opacity: 0, y: 15 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4 }}
-            className="text-center mb-6 px-4"
-          >
-            <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white drop-shadow-md mb-2">
-              Where intelligence meets efficiency.
-            </h1>
-            <p className="text-sm sm:text-base text-white/80 max-w-md mx-auto drop-shadow">
-              Intelligent LLM query routing, RAG retrieval, and instant responses.
-            </p>
-          </motion.div>
-        ) : (
-          /* Chat Stream Feed */
-          <div className="w-full flex-1 overflow-y-auto py-4 space-y-3 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent max-h-[calc(100vh-220px)]">
-            <AnimatePresence initial={false}>
-              {messages.map((m, i) => (
-                <motion.div
-                  key={i}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className={`flex w-full gap-3 ${
-                    m.role === "user" ? "justify-end" : "justify-start"
+              {/* Main Navigation Views: Chats vs Cost Analytics */}
+              <div className="px-3 pt-3 pb-2 space-y-1 border-b border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setCurrentView("chat")}
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                    currentView === "chat"
+                      ? "bg-white/15 text-white shadow-sm"
+                      : "text-white/60 hover:bg-white/10 hover:text-white"
                   }`}
                 >
-                  <div
-                    className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-xl backdrop-blur-xl border ${
-                      m.role === "user"
-                        ? "bg-[#1F2023]/90 text-white border-white/10 rounded-br-sm"
-                        : "bg-[#121316]/95 text-gray-100 border-white/10 rounded-bl-sm"
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5 mb-1 text-[11px] text-white/50">
-                      {m.role === "user" ? (
-                        <>
-                          <User className="h-3 w-3" />
-                          <span>You</span>
-                        </>
-                      ) : (
-                        <>
-                          <Bot className="h-3 w-3 text-orange-300" />
-                          <span>SmartRoute Assistant</span>
-                          {m.model && (
-                            <span className="ml-1 rounded bg-white/10 px-1 py-0.5 font-mono text-[9px] text-white/70">
-                              {m.model}
-                            </span>
+                  <MessagesSquare className="h-4 w-4 text-orange-300" />
+                  <span>Chats</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCurrentView("analytics")}
+                  className={`flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-medium transition-all ${
+                    currentView === "analytics"
+                      ? "bg-white/15 text-white shadow-sm"
+                      : "text-white/60 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  <BarChart3 className="h-4 w-4 text-emerald-400" />
+                  <span>Cost Analytics</span>
+                </button>
+              </div>
+
+              {/* New Chat Button */}
+              <div className="px-3 py-2.5">
+                <button
+                  type="button"
+                  onClick={handleNewChat}
+                  className="flex w-full items-center gap-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/10 px-3 py-2 text-xs font-medium text-white transition-all shadow-sm"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  <span>New chat</span>
+                </button>
+              </div>
+
+              {/* Session History List */}
+              <div className="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+                <div className="px-2 py-1 text-[11px] font-semibold text-white/40 uppercase tracking-wider">
+                  History
+                </div>
+                {sessions.length === 0 ? (
+                  <p className="text-center text-xs text-white/30 mt-6">No chats yet</p>
+                ) : (
+                  sessions.map((s) => (
+                    <div
+                      key={s.id}
+                      onClick={() => handleSelectSession(s.id)}
+                      className={`group relative flex items-center gap-2.5 w-full rounded-xl px-3 py-2 text-sm cursor-pointer transition-all ${
+                        currentView === "chat" && s.id === activeId
+                          ? "bg-white/15 text-white shadow-sm"
+                          : "text-white/60 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      <MessageSquare className="h-3.5 w-3.5 flex-shrink-0 opacity-70" />
+                      <span className="flex-1 truncate text-[13px]">{s.title}</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteSession(s.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 flex-shrink-0 rounded p-0.5 text-white/40 hover:text-white transition-opacity"
+                        title="Delete chat"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {/* ── MAIN AREA ────────────────────────────────────────────────────── */}
+      <div className="relative flex flex-1 flex-col h-full overflow-hidden">
+        {/* Toggle sidebar button when closed */}
+        {!sidebarOpen && (
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="absolute top-4 left-4 z-20 rounded-xl bg-black/30 hover:bg-black/50 backdrop-blur-md border border-white/20 p-2 text-white/70 hover:text-white transition-all shadow-md"
+            title="Open sidebar"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        )}
+
+        {/* Upload Status Toast */}
+        <AnimatePresence>
+          {uploadNotice && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              className="absolute top-4 right-4 z-50 max-w-md"
+            >
+              <div
+                className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl backdrop-blur-xl border shadow-2xl text-xs ${
+                  uploadNotice.type === "success"
+                    ? "bg-emerald-950/80 border-emerald-500/40 text-emerald-200"
+                    : "bg-red-950/80 border-red-500/40 text-red-200"
+                }`}
+              >
+                {uploadNotice.type === "success" ? (
+                  <FileCheck2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                ) : (
+                  <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
+                )}
+                <span className="flex-1 leading-snug">{uploadNotice.text}</span>
+                <button
+                  type="button"
+                  onClick={() => setUploadNotice(null)}
+                  className="text-white/40 hover:text-white"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── CONDITIONALLY RENDER: Cost Analytics vs Chat Canvas ─────────── */}
+        {currentView === "analytics" ? (
+          <CostAnalytics />
+        ) : messages.length === 0 ? (
+          /* ── Empty State ──────────────────────────────────────────────── */
+          <div className="flex flex-1 flex-col items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, y: 15 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              className="text-center px-6 mb-8"
+            >
+              <h1 className="text-3xl sm:text-4xl font-bold tracking-tight text-white drop-shadow-md mb-3">
+                Where intelligence meets efficiency.
+              </h1>
+              <p className="text-sm sm:text-base text-white/75 max-w-md mx-auto drop-shadow">
+                Intelligent LLM query routing, RAG retrieval, and real-time cost governance.
+              </p>
+            </motion.div>
+
+            {/* Prompt Box Centered */}
+            <div className="w-full max-w-2xl px-4">
+              <PromptInputBox
+                isLoading={isLoading}
+                onSend={handleSendMessage}
+                strategy={strategy}
+                onStrategyChange={setStrategy}
+                ragEnabled={ragEnabled}
+                onRagChange={setRagEnabled}
+                onUploadDocument={handleDocumentUpload}
+                isUploadingDoc={isUploadingDoc}
+              />
+              <p className="mt-2.5 text-center text-[11px] text-white/50 drop-shadow">
+                SmartRoute-AI • Fast, adaptive, cost-optimized routing
+              </p>
+            </div>
+          </div>
+        ) : (
+          /* ── Active Conversation ───────────────────────────────────────── */
+          <div className="flex flex-1 flex-col overflow-hidden">
+            {/* Messages Scroll Area */}
+            <div className="flex-1 overflow-y-auto py-6 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-transparent">
+              <div className="mx-auto max-w-2xl px-4 space-y-4">
+                <AnimatePresence initial={false}>
+                  {messages.map((m, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className={`flex w-full gap-3 ${
+                        m.role === "user" ? "justify-end" : "justify-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm shadow-xl backdrop-blur-xl border ${
+                          m.role === "user"
+                            ? "bg-[#1F2023]/90 text-white border-white/10 rounded-br-sm"
+                            : "bg-[#121316]/95 text-gray-100 border-white/10 rounded-bl-sm"
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 mb-1 text-[11px] text-white/50">
+                          {m.role === "user" ? (
+                            <>
+                              <User className="h-3 w-3" />
+                              <span>You</span>
+                            </>
+                          ) : (
+                            <>
+                              <Bot className="h-3 w-3 text-orange-300" />
+                              <span>SmartRoute Assistant</span>
+                              {m.model && (
+                                <span className="ml-1 rounded bg-white/10 px-1 py-0.5 font-mono text-[9px] text-white/70">
+                                  {m.model}
+                                </span>
+                              )}
+                            </>
                           )}
-                        </>
-                      )}
-                    </div>
-                    <div className="whitespace-pre-wrap leading-relaxed">
-                      {m.content}
-                      {m.streaming && (
-                        <span className="inline-block h-3.5 w-1 ml-1 bg-orange-300 animate-pulse align-middle" />
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            <div ref={messagesEndRef} />
+                        </div>
+                        <div className="whitespace-pre-wrap leading-relaxed">
+                          {m.content}
+                          {m.streaming && (
+                            <span className="inline-block h-3.5 w-1 ml-1 bg-orange-300 animate-pulse align-middle" />
+                          )}
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            {/* Bottom Prompt Box */}
+            <div className="px-4 pb-6 pt-2">
+              <div className="mx-auto max-w-2xl">
+                <PromptInputBox
+                  isLoading={isLoading}
+                  onSend={handleSendMessage}
+                  strategy={strategy}
+                  onStrategyChange={setStrategy}
+                  ragEnabled={ragEnabled}
+                  onRagChange={setRagEnabled}
+                  onUploadDocument={handleDocumentUpload}
+                  isUploadingDoc={isUploadingDoc}
+                />
+                <p className="mt-2 text-center text-[11px] text-white/50 drop-shadow">
+                  SmartRoute-AI • Fast, adaptive, cost-optimized routing
+                </p>
+              </div>
+            </div>
           </div>
         )}
-      </main>
-
-      {/* Bottom Centered Prompt Box */}
-      <footer className="w-full max-w-2xl px-4 pb-8 z-20">
-        <PromptInputBox
-          isLoading={isLoading}
-          onSend={handleSendMessage}
-          className="shadow-[0_12px_40px_rgba(0,0,0,0.35)]"
-        />
-        <div className="mt-2 text-center text-[11px] text-white/60 drop-shadow">
-          SmartRoute-AI • Fast, adaptive, cost-optimized routing
-        </div>
-      </footer>
+      </div>
     </div>
   );
 }
