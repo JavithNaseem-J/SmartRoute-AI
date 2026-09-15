@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import os
 import sys
 import traceback
@@ -694,6 +695,15 @@ async def upload_documents(
                 await pipeline.retriever.reload()
             except Exception as e:
                 logger.warning(f"Retriever reload failed after document upload: {e}")
+        semantic_cache = getattr(pipeline, "semantic_cache", None)
+        invalidate_user = getattr(semantic_cache, "invalidate_user", None)
+        if invalidate_user:
+            try:
+                invalidation = invalidate_user(user_id)
+                if inspect.isawaitable(invalidation):
+                    await invalidation
+            except Exception as e:
+                logger.warning(f"Semantic cache invalidation failed after document upload: {e}")
 
         return {
             "status": "success",

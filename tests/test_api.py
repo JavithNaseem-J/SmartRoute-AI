@@ -191,6 +191,7 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
     monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
     monkeypatch.setattr(api_module, "create_document_record", fake_create_document_record)
     monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+    api_module.pipeline.semantic_cache.invalidate_user = AsyncMock()
 
     response = client.post(
         "/v1/documents/upload",
@@ -201,6 +202,7 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
     assert response.status_code == 200
     assert uploaded == [("test_user/test-note.txt", b"hello", "text/plain")]
     assert response.json()["documents"][0]["storage_path"] == "test_user/test-note.txt"
+    api_module.pipeline.semantic_cache.invalidate_user.assert_awaited_once_with("test_user")
 
 
 def test_upload_rejects_invalid_pdf_before_storage(client, api_key, monkeypatch):

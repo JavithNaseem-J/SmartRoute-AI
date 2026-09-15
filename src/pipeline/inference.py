@@ -27,6 +27,11 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 class InferencePipeline:
     """Async query processing pipeline."""
 
+    NO_RAG_SOURCES_ANSWER = (
+        "I couldn't find this in your uploaded documents. "
+        "Try rephrasing the question or upload a document that contains the answer."
+    )
+
     def __init__(
         self,
         config_dir: Path = _PROJECT_ROOT / "config",
@@ -132,15 +137,18 @@ class InferencePipeline:
             query, user_id=user_id, cache_scope=cache_scope
         )
         if cached_result:
-            cached_result["latency"] = time.time() - start_time
-            await self._log_query_metrics(
-                query=query,
-                model_id="semantic_cache",
-                complexity="cached",
-                strategy="cache",
-                latency=cached_result["latency"],
-            )
-            return {"is_cached": True, "cached_result": cached_result}
+            if use_retrieval and not cached_result.get("sources"):
+                logger.info("Ignoring source-less semantic cache hit for retrieval request")
+            else:
+                cached_result["latency"] = time.time() - start_time
+                await self._log_query_metrics(
+                    query=query,
+                    model_id="semantic_cache",
+                    complexity="cached",
+                    strategy="cache",
+                    latency=cached_result["latency"],
+                )
+                return {"is_cached": True, "cached_result": cached_result}
 
         # Route
         routing_decision = await self.router.route(query, strategy)
@@ -175,6 +183,47 @@ class InferencePipeline:
             "context": context,
             "sources": sources,
             "cache_scope": cache_scope,
+        }
+
+    async def _rag_no_sources_response(
+        self,
+        *,
+        query: str,
+        model_id: str,
+        complexity: str,
+        routing_decision: Dict,
+        latency: float,
+        session_id: Optional[str],
+        user_id: Optional[str],
+    ) -> Dict:
+        """Return an honest RAG answer when no uploaded document context was retrieved."""
+        routing_info = {**routing_decision, "reason": "no_retrieved_document_sources"}
+        await self._log_query_metrics(
+            query=query,
+            model_id="rag_no_sources",
+            complexity=complexity,
+            strategy=routing_info.get("strategy", "unknown"),
+            latency=latency,
+            success=True,
+        )
+
+        if session_id and user_id:
+            await self.memory.add_turn(user_id, session_id, query, self.NO_RAG_SOURCES_ANSWER)
+
+        return {
+            "answer": self.NO_RAG_SOURCES_ANSWER,
+            "model_used": model_id,
+            "complexity": complexity,
+            "confidence": routing_info.get("confidence", 0.0),
+            "cost": 0.0,
+            "latency": latency,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "context": "",
+            "sources": [],
+            "routing_info": routing_info,
+            "success": True,
+            "error": None,
         }
 
     async def _finalize_response(
@@ -270,6 +319,17 @@ class InferencePipeline:
             context = prep["context"]
             sources = prep["sources"]
             cache_scope = prep["cache_scope"]
+
+            if use_retrieval and not sources:
+                return await self._rag_no_sources_response(
+                    query=query,
+                    model_id=model_id,
+                    complexity=complexity,
+                    routing_decision=routing_decision,
+                    latency=time.time() - start_time,
+                    session_id=session_id,
+                    user_id=user_id,
+                )
 
             # Generate
             model = self.model_manager.load_model(model_id)
@@ -388,6 +448,20 @@ class InferencePipeline:
                 "type": "metadata",
                 "data": {"routing_info": routing_decision, "sources": sources},
             }
+
+            if use_retrieval and not sources:
+                response_payload = await self._rag_no_sources_response(
+                    query=query,
+                    model_id=model_id,
+                    complexity=complexity,
+                    routing_decision=routing_decision,
+                    latency=time.time() - start_time,
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                yield {"type": "chunk", "content": response_payload["answer"]}
+                yield {"type": "done", "result": response_payload}
+                return
 
             # Generate (Stream)
             model = self.model_manager.load_model(model_id)

@@ -12,6 +12,9 @@ class FakeSemanticCache:
     async def set(self, *args, **kwargs):
         return None
 
+    async def invalidate_user(self, *args, **kwargs):
+        return None
+
 
 class FakeBudgetManager:
     def estimate_query_cost(self, *args, **kwargs):
@@ -92,7 +95,7 @@ def make_pipeline(model_manager):
 async def test_pipeline_error_response_does_not_expose_exception_text():
     pipeline = make_pipeline(FailingModelManager())
 
-    result = await pipeline.run("hello", user_id="user-1")
+    result = await pipeline.run("hello", user_id="user-1", use_retrieval=False)
 
     assert result["success"] is False
     assert result["answer"] == "Request failed. Please try again."
@@ -106,7 +109,7 @@ async def test_pipeline_error_response_survives_metric_logging_failure():
     pipeline = make_pipeline(FailingModelManager())
     pipeline.tracker.log_query.side_effect = RuntimeError("database unavailable")
 
-    result = await pipeline.run("hello", user_id="user-1")
+    result = await pipeline.run("hello", user_id="user-1", use_retrieval=False)
 
     assert result["success"] is False
     assert result["answer"] == "Request failed. Please try again."
@@ -120,7 +123,9 @@ async def test_streaming_fallback_uses_fallback_model_key():
 
     events = [
         event
-        async for event in pipeline.astream_run("hello", user_id="user-1", session_id="session-1")
+        async for event in pipeline.astream_run(
+            "hello", user_id="user-1", session_id="session-1", use_retrieval=False
+        )
     ]
 
     assert manager.loaded == ["primary-model", "fallback-model"]
@@ -128,3 +133,34 @@ async def test_streaming_fallback_uses_fallback_model_key():
     assert events[-1]["type"] == "done"
     assert events[-1]["result"]["answer"] == "fallback answer"
     assert events[-1]["result"]["model_used"] == "fallback-model"
+
+
+@pytest.mark.asyncio
+async def test_rag_with_no_sources_does_not_fall_back_to_general_model():
+    pipeline = make_pipeline(FailingModelManager())
+
+    result = await pipeline.run("what is your personality?", user_id="user-1")
+
+    assert result["success"] is True
+    assert result["sources"] == []
+    assert "uploaded documents" in result["answer"]
+    assert result["routing_info"]["reason"] == "no_retrieved_document_sources"
+
+
+@pytest.mark.asyncio
+async def test_streaming_rag_with_no_sources_returns_honest_no_source_answer():
+    pipeline = make_pipeline(FailingModelManager())
+
+    events = [
+        event
+        async for event in pipeline.astream_run(
+            "what is your personality?", user_id="user-1", session_id="session-1"
+        )
+    ]
+
+    assert events[0]["type"] == "metadata"
+    assert events[0]["data"]["sources"] == []
+    assert events[1]["type"] == "chunk"
+    assert "uploaded documents" in events[1]["content"]
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"]["routing_info"]["reason"] == "no_retrieved_document_sources"
