@@ -1,32 +1,34 @@
 openrouter_models:
   liquid/lfm-2.5-2.6b:free:
     model_id: "liquid/lfm-2.5-2.6b:free"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    # Portfolio demo benchmark pricing. Runtime uses OpenRouter free models, but
+    # analytics estimates production-equivalent spend from token usage.
+    cost_per_1k_input: 0.05
+    cost_per_1k_output: 0.10
     max_tokens: 8192
     tier: "simple"
     suitable_for: ["simple"]
 
   nvidia/nemotron-3.5-lightning:free:
     model_id: "nvidia/nemotron-3.5-lightning:free"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.08
+    cost_per_1k_output: 0.20
     max_tokens: 8192
     tier: "medium"
     suitable_for: ["medium"]
 
   google/gemma-4-31b-it:free:
     model_id: "google/gemma-4-31b-it:free"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.12
+    cost_per_1k_output: 0.30
     max_tokens: 8192
     tier: "complex"
     suitable_for: ["complex"]
 
   openrouter/free:
     model_id: "openrouter/free"
-    cost_per_1k_input: 0.0
-    cost_per_1k_output: 0.0
+    cost_per_1k_input: 0.03
+    cost_per_1k_output: 0.08
     max_tokens: 8192
     tier: "fallback"
     suitable_for: ["simple", "medium", "complex"]

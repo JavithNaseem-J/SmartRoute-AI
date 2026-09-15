@@ -161,7 +161,12 @@ class DocumentRetriever:
 
         for i, doc in enumerate(top_docs):
             context_parts.append(f"[Source {i + 1}]\n{doc.page_content}")
-            source = doc.metadata.get("source", "Unknown")
+            source = doc.metadata.get("filename") or doc.metadata.get("source", "Unknown")
+            if "page" in doc.metadata:
+                try:
+                    source = f"{source} — page {int(doc.metadata['page']) + 1}"
+                except (TypeError, ValueError):
+                    pass
             sources.append(f"Source {i + 1}: {source}")
 
         logger.info(

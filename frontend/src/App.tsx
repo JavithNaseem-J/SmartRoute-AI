@@ -33,6 +33,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   model?: string;
+  sources?: string[];
   streaming?: boolean;
 }
 
@@ -78,6 +79,27 @@ const formatUploadedAt = (value?: string | null) => {
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 };
 
+const formatSourceLabel = (source: string) => {
+  const withoutPrefix = source.replace(/^Source\s+\d+:\s*/i, "").trim();
+  const pageMatch = withoutPrefix.match(/\s+—\s+page\s+\d+$/i);
+  const pageSuffix = pageMatch?.[0] ?? "";
+  const basePath = pageSuffix ? withoutPrefix.slice(0, -pageSuffix.length) : withoutPrefix;
+  const filename = basePath.split("/").pop() || basePath;
+  const readable = filename.replace(
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i,
+    ""
+  );
+
+  try {
+    return `${decodeURIComponent(readable)}${pageSuffix}`;
+  } catch {
+    return `${readable}${pageSuffix}`;
+  }
+};
+
+const uniqueSources = (sources: string[] = []) =>
+  Array.from(new Set(sources.map(formatSourceLabel))).filter(Boolean);
+
 // ─── App Component ────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -98,7 +120,7 @@ export default function App() {
   const [strategy, setStrategy] = useState<string>("cost_optimized");
   const [ragEnabled, setRagEnabled] = useState<boolean>(false);
   const [isUploadingDoc, setIsUploadingDoc] = useState<boolean>(false);
-  const [uploadNotice, setUploadNotice] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [uploadNotice, setUploadNotice] = useState<{ type: "success" | "error" | "info"; text: string } | null>(null);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
   const [documents, setDocuments] = useState<StoredDocument[]>([]);
   const [isLoadingDocuments, setIsLoadingDocuments] = useState(false);
@@ -208,6 +230,7 @@ export default function App() {
 
   const handleDeleteDocument = async (filename: string) => {
     setDocumentAction(filename);
+    setUploadNotice({ type: "info", text: `Removing ${filename} from storage + vector index...` });
     try {
       await deleteDocument(filename);
       await refreshDocuments();
@@ -229,6 +252,7 @@ export default function App() {
     }
 
     setDocumentAction("clear-all");
+    setUploadNotice({ type: "info", text: "Clearing storage + vector index..." });
     try {
       await clearDocuments();
       await refreshDocuments();
@@ -352,6 +376,7 @@ export default function App() {
       const decoder = new TextDecoder();
       let accumulated = "";
       let modelUsed = "";
+      let sources: string[] = [];
 
       if (reader) {
         let buffer = "";
@@ -370,6 +395,10 @@ export default function App() {
                 const parsed = JSON.parse(trimmed.slice(6));
                 if (parsed.type === "chunk" && parsed.content) accumulated += parsed.content;
                 if (parsed.type === "replace" && parsed.content !== undefined) accumulated = parsed.content;
+                if (parsed.type === "metadata" && Array.isArray(parsed.data?.sources))
+                  sources = parsed.data.sources;
+                if (parsed.type === "done" && Array.isArray(parsed.result?.sources))
+                  sources = parsed.result.sources;
                 if (parsed.type === "done" && parsed.result?.model_used)
                   modelUsed = parsed.result.model_used;
               } catch {
@@ -385,7 +414,7 @@ export default function App() {
                     ...s,
                     messages: s.messages.map((m, i, arr) =>
                       i === arr.length - 1 && m.role === "assistant"
-                        ? { ...m, content: accumulated, model: modelUsed || m.model }
+                        ? { ...m, content: accumulated, model: modelUsed || m.model, sources }
                         : m
                     ),
                   }
@@ -407,6 +436,7 @@ export default function App() {
                         content: accumulated || "Response received.",
                         streaming: false,
                         model: modelUsed || "smartroute-gateway",
+                        sources,
                       }
                     : m
                 ),
@@ -429,6 +459,7 @@ export default function App() {
                           "Unable to reach SmartRoute-AI right now. Please check the backend connection and try again.",
                         streaming: false,
                         model: "request-failed",
+                        sources: [],
                       }
                     : m
                 ),
@@ -670,11 +701,15 @@ export default function App() {
                 className={`flex items-center gap-2.5 px-4 py-3 rounded-2xl backdrop-blur-xl border shadow-2xl text-xs ${
                   uploadNotice.type === "success"
                     ? "bg-emerald-950/80 border-emerald-500/40 text-emerald-200"
+                    : uploadNotice.type === "info"
+                    ? "bg-sky-950/80 border-sky-500/40 text-sky-100"
                     : "bg-red-950/80 border-red-500/40 text-red-200"
                 }`}
               >
                 {uploadNotice.type === "success" ? (
                   <FileCheck2 className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                ) : uploadNotice.type === "info" ? (
+                  <RefreshCw className="h-4 w-4 animate-spin text-sky-300 flex-shrink-0" />
                 ) : (
                   <AlertCircle className="h-4 w-4 text-red-400 flex-shrink-0" />
                 )}
@@ -778,11 +813,6 @@ export default function App() {
                             <>
                               <Bot className="h-3 w-3 text-orange-300" />
                               <span>SmartRoute Assistant</span>
-                              {m.model && (
-                                <span className="ml-1 rounded bg-white/10 px-1 py-0.5 font-mono text-[9px] text-white/70">
-                                  {m.model}
-                                </span>
-                              )}
                             </>
                           )}
                         </div>
@@ -792,6 +822,30 @@ export default function App() {
                             <span className="inline-block h-3.5 w-1 ml-1 bg-orange-300 animate-pulse align-middle" />
                           )}
                         </div>
+                        {m.role === "assistant" && uniqueSources(m.sources).length > 0 && (
+                          <div className="mt-3 rounded-xl border border-emerald-300/15 bg-emerald-950/20 px-3 py-2">
+                            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-200/80">
+                              <FileText className="h-3 w-3" />
+                              <span>Sources</span>
+                            </div>
+                            <div className="space-y-1.5">
+                              {uniqueSources(m.sources).map((source, sourceIndex) => (
+                                <div
+                                  key={`${source}-${sourceIndex}`}
+                                  className="rounded-lg bg-black/20 px-2.5 py-2 text-[11px] leading-snug text-white/70"
+                                >
+                                  <span className="font-mono text-emerald-200">
+                                    [{sourceIndex + 1}]
+                                  </span>{" "}
+                                  <span className="font-medium text-white/85">{source}</span>
+                                  <div className="mt-0.5 text-[10px] text-white/45">
+                                    Retrieved from uploaded knowledge base
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   ))}

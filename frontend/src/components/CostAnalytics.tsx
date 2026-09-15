@@ -106,7 +106,7 @@ export function CostAnalytics() {
             <h1 className="text-2xl font-bold text-white tracking-tight">Cost & Routing Analytics</h1>
           </div>
           <p className="text-xs sm:text-sm text-white/70 mt-1">
-            Estimated inference spend, query complexity telemetry, and model savings.
+            Estimated production spend, query complexity telemetry, and model savings.
           </p>
         </div>
 
@@ -159,21 +159,23 @@ export function CostAnalytics() {
       )}
 
       <div className="rounded-xl border border-white/10 bg-black/20 px-4 py-3 text-xs text-white/55">
-        Spend is estimated from configured model prices and token usage. Streaming responses use
-        local token estimates when provider usage metadata is unavailable, so provider billing may
-        vary slightly.
+        Portfolio demo note: runtime requests use free OpenRouter models where available. Spend is
+        estimated from configured production benchmark prices and token usage, so it shows projected
+        production cost rather than provider invoice totals.
       </div>
 
       {/* Hero KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Estimated Spend */}
+        {/* Estimated Production Spend */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
           className="rounded-2xl bg-black/35 backdrop-blur-xl border border-white/10 p-5 shadow-xl"
         >
           <div className="flex items-center justify-between text-white/60 mb-2">
-            <span className="text-xs font-medium uppercase tracking-wider">Estimated Spend</span>
+            <span className="text-xs font-medium uppercase tracking-wider">
+              Estimated Production Spend
+            </span>
             <div className="p-2 rounded-lg bg-emerald-500/20 text-emerald-400">
               <DollarSign className="h-4 w-4" />
             </div>
@@ -253,7 +255,7 @@ export function CostAnalytics() {
         </motion.div>
       </div>
 
-      {/* Second Row: Estimated Spend by Model & Complexity */}
+      {/* Second Row: Estimated Production Spend by Model & Complexity */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Model Breakdown */}
         <div className="rounded-2xl bg-black/35 backdrop-blur-xl border border-white/10 p-5 shadow-xl">
@@ -261,7 +263,7 @@ export function CostAnalytics() {
             <div className="flex items-center gap-2">
               <Layers className="h-4 w-4 text-orange-300" />
               <h2 className="text-sm font-semibold text-white tracking-wide uppercase">
-                Estimated Spend & Volume by Model
+                Estimated Production Spend & Volume by Model
               </h2>
             </div>
             <span className="text-xs text-white/50">{Object.keys(stats?.by_model || {}).length} models tracked</span>
@@ -310,7 +312,7 @@ export function CostAnalytics() {
             <div className="flex items-center gap-2">
               <Zap className="h-4 w-4 text-orange-300" />
               <h2 className="text-sm font-semibold text-white tracking-wide uppercase">
-                Estimated Spend by Query Complexity
+                Estimated Production Spend by Query Complexity
               </h2>
             </div>
             <span className="text-xs text-white/50">Semantic Classifier</span>
