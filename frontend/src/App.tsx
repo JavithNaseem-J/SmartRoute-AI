@@ -2,12 +2,15 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 import { CostAnalytics } from "@/components/CostAnalytics";
 import { ensureDemoAuthToken, getAuthToken } from "@/lib/auth";
+import { loadSessions, newSession, saveSessions } from "@/lib/chat";
 import {
   clearDocuments,
   deleteDocument,
   listDocuments,
   type StoredDocument,
 } from "@/lib/documents";
+import { formatBytes, formatUploadedAt } from "@/lib/format";
+import type { Message, Session } from "@/types/chat";
 import {
   Sparkles,
   Bot,
@@ -29,55 +32,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  model?: string;
-  sources?: string[];
-  streaming?: boolean;
-}
-
-interface Session {
-  id: string;
-  title: string;
-  messages: Message[];
-  createdAt: number;
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const newSession = (): Session => ({
-  id: crypto.randomUUID(),
-  title: "New chat",
-  messages: [],
-  createdAt: Date.now(),
-});
-
-const loadSessions = (): Session[] => {
-  try {
-    const raw = localStorage.getItem("smartroute.sessions");
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-};
-
-const saveSessions = (sessions: Session[]) => {
-  localStorage.setItem("smartroute.sessions", JSON.stringify(sessions));
-};
-
-const formatBytes = (bytes: number) => {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-};
-
-const formatUploadedAt = (value?: string | null) => {
-  if (!value) return "Just now";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "Recently";
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-};
 
 const formatSourceLabel = (source: string) => {
   const withoutPrefix = source.replace(/^Source\s+\d+:\s*/i, "").trim();

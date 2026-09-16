@@ -1,10 +1,8 @@
-import asyncio
 import uuid
 from pathlib import Path
 from typing import List, Optional, cast
 
 from langchain_community.document_loaders import (
-    DirectoryLoader,
     PyPDFLoader,
     TextLoader,
 )
@@ -50,42 +48,6 @@ class DocumentIndexer:
             )
             logger.info(f"Created new collection: {self.collection_name}")
 
-    def load_documents(
-        self,
-        docs_dir: Path,
-        file_types: Optional[List[str]] = None,
-    ) -> List[Document]:
-        """Load documents from directory using LangChain loaders."""
-        docs_dir = Path(docs_dir)
-        file_types = file_types or ["pdf", "txt", "md"]
-        all_docs = []
-
-        loader_map = {
-            "pdf": (PyPDFLoader, "**/*.pdf"),
-            "txt": (TextLoader, "**/*.txt"),
-            "md": (TextLoader, "**/*.md"),
-        }
-
-        for file_type in file_types:
-            if file_type not in loader_map:
-                continue
-
-            loader_cls, glob_pattern = loader_map[file_type]
-            loader = DirectoryLoader(
-                str(docs_dir),
-                glob=glob_pattern,
-                loader_cls=loader_cls,  # type: ignore[arg-type]
-                show_progress=True,
-            )
-
-            try:
-                docs = loader.load()
-                all_docs.extend(docs)
-            except Exception as e:
-                logger.warning(f"Error loading {file_type} files: {e}")
-
-        return all_docs
-
     def load_file(
         self,
         file_path: Path,
@@ -125,36 +87,6 @@ class DocumentIndexer:
             logger.error(f"Vector indexing to Qdrant failed: {e}", exc_info=True)
             raise RuntimeError("Vector indexing failed") from e
         return len(chunks)
-
-    def index_documents(self, documents: List[Document]) -> None:
-        """Synchronous wrapper for index_documents."""
-        if not documents:
-            return
-        asyncio.run(self.aindex_documents(documents))
-
-    async def aindex_directory(
-        self,
-        docs_dir: Path,
-        file_types: Optional[List[str]] = None,
-    ) -> None:
-        """Async load and index all documents from a directory."""
-        documents = await asyncio.to_thread(self.load_documents, docs_dir, file_types)
-        if not documents:
-            return
-        await self.aindex_documents(documents)
-
-    def index_directory(
-        self,
-        docs_dir: Path,
-        file_types: Optional[List[str]] = None,
-    ) -> None:
-        """Synchronous wrapper to load and index all documents from a directory."""
-        asyncio.run(self.aindex_directory(docs_dir, file_types))
-
-    def add_documents(self, documents: List[Document]) -> None:
-        """Add documents to existing index."""
-        chunks = self.chunker.chunk_documents(documents)
-        asyncio.run(self._async_add_documents(chunks))
 
     async def _async_add_documents(self, chunks: List[Document]):
         texts = [doc.page_content for doc in chunks]
@@ -234,21 +166,12 @@ class DocumentIndexer:
     async def adelete_document(
         self,
         filename: str,
-        docs_dir: Path = Path("data/documents"),
         source: Optional[str] = None,
         user_id: Optional[str] = None,
     ) -> bool:
-        """Delete a document file from disk and purge its vectors from Qdrant and Redis cache."""
-        target_file = docs_dir / filename
+        """Purge a document's vectors from Qdrant and Redis cache."""
         deleted = False
 
-        # 1. Remove file from disk
-        if target_file.exists():
-            target_file.unlink()
-            deleted = True
-            logger.info(f"Deleted document file: {target_file}")
-
-        # 2. Delete vectors from Qdrant matching metadata source
         try:
             if await self.qdrant.collection_exists(self.collection_name):
                 source_conditions: List[models.Condition] = [
@@ -260,10 +183,6 @@ class DocumentIndexer:
                     else models.FieldCondition(
                         key="metadata.filename",
                         match=models.MatchValue(value=filename),
-                    ),
-                    models.FieldCondition(
-                        key="metadata.source",
-                        match=models.MatchValue(value=str(target_file)),
                     ),
                 ]
                 must_conditions: List[models.Condition] = []
@@ -282,26 +201,16 @@ class DocumentIndexer:
                     ),
                 )
                 logger.info(f"Purged vector points for document: {filename}")
+                deleted = True
         except Exception as e:
             logger.error(f"Error purging vectors for {filename}: {e}")
 
-        # 3. Invalidate only this user's semantic cache so stale answers aren't served.
         await self._invalidate_user_cache(user_id)
 
         return deleted
 
-    async def aclear_all_documents(
-        self, docs_dir: Path = Path("data/documents"), user_id: Optional[str] = None
-    ) -> None:
-        """Clear all document files from disk, reset Qdrant collection, and flush Redis cache."""
-        # 1. Local directory indexing is shared; only clear files for legacy non-user calls.
-        if not user_id and docs_dir.exists():
-            for file_path in docs_dir.glob("*"):
-                if file_path.is_file():
-                    file_path.unlink()
-            logger.info(f"Cleared all document files from {docs_dir}")
-
-        # 2. Delete only the current user's vectors from Qdrant.
+    async def aclear_all_documents(self, user_id: Optional[str] = None) -> None:
+        """Clear document vectors from Qdrant and flush Redis cache."""
         try:
             if await self.qdrant.collection_exists(self.collection_name):
                 points_selector = (
@@ -324,7 +233,6 @@ class DocumentIndexer:
         except Exception as e:
             logger.error(f"Error deleting Qdrant vectors: {e}")
 
-        # 3. Invalidate only this user's semantic cache.
         await self._invalidate_user_cache(user_id)
 
     def get_stats(self) -> dict:

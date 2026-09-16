@@ -51,8 +51,6 @@ RUN if [ -n "$COMMIT_SHA" ]; then \
         date -u +'%Y-%m-%dT%H:%M:%SZ' > /app/.build_time; \
     fi
 
-RUN python scripts/train_classifier.py
-
 RUN useradd --create-home --shell /bin/bash appuser \
     && mkdir -p data/documents data/embeddings models/classifiers logs \
     && chmod +x scripts/start_api.sh \

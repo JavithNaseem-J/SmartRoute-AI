@@ -215,6 +215,7 @@ __marimo__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+graphify-out/
 
 # ── Project runtime data ───────────────────────────────────────────────────────
 data/
@@ -227,4 +228,3 @@ logs/
 scripts/benchmark_cost_savings.py
 
 # ── uv lock file (auto-generated, noisy in diffs) ──────────────────────────────
-uv.lock

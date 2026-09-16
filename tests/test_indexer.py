@@ -6,7 +6,7 @@ from src.retrieval.indexer import DocumentIndexer
 
 
 @pytest.mark.asyncio
-async def test_clear_all_documents_is_user_scoped(mock_qdrant, mock_redis, tmp_path):
+async def test_clear_all_documents_is_user_scoped(mock_qdrant, mock_redis):
     """Per-user clear must not delete the shared Qdrant collection or flush Redis."""
     indexer = DocumentIndexer()
     mock_qdrant.collection_exists = AsyncMock(return_value=True)
@@ -17,7 +17,7 @@ async def test_clear_all_documents_is_user_scoped(mock_qdrant, mock_redis, tmp_p
     await mock_redis.set("semantic_cache:user-1:point", "cached")
     await mock_redis.set("semantic_cache:user-2:point", "cached")
 
-    await indexer.aclear_all_documents(tmp_path, user_id="user-1")
+    await indexer.aclear_all_documents(user_id="user-1")
 
     mock_qdrant.delete_collection.assert_not_called()
     mock_redis.flushdb.assert_not_called()

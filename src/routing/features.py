@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -52,10 +53,19 @@ class FeatureExtractor:
             logger.warning(f"Could not load HuggingFaceEndpointEmbeddings: {e}")
             self.has_model = False
 
-        # Load pre-computed reference centroids from file (0ms offline loading)
+        # Optional pre-computed reference centroids. Production does not require
+        # this artifact; when absent, semantic routing features safely remain 0.
         self.ref_embeddings: dict = {}
-        centroids_path = (
-            Path(__file__).parent.parent.parent / "data" / "models" / "reference_centroids.npy"
+        centroids_path = Path(
+            os.getenv(
+                "REFERENCE_CENTROIDS_PATH",
+                str(
+                    Path(__file__).parent.parent.parent
+                    / "data"
+                    / "models"
+                    / "reference_centroids.npy"
+                ),
+            )
         )
         if centroids_path.exists():
             try:

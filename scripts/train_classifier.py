@@ -1,4 +1,5 @@
 import asyncio
+import random
 import sys
 from pathlib import Path
 
@@ -16,6 +17,8 @@ except ImportError:
 sys.path.append(str(Path(__file__).parent.parent))
 from src.routing.classifier import ComplexityClassifier
 from src.routing.features import FeatureExtractor
+
+TRAINING_SEED = 42
 
 
 def get_training_data():
@@ -83,32 +86,32 @@ def get_training_data():
         "Develop a comprehensive strategy for",
     ]
 
-    import random
+    rng = random.Random(TRAINING_SEED)
 
     # Generate Simple (0)
     for _ in range(1000):
-        s = random.choice(subjects)
-        a = random.choice(actions_simple)
+        s = rng.choice(subjects)
+        a = rng.choice(actions_simple)
         q = f"{a} {s}?"
         queries.append(q)
         labels.append(0)
 
     # Generate Medium (1)
     for _ in range(1000):
-        s = random.choice(subjects)
-        a = random.choice(actions_medium)
-        context = "in modern tech" if random.random() > 0.5 else "for beginners"
+        s = rng.choice(subjects)
+        a = rng.choice(actions_medium)
+        context = "in modern tech" if rng.random() > 0.5 else "for beginners"
         q = f"{a} {s} {context}?"
         queries.append(q)
         labels.append(1)
 
     # Generate Complex (2)
     for _ in range(1000):
-        s = random.choice(subjects)
-        a = random.choice(actions_complex)
+        s = rng.choice(subjects)
+        a = rng.choice(actions_complex)
         detail = (
             "considering scalability, evaluating trade-offs, and synthesizing recommendations"
-            if random.random() > 0.5
+            if rng.random() > 0.5
             else "with respect to future trends, regulatory approaches, and ethical implications"
         )
         q = f"{a} {s} {detail}, providing specific examples and comprehensive analysis."

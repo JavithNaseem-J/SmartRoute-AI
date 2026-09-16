@@ -139,11 +139,10 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 | `GET` | `/v1/budget` | `60/min` | Yes | Upstash Redis budget status detailing daily ($10), weekly ($50), and monthly ($200) utilization. |
 | `GET` | `/v1/models` | Unthrottled | Yes | Returns list of configured OpenRouter models and currently initialized model instances. |
 | `DELETE` | `/v1/memory/{session_id}` | Unthrottled | Yes | Flushes conversation turn history for a given multi-turn session ID from Redis. |
-| `POST` | `/v1/documents/upload` | Unthrottled | Yes | Uploads PDF, TXT, or MD files into the API container and indexes them. |
-| `POST` | `/v1/index` | Unthrottled | Yes | Triggers background document chunking and hybrid vector indexing for files in `data/documents`. |
-| `GET` | `/v1/documents` | Unthrottled | Yes | Lists all indexed document files currently stored in `data/documents`. |
-| `DELETE` | `/v1/documents/{filename}` | Unthrottled | Yes | Deletes a document file, purges matching Qdrant vector points, and flushes semantic cache. |
-| `DELETE` | `/v1/documents` | Unthrottled | Yes | Clears all documents, resets the Qdrant vector collection, and flushes Redis cache. |
+| `POST` | `/v1/documents/upload` | Unthrottled | Yes | Uploads PDF, TXT, or MD files to Supabase Storage, records metadata, and indexes chunks in Qdrant. |
+| `GET` | `/v1/documents` | Unthrottled | Yes | Lists active document metadata for the authenticated demo user. |
+| `DELETE` | `/v1/documents/{filename}` | Unthrottled | Yes | Deletes the Supabase object, purges matching Qdrant vector points, and marks metadata deleted. |
+| `DELETE` | `/v1/documents` | Unthrottled | Yes | Clears the authenticated demo user's documents from storage, vector index, and metadata. |
 
 ---
 
@@ -160,7 +159,6 @@ All business endpoints are versioned under `/v1` and require JWT Bearer Authenti
 | Observability | OpenTelemetry SDK → LangFuse (OTLP HTTP/gRPC), structured JSON logs |
 | Auth | HS256 JWT (`PyJWT`) |
 | Frontend | React, TypeScript, Vite, Tailwind, Radix UI, Framer Motion |
-| Legacy dashboard | Streamlit 1.31+, Plotly (`app.py`, retained temporarily during migration) |
 | CI/CD | GitHub Actions CI gate, exact-commit Render deploy workflow, production `/version` verification |
 | Python | 3.10 (pinned in `.python-version` and `pyproject.toml`) |
 
@@ -269,7 +267,6 @@ Required GitHub configuration:
 SmartRoute-AI/
 ├── api/main.py                  # FastAPI app — all /v1/* routes (rate-limited, JWT-gated)
 ├── frontend/                    # React + TypeScript console served by FastAPI in production
-├── app.py                       # Legacy Streamlit dashboard retained during migration
 ├── config/
 │   ├── routing.yaml             # Strategy definitions, budget limits, reference queries
 │   └── models.yaml              # Model registry with cost per 1k tokens

@@ -6,17 +6,17 @@ Date: 2026-09-10
 
 Consolidate SmartRoute AI into one Render web service that serves a compiled React frontend and the FastAPI backend from the same origin. The result should be closer to a cloud native app: one deployable container, dynamic port binding, externalized runtime dependencies, explicit health and readiness behavior, and CI that validates the actual deployment artifact.
 
-## Current State
+## Original State
 
-The repository currently has a Python FastAPI backend and a Streamlit dashboard. Render is configured with two web services, both pointing at the same multi-stage Dockerfile. Because Docker builds the final stage by default, both Render services can end up running the dashboard stage unless the platform is configured outside the repo. The dashboard also writes uploaded files to its own local filesystem, while the API indexes files from the API container filesystem. That makes split deployment fragile.
+At the time this design was written, the repository had a Python FastAPI backend and a Streamlit dashboard. Render was configured with two web services, both pointing at the same multi-stage Dockerfile. Because Docker builds the final stage by default, both Render services could end up running the dashboard stage unless the platform was configured outside the repo. The dashboard also wrote uploaded files to its own local filesystem, while the API indexed files from the API container filesystem. That made split deployment fragile.
 
-There is no React frontend scaffold today. The requested React prompt box therefore requires creating a frontend workspace rather than only copying a component into an existing app.
+There was no React frontend scaffold at that point. The requested React prompt box therefore required creating a frontend workspace rather than only copying a component into an existing app.
 
 ## Chosen Approach
 
 Build a new React, TypeScript, Tailwind, and shadcn-style frontend under `frontend/`, then serve its production build from FastAPI. FastAPI remains the only runtime process in the Render service and owns all API endpoints, streaming, auth checks, file upload ingestion, static asset serving, SPA fallback, and health checks.
 
-This is the recommended path because it satisfies the one-service, same-origin deployment target without running Streamlit and FastAPI side by side in one container.
+This was the recommended path because it satisfies the one-service, same-origin deployment target without running an additional dashboard process beside FastAPI.
 
 ## Architecture
 
@@ -74,7 +74,7 @@ Deploy should remain gated to the main branch and use configured secrets only. N
 
 ## Docs And Cleanup
 
-Update README, `.env.example`, `.devcontainer`, Render docs/config, and active OpenSpec specs to match the single-service architecture. Remove `Dockerfile.api` and the Streamlit `app.py` only after the React app reaches functional parity for query, streaming, document upload/indexing, stats, budget, and document management flows.
+Update README, `.env.example`, `.devcontainer`, Render docs/config, and active OpenSpec specs to match the single-service architecture. Legacy dashboard and compatibility Docker artifacts can be removed after the React app reaches functional parity for query, streaming, document upload/indexing, stats, budget, and document management flows.
 
 ## Verification
 

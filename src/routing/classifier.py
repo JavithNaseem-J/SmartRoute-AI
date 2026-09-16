@@ -41,6 +41,8 @@ class ComplexityClassifier:
         import asyncio
         import random
 
+        rng = random.Random(42)
+
         subjects = ["AI", "Python", "Machine Learning", "Data Science", "SQL", "Docker", "API"]
         actions_simple = ["What is", "Define", "Who created", "When was", "List features of"]
         actions_medium = ["How does", "Why use", "Explain concept of", "Describe benefits of"]
@@ -53,12 +55,12 @@ class ComplexityClassifier:
         queries = []
         labels = []
         for _ in range(100):
-            queries.append(f"{random.choice(actions_simple)} {random.choice(subjects)}?")
+            queries.append(f"{rng.choice(actions_simple)} {rng.choice(subjects)}?")
             labels.append(0)
-            queries.append(f"{random.choice(actions_medium)} {random.choice(subjects)} in tech?")
+            queries.append(f"{rng.choice(actions_medium)} {rng.choice(subjects)} in tech?")
             labels.append(1)
             queries.append(
-                f"{random.choice(actions_complex)} {random.choice(subjects)}, providing comprehensive trade-off analysis."
+                f"{rng.choice(actions_complex)} {rng.choice(subjects)}, providing comprehensive trade-off analysis."
             )
             labels.append(2)
 

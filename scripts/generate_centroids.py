@@ -1,6 +1,7 @@
 import sys
 from pathlib import Path
 import asyncio
+import os
 import numpy as np
 import yaml
 
@@ -44,9 +45,14 @@ async def generate_centroids():
             embeddings_matrix = np.array(list(model.embed(texts)), dtype=np.float32)
         centroids[cat] = embeddings_matrix
 
-    output_dir = Path(__file__).parent.parent / "data" / "models"
+    output_path = Path(
+        os.getenv(
+            "REFERENCE_CENTROIDS_PATH",
+            str(Path(__file__).parent.parent / "data" / "models" / "reference_centroids.npy"),
+        )
+    )
+    output_dir = output_path.parent
     output_dir.mkdir(parents=True, exist_ok=True)
-    output_path = output_dir / "reference_centroids.npy"
 
     # pyrefly: ignore [no-matching-overload]
     np.save(output_path, centroids, allow_pickle=True)

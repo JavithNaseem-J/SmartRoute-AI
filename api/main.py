@@ -6,7 +6,7 @@ import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Any, AsyncIterator, List, Optional, TypedDict
+from typing import Any, AsyncIterator, List, Optional
 
 from dotenv import load_dotenv
 
@@ -17,7 +17,6 @@ from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, U
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
-from pydantic import BaseModel, Field  # noqa: E402
 from slowapi import Limiter, _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from slowapi.util import get_remote_address  # noqa: E402
@@ -35,6 +34,13 @@ from src.utils.alerting import send_alert  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 from src.utils.security import create_demo_jwt, require_jwt  # noqa: E402
 from src.utils.tracing import setup_tracing  # noqa: E402
+from api.schemas import (  # noqa: E402
+    DemoTokenRequest,
+    DemoTokenResponse,
+    PendingDocumentRecord,
+    QueryRequest,
+    QueryResponse,
+)
 
 #  validation
 
@@ -81,7 +87,6 @@ def validate_env() -> None:
 
 pipeline: Optional[InferencePipeline] = None
 FRONTEND_DIST = Path(__file__).resolve().parent.parent / "frontend" / "dist"
-DOCUMENTS_DIR = Path(os.getenv("DOCUMENTS_DIR", "data/documents"))
 ALLOWED_DOCUMENT_SUFFIXES = {".pdf", ".txt", ".md"}
 MAX_DOCUMENT_UPLOAD_BYTES = int(os.getenv("MAX_DOCUMENT_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 
@@ -315,49 +320,6 @@ def require_api_key(payload: dict = Depends(require_jwt)) -> str:
 # ── Request / Response models ─────────────────────────────────────────────────
 
 
-class QueryRequest(BaseModel):
-    query: str = Field(..., min_length=1, max_length=500, description="User query")
-    strategy: Optional[str] = Field(
-        None, description="Routing strategy: cost_optimized | quality_first | balanced"
-    )
-    use_retrieval: bool = Field(True, description="Enable RAG retrieval")
-    session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversation")
-
-
-class QueryResponse(BaseModel):
-    answer: str
-    model_used: Optional[str]
-    complexity: Optional[str]
-    confidence: float
-    cost: float
-    latency: float
-    sources: List[str]
-    success: bool
-    error: Optional[str] = None
-
-
-class DemoTokenRequest(BaseModel):
-    session_id: Optional[str] = Field(
-        None, description="Client-generated browser session ID for demo isolation"
-    )
-
-
-class DemoTokenResponse(BaseModel):
-    access_token: str
-    token_type: str
-    expires_at: int
-    session_id: str
-
-
-class PendingDocumentRecord(TypedDict):
-    user_id: str
-    filename: str
-    content_type: str
-    size_bytes: int
-    storage_bucket: str
-    storage_path: str
-
-
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
 
@@ -545,27 +507,6 @@ async def clear_memory(session_id: str, user_id: str = Depends(require_api_key))
     return {"status": "cleared", "session_id": session_id}
 
 
-@v1.post("/index")
-async def index_documents(_: str = Depends(require_api_key)):
-    """Trigger indexing of documents in the data/documents directory."""
-    if not pipeline:
-        raise HTTPException(status_code=503, detail="Service not ready")
-    from src.retrieval.indexer import DocumentIndexer
-
-    try:
-        indexer = DocumentIndexer()
-        # Async indexing on the active event loop
-        await indexer.aindex_directory(DOCUMENTS_DIR)
-        # Reload the retriever to pick up new documents
-        if hasattr(pipeline.retriever, "reload"):
-            await pipeline.retriever.reload()
-        stats = indexer.get_stats()
-        return {"status": "success", "stats": stats}
-    except Exception as e:
-        logger.error(f"Indexing failed: {e}")
-        raise HTTPException(status_code=500, detail="Indexing failed")
-
-
 @v1.post("/documents/upload")
 async def upload_documents(
     files: List[UploadFile] = File(...),
@@ -751,7 +692,6 @@ async def delete_document(filename: str, user_id: str = Depends(require_api_key)
         indexer = DocumentIndexer()
         deleted = await indexer.adelete_document(
             filename,
-            DOCUMENTS_DIR,
             source=document["storage_path"],
             user_id=user_id,
         )
@@ -788,7 +728,7 @@ async def clear_all_documents(user_id: str = Depends(require_api_key)):
             )
 
         indexer = DocumentIndexer()
-        await indexer.aclear_all_documents(DOCUMENTS_DIR, user_id=user_id)
+        await indexer.aclear_all_documents(user_id=user_id)
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
         return {"status": "success", "message": "All documents cleared"}
