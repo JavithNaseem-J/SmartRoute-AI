@@ -265,8 +265,16 @@ Required GitHub configuration:
 
 ```
 SmartRoute-AI/
-├── api/main.py                  # FastAPI app — all /v1/* routes (rate-limited, JWT-gated)
+├── api/
+│   ├── main.py                  # FastAPI app setup, v1 business routes, frontend mount
+│   ├── schemas.py               # API request/response schemas
+│   └── system_routes.py         # Health, readiness, and deployment identity routes
 ├── frontend/                    # React + TypeScript console served by FastAPI in production
+│   └── src/
+│       ├── App.tsx              # SmartRoute chat shell and page composition
+│       ├── components/          # Analytics and prompt UI components
+│       ├── lib/                 # Auth, document API, formatting, chat/session helpers
+│       └── types/               # Shared frontend types
 ├── config/
 │   ├── routing.yaml             # Strategy definitions, budget limits, reference queries
 │   └── models.yaml              # Model registry with cost per 1k tokens
@@ -289,6 +297,7 @@ SmartRoute-AI/
 │   └── training/synthetic_queries.csv
 ├── models/classifiers/          # complexity_classifier.pkl (231 KB, pre-trained)
 ├── alembic/                     # DB migration scripts
+├── openspec/changes/            # Active cleanup/specification changes
 ├── Dockerfile                   # React build + Python runtime image
 └── render.yaml                  # Single-service Render deployment blueprint
 ```

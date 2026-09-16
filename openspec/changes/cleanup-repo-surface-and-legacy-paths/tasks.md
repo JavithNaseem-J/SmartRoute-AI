@@ -49,15 +49,19 @@
 
 - [ ] 6.1 Split `api/main.py` into focused app setup, system/auth, query, analytics, documents, and frontend-static modules.
   - Started safely by moving API schemas/typed upload records into `api/schemas.py` while preserving existing route behavior and test monkeypatch compatibility.
+  - Moved system health/version/readiness routes into `api/system_routes.py`; query, analytics, document, and frontend-static route extraction remains a follow-up because those routes share mutable `pipeline` test fixtures.
 - [ ] 6.2 Preserve existing route paths and response contracts while moving code.
+  - Verified preserved paths for the extracted system routes with API tests.
 - [ ] 6.3 Split `frontend/src/App.tsx` into session, document, streaming query, sidebar, chat, and analytics units.
   - Started safely by moving chat/session types and session persistence helpers out of `App.tsx`.
-- [ ] 6.4 Split `frontend/src/components/ui/ai-prompt-box.tsx` into reusable UI primitives and SmartRoute-specific prompt controls.
+- [x] 6.4 Split `frontend/src/components/ui/ai-prompt-box.tsx` into reusable UI primitives and SmartRoute-specific prompt controls.
 - [ ] 6.5 Run full backend/frontend validation after each boundary refactor.
   - Validation after partial Phase 6 split passed: backend lint/type/tests and frontend lint/type/build.
 
 ## 7. Documentation and archive polish
 
-- [ ] 7.1 Update README architecture tree after cleanup phases complete.
-- [ ] 7.2 Decide whether OpenSpec archived changes remain in-repo or are summarized for portfolio readability.
+- [x] 7.1 Update README architecture tree after cleanup phases complete.
+- [x] 7.2 Decide whether OpenSpec archived changes remain in-repo or are summarized for portfolio readability.
+  - Decision: keep this OpenSpec change active in-repo until Docker smoke verification and the remaining deeper route/component split are completed.
 - [ ] 7.3 Update current OpenSpec specs through archive/sync after implementation completes.
+  - Not archived yet because Docker smoke verification is blocked locally and deeper route/component extraction remains intentionally deferred.

@@ -9,7 +9,7 @@ import {
   listDocuments,
   type StoredDocument,
 } from "@/lib/documents";
-import { formatBytes, formatUploadedAt } from "@/lib/format";
+import { formatBytes, formatUploadedAt, uniqueSources } from "@/lib/format";
 import type { Message, Session } from "@/types/chat";
 import {
   Sparkles,
@@ -33,27 +33,6 @@ import { motion, AnimatePresence } from "framer-motion";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const formatSourceLabel = (source: string) => {
-  const withoutPrefix = source.replace(/^Source\s+\d+:\s*/i, "").trim();
-  const pageMatch = withoutPrefix.match(/\s+—\s+page\s+\d+$/i);
-  const pageSuffix = pageMatch?.[0] ?? "";
-  const basePath = pageSuffix ? withoutPrefix.slice(0, -pageSuffix.length) : withoutPrefix;
-  const filename = basePath.split("/").pop() || basePath;
-  const readable = filename.replace(
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i,
-    ""
-  );
-
-  try {
-    return `${decodeURIComponent(readable)}${pageSuffix}`;
-  } catch {
-    return `${readable}${pageSuffix}`;
-  }
-};
-
-const uniqueSources = (sources: string[] = []) =>
-  Array.from(new Set(sources.map(formatSourceLabel))).filter(Boolean);
 
 // ─── App Component ────────────────────────────────────────────────────────────
 
