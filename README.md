@@ -2,7 +2,7 @@
 
 **Cost-optimized LLM inference gateway with ML-based query routing and RAG.**
 
-🚀 **Live:** [Click Here](https://smartroute-dashboard.onrender.com/) — Render single-service deployment via `render.yaml`
+🚀 **Live:** [Click Here](https://smartroute-dashboard.onrender.com/)
 
 ---
 
