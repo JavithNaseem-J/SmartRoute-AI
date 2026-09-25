@@ -239,25 +239,6 @@ docker run --env-file .env -p 8000:8000 smartroute-ai
 
 The `Dockerfile` builds the React frontend, copies `frontend/dist` into the Python runtime image, trains the classifier, and starts one Uvicorn process on `${PORT:-8000}`. Uploaded documents are stored in Supabase Storage, metadata is stored in Supabase Postgres, and embeddings remain in Qdrant. Health checks call `/health`; `/ready` performs dependency checks.
 
----
-
-## Deployment
-
-Deployed on **Render** (Singapore region, free plan) via `render.yaml` as one Docker web service named `smartroute-ai`. Render injects `$PORT`; the container serves both React assets and `/v1/*` API routes from the same origin. Run `uv run alembic upgrade head` manually before deploying when migrations change, because Render free-tier services do not support pre-deploy commands.
-
-Render `autoDeploy` is disabled. Production deploys are controlled by GitHub Actions:
-
-1. `.github/workflows/ci.yml` runs on pushes to `main`, pull requests to `main`, and manual dispatch.
-2. CI runs backend lint/format/type/test gates, frontend lockfile install/typecheck/test/build, npm audit, and a production Docker image smoke test.
-3. `.github/workflows/deploy-render.yml` runs only after the `CI` workflow succeeds on `main`, or by manual dispatch for a SHA that already has a successful completed CI run.
-4. The deploy workflow calls `RENDER_DEPLOY_HOOK_URL` with `ref=<exact-commit-sha>`.
-5. GitHub waits for production `/version` and fails the deployment if the live `commit_sha` is not the exact SHA that passed CI.
-
-Required GitHub configuration:
-
-- Secret: `RENDER_DEPLOY_HOOK_URL`
-- Repository or `production` environment variable: `PRODUCTION_BASE_URL` (for example, `https://smartroute-ai.onrender.com`)
-- Environment: `production` (keep any approval protection enabled there)
 
 ---
 
