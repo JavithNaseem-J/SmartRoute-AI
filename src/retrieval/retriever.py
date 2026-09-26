@@ -25,6 +25,7 @@ class DocumentRetriever:
 
         # Re-ranker for post-retrieval relevance filtering
         self.reranker = DocumentReranker()
+        self.last_diagnostics: dict = {}
 
         logger.info("####### DocumentRetriever initialized #######")
 
@@ -112,25 +113,65 @@ class DocumentRetriever:
             ]
         except Exception as e:
             logger.error(f"Qdrant search failed: {e}")
+            self.last_diagnostics["search_error"] = str(e)
             return []
+
+    async def count_user_chunks(self, user_id: str) -> int:
+        """Count indexed document chunks for a user."""
+        if not await self.qdrant.collection_exists(self.collection_name):
+            return 0
+        result = await self.qdrant.count(
+            collection_name=self.collection_name,
+            count_filter=self._user_filter(user_id),
+            exact=True,
+        )
+        return int(result.count)
 
     async def retrieve(self, query: str, user_id: Optional[str] = None) -> Tuple[str, List[str]]:
         try:
+            self.last_diagnostics = {
+                "reason": None,
+                "collection_ready": False,
+                "user_chunk_count": None,
+                "retrieved_source_count": 0,
+            }
             if not user_id:
                 logger.warning("No user ID provided; document retrieval disabled")
+                self.last_diagnostics["reason"] = "missing_user_id"
                 return "", []
 
             if not hasattr(self, "dense_ready"):
                 await self.ensure_ready()
 
+            self.last_diagnostics["collection_ready"] = bool(self.dense_ready)
             if not self.dense_ready:
                 logger.warning("No vector store available")
+                self.last_diagnostics["reason"] = "collection_unavailable"
                 return "", []
 
+            try:
+                self.last_diagnostics["user_chunk_count"] = await self.count_user_chunks(user_id)
+            except Exception as e:
+                logger.warning(f"Could not count indexed chunks for user {user_id}: {e}")
+                self.last_diagnostics["count_error"] = str(e)
+
             context, sources = await self._retrieve_hybrid(query, user_id=user_id)
+            self.last_diagnostics["retrieved_source_count"] = len(sources)
+            if not sources:
+                if self.last_diagnostics.get("search_error"):
+                    self.last_diagnostics["reason"] = "search_failed"
+                elif self.last_diagnostics.get("user_chunk_count") == 0:
+                    self.last_diagnostics["reason"] = "no_user_chunks"
+                else:
+                    self.last_diagnostics["reason"] = "no_matching_chunks"
+                logger.warning(f"Document retrieval returned no sources: {self.last_diagnostics}")
+            else:
+                self.last_diagnostics["reason"] = "matched_sources"
             return context, sources
         except Exception as e:
             logger.error(f"Retrieval failed: {e}", exc_info=True)
+            self.last_diagnostics["reason"] = "retrieval_exception"
+            self.last_diagnostics["error"] = str(e)
             return "", []
 
     async def _retrieve_hybrid(

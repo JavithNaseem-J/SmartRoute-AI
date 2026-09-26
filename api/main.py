@@ -511,6 +511,28 @@ async def upload_documents(
                     status_code=502,
                     detail="Vector indexing failed. Check Qdrant and embedding provider configuration.",
                 )
+            verified_chunks = 0
+            try:
+                for storage_path in uploaded_paths:
+                    verified_chunks += await indexer.count_indexed_chunks(
+                        user_id=user_id,
+                        source=storage_path,
+                    )
+            except Exception as e:
+                logger.error(f"Vector indexing verification failed: {e}", exc_info=True)
+                raise HTTPException(
+                    status_code=502,
+                    detail="Vector indexing verification failed. Check Qdrant payload filters.",
+                )
+            if indexed_chunks > 0 and verified_chunks < indexed_chunks:
+                logger.error(
+                    "Vector indexing verification mismatch: "
+                    f"indexed={indexed_chunks}, verified={verified_chunks}, user_id={user_id}"
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail="Vector indexing verification failed. Uploaded chunks are not searchable yet.",
+                )
 
         try:
             for record in pending_records:
@@ -542,7 +564,11 @@ async def upload_documents(
             "status": "success",
             "documents": saved_files,
             "total": len(saved_files),
-            "stats": {**indexer.get_stats(), "indexed_chunks": indexed_chunks},
+            "stats": {
+                **indexer.get_stats(),
+                "indexed_chunks": indexed_chunks,
+                "verified_chunks": verified_chunks,
+            },
         }
     except HTTPException:
         await cleanup_uploaded_paths()

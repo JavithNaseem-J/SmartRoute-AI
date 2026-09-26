@@ -174,6 +174,7 @@ class InferencePipeline:
         if use_retrieval:
             context, sources = await self.retriever.retrieve(query, user_id=user_id)
             logger.info(f"Retrieved {len(sources)} sources")
+        retrieval_diagnostics = getattr(self.retriever, "last_diagnostics", {})
 
         return {
             "is_cached": False,
@@ -183,6 +184,7 @@ class InferencePipeline:
             "context": context,
             "sources": sources,
             "cache_scope": cache_scope,
+            "retrieval_diagnostics": retrieval_diagnostics,
         }
 
     async def _rag_no_sources_response(
@@ -195,9 +197,14 @@ class InferencePipeline:
         latency: float,
         session_id: Optional[str],
         user_id: Optional[str],
+        retrieval_diagnostics: Optional[Dict] = None,
     ) -> Dict:
         """Return an honest RAG answer when no uploaded document context was retrieved."""
-        routing_info = {**routing_decision, "reason": "no_retrieved_document_sources"}
+        routing_info = {
+            **routing_decision,
+            "reason": "no_retrieved_document_sources",
+            "retrieval_diagnostics": retrieval_diagnostics or {},
+        }
         await self._log_query_metrics(
             query=query,
             model_id="rag_no_sources",
@@ -319,6 +326,7 @@ class InferencePipeline:
             context = prep["context"]
             sources = prep["sources"]
             cache_scope = prep["cache_scope"]
+            retrieval_diagnostics = prep["retrieval_diagnostics"]
 
             if use_retrieval and not sources:
                 return await self._rag_no_sources_response(
@@ -329,6 +337,7 @@ class InferencePipeline:
                     latency=time.time() - start_time,
                     session_id=session_id,
                     user_id=user_id,
+                    retrieval_diagnostics=retrieval_diagnostics,
                 )
 
             # Generate
@@ -443,10 +452,15 @@ class InferencePipeline:
             context = prep["context"]
             sources = prep["sources"]
             cache_scope = prep["cache_scope"]
+            retrieval_diagnostics = prep["retrieval_diagnostics"]
 
             yield {
                 "type": "metadata",
-                "data": {"routing_info": routing_decision, "sources": sources},
+                "data": {
+                    "routing_info": routing_decision,
+                    "sources": sources,
+                    "retrieval_diagnostics": retrieval_diagnostics,
+                },
             }
 
             if use_retrieval and not sources:
@@ -458,6 +472,7 @@ class InferencePipeline:
                     latency=time.time() - start_time,
                     session_id=session_id,
                     user_id=user_id,
+                    retrieval_diagnostics=retrieval_diagnostics,
                 )
                 yield {"type": "chunk", "content": response_payload["answer"]}
                 yield {"type": "done", "result": response_payload}

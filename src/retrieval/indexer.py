@@ -137,8 +137,49 @@ class DocumentIndexer:
                 for doc, vec in zip(chunks, dense_vectors)
             ]
 
-        await self.qdrant.upsert(collection_name=self.collection_name, points=points)
+        await self.qdrant.upsert(collection_name=self.collection_name, points=points, wait=True)
         logger.info(f"Added {len(chunks)} document chunks to index")
+
+    async def count_indexed_chunks(
+        self,
+        *,
+        user_id: Optional[str] = None,
+        source: Optional[str] = None,
+        filename: Optional[str] = None,
+    ) -> int:
+        """Count indexed chunks matching document metadata in Qdrant."""
+        if not await self.qdrant.collection_exists(self.collection_name):
+            return 0
+
+        conditions: List[models.Condition] = []
+        if user_id:
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.user_id",
+                    match=models.MatchValue(value=user_id),
+                )
+            )
+        if source:
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.source",
+                    match=models.MatchValue(value=source),
+                )
+            )
+        if filename:
+            conditions.append(
+                models.FieldCondition(
+                    key="metadata.filename",
+                    match=models.MatchValue(value=filename),
+                )
+            )
+
+        result = await self.qdrant.count(
+            collection_name=self.collection_name,
+            count_filter=models.Filter(must=conditions) if conditions else None,
+            exact=True,
+        )
+        return int(result.count)
 
     async def _invalidate_user_cache(self, user_id: Optional[str]) -> None:
         if not user_id:

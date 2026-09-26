@@ -180,6 +180,12 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
 
         async def aindex_documents(self, documents):
             assert documents[0].metadata["storage_path"] == "test_user/test-note.txt"
+            return 1
+
+        async def count_indexed_chunks(self, *, user_id=None, source=None, filename=None):
+            assert user_id == "test_user"
+            assert source == "test_user/test-note.txt"
+            return 1
 
         def get_stats(self):
             return {"chunker": {}}
@@ -202,7 +208,73 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
     assert response.status_code == 200
     assert uploaded == [("test_user/test-note.txt", b"hello", "text/plain")]
     assert response.json()["documents"][0]["storage_path"] == "test_user/test-note.txt"
+    assert response.json()["stats"]["indexed_chunks"] == 1
+    assert response.json()["stats"]["verified_chunks"] == 1
     api_module.pipeline.semantic_cache.invalidate_user.assert_awaited_once_with("test_user")
+
+
+def test_upload_rolls_back_storage_when_indexing_verification_fails(client, api_key, monkeypatch):
+    """If Qdrant cannot verify searchable chunks, no document record is saved."""
+    from langchain_core.documents import Document
+
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    operations = []
+    records = []
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/test-{filename}"
+
+        async def upload(self, path, content, content_type):
+            operations.append(("upload", path, content_type))
+
+        async def delete(self, path):
+            operations.append(("delete", path, ""))
+
+    class FakeIndexer:
+        def load_file(self, file_path, *, source, metadata=None):
+            return [Document(page_content="hello", metadata={"source": source, **(metadata or {})})]
+
+        async def aindex_documents(self, documents):
+            return 2
+
+        async def count_indexed_chunks(self, *, user_id=None, source=None, filename=None):
+            return 1
+
+        def get_stats(self):
+            return {"chunker": {}}
+
+    def fake_create_document_record(_tracker, **record):
+        records.append(record)
+        return record
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(api_module, "create_document_record", fake_create_document_record)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("note.txt", b"hello", "text/plain")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Vector indexing verification failed. Uploaded chunks are not searchable yet."
+    )
+    assert operations == [
+        ("upload", "test_user/test-note.txt", "text/plain"),
+        ("delete", "test_user/test-note.txt", ""),
+    ]
+    assert records == []
 
 
 def test_upload_rejects_invalid_pdf_before_storage(client, api_key, monkeypatch):

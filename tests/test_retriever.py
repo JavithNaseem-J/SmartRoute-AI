@@ -25,6 +25,8 @@ async def test_document_retriever_filters_qdrant_by_user_id(mock_qdrant, monkeyp
     """Qdrant searches include metadata.user_id so tenants cannot see each other's chunks."""
     retriever = DocumentRetriever()
     retriever.dense_ready = True
+    mock_qdrant.collection_exists = AsyncMock(return_value=True)
+    mock_qdrant.count = AsyncMock(return_value=MagicMock(count=0))
     mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
     monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: None)
 
@@ -33,6 +35,46 @@ async def test_document_retriever_filters_qdrant_by_user_id(mock_qdrant, monkeyp
     query_filter = mock_qdrant.query_points.call_args.kwargs["query_filter"]
     assert query_filter.must[0].key == "metadata.user_id"
     assert query_filter.must[0].match.value == "user-1"
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_diagnoses_user_with_no_chunks(mock_qdrant, monkeypatch):
+    """No-source retrieval should reveal when the current user has no indexed chunks."""
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+    mock_qdrant.collection_exists = AsyncMock(return_value=True)
+    mock_qdrant.count = AsyncMock(return_value=MagicMock(count=0))
+    mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
+    monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: None)
+
+    context, sources = await retriever.retrieve(
+        "what is this cover letter about?", user_id="user-1"
+    )
+
+    assert context == ""
+    assert sources == []
+    assert retriever.last_diagnostics["reason"] == "no_user_chunks"
+    assert retriever.last_diagnostics["user_chunk_count"] == 0
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_diagnoses_no_matching_chunks(mock_qdrant, monkeypatch):
+    """No-source retrieval should distinguish indexed chunks from no semantic match."""
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+    mock_qdrant.collection_exists = AsyncMock(return_value=True)
+    mock_qdrant.count = AsyncMock(return_value=MagicMock(count=4))
+    mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
+    monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: None)
+
+    context, sources = await retriever.retrieve(
+        "what is this cover letter about?", user_id="user-1"
+    )
+
+    assert context == ""
+    assert sources == []
+    assert retriever.last_diagnostics["reason"] == "no_matching_chunks"
+    assert retriever.last_diagnostics["user_chunk_count"] == 4
 
 
 @pytest.fixture
