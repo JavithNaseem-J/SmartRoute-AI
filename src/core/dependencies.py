@@ -1,6 +1,8 @@
 import os
 from asyncio import to_thread
+from collections.abc import Iterable
 from threading import Lock
+from typing import SupportsFloat, cast
 
 import redis.asyncio as redis
 from fastembed import TextEmbedding
@@ -35,7 +37,8 @@ class FastEmbedEmbeddings:
         return [vector.tolist() for vector in self._get_model().passage_embed(texts)]
 
     def embed_query(self, text: str) -> list[float]:
-        return next(self._get_model().query_embed(text)).tolist()
+        vectors = cast(Iterable[Iterable[SupportsFloat]], self._get_model().query_embed(text))
+        return [float(value) for value in next(iter(vectors))]
 
     async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
         return await to_thread(self.embed_documents, texts)
