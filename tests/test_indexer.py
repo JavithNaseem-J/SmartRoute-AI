@@ -90,6 +90,19 @@ async def test_indexer_rejects_blank_documents_before_embedding(mock_qdrant):
     mock_qdrant.upsert.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_indexer_reports_empty_fastembed_vector_response(mock_qdrant):
+    """An empty provider response must identify FastEmbed and the affected chunk count."""
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.side_effect = None
+    indexer.embeddings.aembed_documents.return_value = []
+
+    with pytest.raises(RuntimeError, match="FastEmbed returned no vectors for 1 text chunks"):
+        await indexer.aindex_documents([Document(page_content="cover letter text")])
+
+    mock_qdrant.upsert.assert_not_called()
+
+
 def test_load_file_ignores_blank_text(tmp_path, mock_qdrant):
     """Text loaders should reject files whose extracted content is blank."""
     file_path = tmp_path / "blank.txt"

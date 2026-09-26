@@ -122,7 +122,9 @@ class DocumentIndexer:
                     "Vector database collection setup failed. Check QDRANT_URL, QDRANT_API_KEY, and collection schema."
                 ) from e
         else:
-            raise RuntimeError("Embedding generation failed. No dense vectors were returned.")
+            raise RuntimeError(
+                f"Embedding generation failed. FastEmbed returned no vectors for {len(texts)} text chunks."
+            )
 
         # 2. Generate Sparse Vectors if available
         sparse_supported = (
