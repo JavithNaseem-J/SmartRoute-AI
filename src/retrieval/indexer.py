@@ -83,6 +83,9 @@ class DocumentIndexer:
 
         try:
             await self._async_add_documents(chunks)
+        except RuntimeError:
+            logger.error("Vector indexing to Qdrant failed", exc_info=True)
+            raise
         except Exception as e:
             logger.error(f"Vector indexing to Qdrant failed: {e}", exc_info=True)
             raise RuntimeError("Vector indexing failed") from e
@@ -92,11 +95,25 @@ class DocumentIndexer:
         texts = [doc.page_content for doc in chunks]
 
         # 1. Generate Dense Vectors
-        dense_vectors = await self.embeddings.aembed_documents(texts)
+        try:
+            dense_vectors = await self.embeddings.aembed_documents(texts)
+        except Exception as e:
+            logger.error(f"Dense embedding generation failed: {e}", exc_info=True)
+            raise RuntimeError(
+                "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+            ) from e
 
         # Ensure collection exists with proper schema
         if dense_vectors:
-            await self._ensure_collection(len(dense_vectors[0]))
+            try:
+                await self._ensure_collection(len(dense_vectors[0]))
+            except Exception as e:
+                logger.error(f"Qdrant collection setup failed: {e}", exc_info=True)
+                raise RuntimeError(
+                    "Vector database collection setup failed. Check QDRANT_URL, QDRANT_API_KEY, and collection schema."
+                ) from e
+        else:
+            raise RuntimeError("Embedding generation failed. No dense vectors were returned.")
 
         # 2. Generate Sparse Vectors if available
         sparse_supported = (
@@ -104,8 +121,14 @@ class DocumentIndexer:
             and self.qdrant._sparse_embedding_model is not None  # type: ignore[attr-defined]
         )
         if sparse_supported:
-            sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)  # type: ignore[attr-defined]
-            sparse_vectors_list = list(sparse_vectors_generator)
+            try:
+                sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)  # type: ignore[attr-defined]
+                sparse_vectors_list = list(sparse_vectors_generator)
+            except Exception as e:
+                logger.error(f"Sparse embedding generation failed: {e}", exc_info=True)
+                raise RuntimeError(
+                    "Sparse embedding generation failed. Disable ENABLE_SPARSE_EMBEDDINGS or check the sparse embedding model."
+                ) from e
 
             points = [
                 models.PointStruct(
@@ -137,7 +160,13 @@ class DocumentIndexer:
                 for doc, vec in zip(chunks, dense_vectors)
             ]
 
-        await self.qdrant.upsert(collection_name=self.collection_name, points=points, wait=True)
+        try:
+            await self.qdrant.upsert(collection_name=self.collection_name, points=points, wait=True)
+        except Exception as e:
+            logger.error(f"Qdrant upsert failed: {e}", exc_info=True)
+            raise RuntimeError(
+                "Vector database upsert failed. Check Qdrant collection schema and API key permissions."
+            ) from e
         logger.info(f"Added {len(chunks)} document chunks to index")
 
     async def count_indexed_chunks(

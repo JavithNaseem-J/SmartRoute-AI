@@ -507,9 +507,14 @@ async def upload_documents(
                 indexed_chunks = await indexer.aindex_documents(documents_to_index) or 0
             except Exception as e:
                 logger.error(f"Vector indexing failed: {e}", exc_info=True)
+                detail = (
+                    str(e)
+                    if isinstance(e, RuntimeError) and str(e) != "Vector indexing failed"
+                    else "Vector indexing failed. Check Qdrant and embedding provider configuration."
+                )
                 raise HTTPException(
                     status_code=502,
-                    detail="Vector indexing failed. Check Qdrant and embedding provider configuration.",
+                    detail=detail,
                 )
             verified_chunks = 0
             try:

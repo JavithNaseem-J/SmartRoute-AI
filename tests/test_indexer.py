@@ -62,3 +62,27 @@ async def test_count_indexed_chunks_filters_by_user_and_source(mock_qdrant):
     assert isinstance(count_filter, models.Filter)
     keys = [condition.key for condition in count_filter.must]
     assert keys == ["metadata.user_id", "metadata.source"]
+
+
+@pytest.mark.asyncio
+async def test_indexer_reports_embedding_generation_failure(mock_qdrant):
+    """Embedding provider failures should produce a clear upload error."""
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.side_effect = RuntimeError("hf unavailable")
+
+    with pytest.raises(RuntimeError, match="Embedding generation failed"):
+        await indexer.aindex_documents([Document(page_content="cover letter text")])
+
+    mock_qdrant.upsert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_indexer_reports_qdrant_upsert_failure(mock_qdrant):
+    """Qdrant write failures should be distinct from embedding failures."""
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.return_value = [[0.1] * 384]
+    mock_qdrant.collection_exists.return_value = True
+    mock_qdrant.upsert.side_effect = RuntimeError("schema mismatch")
+
+    with pytest.raises(RuntimeError, match="Vector database upsert failed"):
+        await indexer.aindex_documents([Document(page_content="cover letter text")])

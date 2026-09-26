@@ -399,3 +399,53 @@ def test_upload_rolls_back_storage_when_indexing_fails(client, api_key, monkeypa
         ("delete", "test_user/test-note.txt", ""),
     ]
     assert records == []
+
+
+def test_upload_returns_safe_specific_indexing_error(client, api_key, monkeypatch):
+    """Safe RuntimeError messages from the indexer should reach the upload response."""
+    from langchain_core.documents import Document
+
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/test-{filename}"
+
+        async def upload(self, path, content, content_type):
+            return None
+
+        async def delete(self, path):
+            return None
+
+    class FakeIndexer:
+        def load_file(self, file_path, *, source, metadata=None):
+            return [Document(page_content="hello", metadata={"source": source, **(metadata or {})})]
+
+        async def aindex_documents(self, documents):
+            raise RuntimeError(
+                "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+            )
+
+        def get_stats(self):
+            return {"chunker": {}}
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("note.txt", b"hello", "text/plain")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+    )
