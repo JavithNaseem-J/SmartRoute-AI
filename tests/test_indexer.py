@@ -1,9 +1,11 @@
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
+import numpy as np
 import pytest
 from langchain_core.documents import Document
 from qdrant_client import models
 
+import src.core.dependencies as deps
 from src.retrieval.indexer import DocumentIndexer
 
 
@@ -74,6 +76,44 @@ async def test_indexer_reports_embedding_generation_failure(mock_qdrant):
         await indexer.aindex_documents([Document(page_content="cover letter text")])
 
     mock_qdrant.upsert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_indexer_reports_fastembed_generation_failure(mock_qdrant):
+    """Local FastEmbed failures should identify the local embedding runtime."""
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.side_effect = RuntimeError("model download failed")
+
+    with pytest.raises(RuntimeError, match="FastEmbed model download"):
+        await indexer.aindex_documents([Document(page_content="cover letter text")])
+
+    mock_qdrant.upsert.assert_not_called()
+
+
+def test_fastembed_embeddings_do_not_require_hf_token(monkeypatch):
+    """Dense embeddings should initialize without Hugging Face credentials."""
+    previous_embeddings = deps._embeddings
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    deps._embeddings = None
+
+    try:
+        embeddings = deps.get_embeddings()
+        assert isinstance(embeddings, deps.FastEmbedEmbeddings)
+    finally:
+        deps._embeddings = previous_embeddings
+
+
+@pytest.mark.asyncio
+async def test_fastembed_adapter_generates_document_and_query_vectors(monkeypatch):
+    """The local adapter must use FastEmbed's passage and query encoders."""
+    embeddings = deps.FastEmbedEmbeddings()
+    model = MagicMock()
+    model.passage_embed.return_value = iter([np.array([0.1, 0.2])])
+    model.query_embed.return_value = iter([np.array([0.3, 0.4])])
+    monkeypatch.setattr(embeddings, "_get_model", lambda: model)
+
+    assert await embeddings.aembed_documents(["cover letter"]) == [[0.1, 0.2]]
+    assert await embeddings.aembed_query("what is this about?") == [0.3, 0.4]
 
 
 @pytest.mark.asyncio

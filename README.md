@@ -22,7 +22,7 @@ A **LightGBM classifier** (19 lexical + semantic features, `n_estimators=50`, `m
 Uncertain `complex` classifications (confidence < 0.75) are demoted to `medium` via cost-biased hysteresis — conservative by design. Three routing strategies are configurable at query time: `cost_optimized` (default), `quality_first`, `balanced`.
 
 On top of routing the system also provides:
-- **RAG pipeline** — Qdrant native hybrid search (dense + sparse RRF fusion), HuggingFace cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) with keyword-overlap local fallback, 500-token chunks with 50-token overlap.
+- **RAG pipeline** — local FastEmbed dense vectors, Qdrant native hybrid search (dense + sparse RRF fusion), HuggingFace cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) with keyword-overlap local fallback, 500-token chunks with 50-token overlap.
 - **Semantic cache** — query embeddings stored in Qdrant, payloads in Redis; hits return instantly without calling any LLM. Cache similarity threshold: `0.95`. TTL: 7 days.
 - **Multi-turn memory** — conversation history stored in Redis, injected per `session_id`.
 - **Budget enforcement** — atomic `INCRBYFLOAT` on Redis; daily $10, weekly $50, monthly $200 hard limits (configurable in `config/routing.yaml`). Alerts at 80% of any limit.
@@ -193,7 +193,8 @@ cp .env.example .env
 #   SUPABASE_URL         → https://<project-ref>.supabase.co
 #   SUPABASE_SERVICE_ROLE_KEY → Supabase server-side service role key
 #   SUPABASE_STORAGE_BUCKET   → private bucket for uploaded documents
-#   HF_TOKEN             → https://huggingface.co/settings/tokens
+#   HF_TOKEN             → optional; used only by the external reranker
+#   FASTEMBED_CACHE_PATH → optional writable cache directory for local embeddings
 #   DATABASE_URL         → postgresql://... (Supabase free tier works)
 #   REDIS_URL            → redis://... (Upstash free tier works)
 #   QDRANT_URL           → https://... (Qdrant Cloud free tier works)

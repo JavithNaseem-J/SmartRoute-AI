@@ -1,11 +1,47 @@
 import os
+from asyncio import to_thread
+from threading import Lock
+
 import redis.asyncio as redis
-from langchain_huggingface import HuggingFaceEndpointEmbeddings
+from fastembed import TextEmbedding
 from qdrant_client import AsyncQdrantClient
 
 _redis_client = None
 _qdrant_client = None
 _embeddings = None
+
+
+class FastEmbedEmbeddings:
+    """Async-compatible local dense embeddings backed by Qdrant FastEmbed."""
+
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
+        self.model_name = model_name
+        self._model: TextEmbedding | None = None
+        self._model_lock = Lock()
+
+    def _get_model(self) -> TextEmbedding:
+        if self._model is None:
+            with self._model_lock:
+                if self._model is None:
+                    self._model = TextEmbedding(
+                        model_name=self.model_name,
+                        cache_dir=os.getenv("FASTEMBED_CACHE_PATH") or None,
+                        threads=1,
+                        lazy_load=True,
+                    )
+        return self._model
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        return [vector.tolist() for vector in self._get_model().passage_embed(texts)]
+
+    def embed_query(self, text: str) -> list[float]:
+        return next(self._get_model().query_embed(text)).tolist()
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        return await to_thread(self.embed_documents, texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        return await to_thread(self.embed_query, text)
 
 
 def get_redis_client() -> redis.Redis:
@@ -41,21 +77,11 @@ def get_qdrant_client() -> AsyncQdrantClient:
 
 def get_embeddings(
     model_name: str = "BAAI/bge-small-en-v1.5",
-) -> HuggingFaceEndpointEmbeddings:
-    """Get the shared endpoint embeddings model."""
+) -> FastEmbedEmbeddings:
+    """Get the shared local FastEmbed model."""
     global _embeddings
     if _embeddings is None:
-        hf_token = os.getenv("HF_TOKEN", "")
-        if not hf_token:
-            from src.utils.logger import logger
-
-            logger.warning(
-                "HF_TOKEN environment variable not set. Embeddings API calls will fail until configured."
-            )
-        _embeddings = HuggingFaceEndpointEmbeddings(
-            model=model_name,
-            huggingfacehub_api_token=hf_token,
-        )
+        _embeddings = FastEmbedEmbeddings(model_name=model_name)
     return _embeddings
 
 

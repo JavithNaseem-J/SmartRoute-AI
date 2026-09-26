@@ -100,7 +100,7 @@ class DocumentIndexer:
         except Exception as e:
             logger.error(f"Dense embedding generation failed: {e}", exc_info=True)
             raise RuntimeError(
-                "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+                "Embedding generation failed. Check the FastEmbed model download and local runtime access."
             ) from e
 
         # Ensure collection exists with proper schema

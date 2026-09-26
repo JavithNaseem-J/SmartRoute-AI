@@ -50,7 +50,7 @@ class FeatureExtractor:
             self.embedder = get_embeddings()
             self.has_model = True
         except Exception as e:
-            logger.warning(f"Could not load HuggingFaceEndpointEmbeddings: {e}")
+            logger.warning(f"Could not load local FastEmbed embeddings: {e}")
             self.has_model = False
 
         # Optional pre-computed reference centroids. Production does not require

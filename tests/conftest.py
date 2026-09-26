@@ -28,7 +28,6 @@ os.environ["SUPABASE_JWT_SECRET"] = "unit-test-jwt-secret-not-for-production-32-
 os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
 os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-role-key")
 os.environ.setdefault("SUPABASE_STORAGE_BUCKET", "smartroute-documents")
-os.environ.setdefault("HF_TOKEN", "dummy-hf-token-for-testing")
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +61,7 @@ async def mock_redis():
 
 @pytest.fixture(autouse=True)
 async def mock_embeddings():
-    """Globally mock HuggingFaceEndpointEmbeddings to avoid real API calls in tests."""
+    """Globally mock local FastEmbed embeddings to avoid model downloads in tests."""
     mock_emb = MagicMock()
     # Return deterministic 384-dim zero vectors matching the length of the input
     mock_emb.embed_query = MagicMock(return_value=[0.0] * 384)
