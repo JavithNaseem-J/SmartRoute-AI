@@ -6,7 +6,7 @@ from langchain_core.documents import Document
 from qdrant_client import models
 
 import src.core.dependencies as deps
-from src.retrieval.indexer import DocumentIndexer
+from src.retrieval.indexer import DocumentIndexer, NoIndexableTextError
 
 
 @pytest.mark.asyncio
@@ -76,6 +76,26 @@ async def test_indexer_reports_embedding_generation_failure(mock_qdrant):
         await indexer.aindex_documents([Document(page_content="cover letter text")])
 
     mock_qdrant.upsert.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_indexer_rejects_blank_documents_before_embedding(mock_qdrant):
+    """Blank document pages must not be sent to FastEmbed as an empty batch."""
+    indexer = DocumentIndexer()
+
+    with pytest.raises(NoIndexableTextError, match="No readable text"):
+        await indexer.aindex_documents([Document(page_content="   ")])
+
+    indexer.embeddings.aembed_documents.assert_not_called()
+    mock_qdrant.upsert.assert_not_called()
+
+
+def test_load_file_ignores_blank_text(tmp_path, mock_qdrant):
+    """Text loaders should reject files whose extracted content is blank."""
+    file_path = tmp_path / "blank.txt"
+    file_path.write_text("  \n\t", encoding="utf-8")
+
+    assert DocumentIndexer().load_file(file_path, source="user-1/blank.txt") == []
 
 
 @pytest.mark.asyncio

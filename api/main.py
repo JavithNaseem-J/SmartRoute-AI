@@ -410,7 +410,7 @@ async def upload_documents(
     if not files:
         raise HTTPException(status_code=422, detail="No files uploaded")
 
-    from src.retrieval.indexer import DocumentIndexer
+    from src.retrieval.indexer import DocumentIndexer, NoIndexableTextError
 
     try:
         storage = SupabaseStorage.from_env()
@@ -505,6 +505,8 @@ async def upload_documents(
 
             try:
                 indexed_chunks = await indexer.aindex_documents(documents_to_index) or 0
+            except NoIndexableTextError as e:
+                raise HTTPException(status_code=422, detail=str(e))
             except Exception as e:
                 logger.error(f"Vector indexing failed: {e}", exc_info=True)
                 detail = (

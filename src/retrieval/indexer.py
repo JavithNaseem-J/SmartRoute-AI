@@ -14,6 +14,10 @@ from src.retrieval.chunking import DocumentChunker
 from src.utils.logger import logger
 
 
+class NoIndexableTextError(ValueError):
+    """Raised when an uploaded file has no text that can be chunked and indexed."""
+
+
 class DocumentIndexer:
     """Orchestrates document loading, chunking, and indexing into Qdrant."""
 
@@ -67,11 +71,12 @@ class DocumentIndexer:
             return []
 
         documents = cast(List[Document], loader_cls(str(file_path)).load())
-        for document in documents:
+        readable_documents = [document for document in documents if document.page_content.strip()]
+        for document in readable_documents:
             document.metadata.update(metadata or {})
             document.metadata["source"] = source
             document.metadata["filename"] = file_path.name
-        return documents
+        return readable_documents
 
     async def aindex_documents(self, documents: List[Document]) -> int:
         """Async index documents into vector store (safe on running event loop)."""
@@ -80,6 +85,8 @@ class DocumentIndexer:
 
         chunks = self.chunker.chunk_documents(documents)
         logger.info(f"Chunked into {len(chunks)} chunks")
+        if not chunks:
+            raise NoIndexableTextError("No readable text found in the uploaded document.")
 
         try:
             await self._async_add_documents(chunks)
@@ -93,6 +100,8 @@ class DocumentIndexer:
 
     async def _async_add_documents(self, chunks: List[Document]):
         texts = [doc.page_content for doc in chunks]
+        if not texts:
+            raise NoIndexableTextError("No readable text found in the uploaded document.")
 
         # 1. Generate Dense Vectors
         try:
