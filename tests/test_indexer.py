@@ -48,6 +48,30 @@ async def test_indexer_upsert_waits_for_vectors(mock_qdrant):
 
 
 @pytest.mark.asyncio
+async def test_indexer_creates_keyword_indexes_for_document_metadata(mock_qdrant):
+    """Qdrant Cloud needs payload indexes before document filters can be used."""
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.return_value = [[0.1] * 384]
+    mock_qdrant.collection_exists.return_value = True
+
+    await indexer.aindex_documents(
+        [Document(page_content="cover letter text", metadata={"user_id": "user-1"})]
+    )
+
+    assert [
+        call.kwargs["field_name"] for call in mock_qdrant.create_payload_index.call_args_list
+    ] == [
+        "metadata.user_id",
+        "metadata.source",
+        "metadata.filename",
+    ]
+    assert all(
+        call.kwargs["field_schema"] == models.PayloadSchemaType.KEYWORD
+        for call in mock_qdrant.create_payload_index.call_args_list
+    )
+
+
+@pytest.mark.asyncio
 async def test_count_indexed_chunks_filters_by_user_and_source(mock_qdrant):
     """Indexer verification counts the same user/source payload used during retrieval."""
     indexer = DocumentIndexer()
@@ -134,6 +158,23 @@ def test_fastembed_embeddings_do_not_require_hf_token(monkeypatch):
         assert isinstance(embeddings, deps.FastEmbedEmbeddings)
     finally:
         deps._embeddings = previous_embeddings
+
+
+def test_qdrant_client_allows_a_local_instance_without_an_api_key(monkeypatch):
+    """Self-hosted Qdrant does not require the Cloud API key."""
+    previous_client = deps._qdrant_client
+    client = MagicMock()
+    client_factory = MagicMock(return_value=client)
+    monkeypatch.setattr(deps, "AsyncQdrantClient", client_factory)
+    monkeypatch.setenv("QDRANT_URL", "http://localhost:6333")
+    monkeypatch.delenv("QDRANT_API_KEY", raising=False)
+    deps._qdrant_client = None
+
+    try:
+        assert deps.get_qdrant_client() is client
+        client_factory.assert_called_once_with(url="http://localhost:6333", api_key=None)
+    finally:
+        deps._qdrant_client = previous_client
 
 
 @pytest.mark.asyncio

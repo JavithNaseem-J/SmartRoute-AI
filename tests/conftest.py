@@ -39,6 +39,7 @@ async def mock_qdrant():
     mock_instance.upsert = AsyncMock(return_value=None)
     mock_instance.collection_exists = AsyncMock(return_value=False)
     mock_instance.count = AsyncMock(return_value=MagicMock(count=0))
+    mock_instance.create_payload_index = AsyncMock(return_value=None)
 
     # Directly inject into the singleton cache to bypass `from ... import` binding issues
     old = deps._qdrant_client

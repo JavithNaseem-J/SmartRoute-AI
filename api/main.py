@@ -49,8 +49,6 @@ _REQUIRED_ENV_VARS = [
     ("DATABASE_URL", "Supabase PostgreSQL  -> https://supabase.com"),
     ("REDIS_URL", "Upstash Redis        -> https://upstash.com"),
     ("QDRANT_URL", "Qdrant Cloud         -> https://cloud.qdrant.io"),
-    ("QDRANT_API_KEY", "Qdrant Cloud         -> https://cloud.qdrant.io"),
-    ("HF_TOKEN", "HuggingFace API      -> https://huggingface.co/settings/tokens"),
     ("SUPABASE_URL", "Supabase Project URL -> https://supabase.com"),
     ("SUPABASE_SERVICE_ROLE_KEY", "Supabase service key -> Project Settings / API"),
     ("SUPABASE_STORAGE_BUCKET", "Supabase Storage bucket"),
@@ -92,7 +90,8 @@ ALLOWED_DOCUMENT_SUFFIXES = {".pdf", ".txt", ".md"}
 MAX_DOCUMENT_UPLOAD_BYTES = int(os.getenv("MAX_DOCUMENT_UPLOAD_BYTES", str(10 * 1024 * 1024)))
 
 
-def _validate_document_upload(filename: str, content: bytes, content_type: str) -> None:
+def _validate_document_upload(filename: str, content: bytes, content_type: str) -> bytes:
+    """Validate an upload and normalize supported text documents to UTF-8."""
     suffix = Path(filename).suffix.lower()
     if not filename or suffix not in ALLOWED_DOCUMENT_SUFFIXES:
         raise HTTPException(
@@ -119,20 +118,38 @@ def _validate_document_upload(filename: str, content: bytes, content_type: str) 
             "application/octet-stream",
         }:
             raise HTTPException(status_code=422, detail=f"Invalid PDF content type: {filename}")
-        return
+        return content
 
-    if b"\x00" in content[:4096]:
-        raise HTTPException(status_code=422, detail=f"Invalid text document content: {filename}")
     try:
-        content[:4096].decode("utf-8")
+        text = content.decode("utf-8-sig")
     except UnicodeDecodeError:
-        raise HTTPException(status_code=422, detail=f"Document must be UTF-8 text: {filename}")
+        try:
+            if content.startswith((b"\xff\xfe", b"\xfe\xff")):
+                # Windows Notepad commonly saves "Unicode" text as UTF-16.
+                text = content.decode("utf-16")
+            elif b"\x00" in content[:4096]:
+                raise UnicodeDecodeError("text", content, 0, 1, "embedded null byte")
+            else:
+                # Windows-1252 covers common plain-text files with smart quotes.
+                text = content.decode("cp1252")
+        except UnicodeDecodeError:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Unsupported text encoding: {filename}. "
+                    "Use UTF-8, UTF-16, or Windows-1252 text."
+                ),
+            )
+
+    if "\x00" in text:
+        raise HTTPException(status_code=422, detail=f"Invalid text document content: {filename}")
 
     if normalized_type and not (
         normalized_type.startswith("text/")
         or normalized_type in {"application/octet-stream", "application/markdown"}
     ):
         raise HTTPException(status_code=422, detail=f"Invalid text content type: {filename}")
+    return text.encode("utf-8")
 
 
 @asynccontextmanager
@@ -453,7 +470,7 @@ async def upload_documents(
                 filename = Path(upload.filename or "").name
                 content = await upload.read()
                 content_type = upload.content_type or guess_content_type(filename)
-                _validate_document_upload(filename, content, content_type)
+                content = _validate_document_upload(filename, content, content_type)
                 storage_path = storage.object_path(user_id, filename)
                 try:
                     await storage.upload(storage_path, content, content_type)

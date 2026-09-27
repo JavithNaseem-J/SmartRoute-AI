@@ -64,9 +64,9 @@ def get_qdrant_client() -> AsyncQdrantClient:
     if _qdrant_client is None:
         qdrant_url = os.getenv("QDRANT_URL")
         qdrant_key = os.getenv("QDRANT_API_KEY")
-        if not qdrant_url or not qdrant_key:
-            raise RuntimeError("QDRANT_URL and QDRANT_API_KEY environment variables are required")
-        _qdrant_client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_key)
+        if not qdrant_url:
+            raise RuntimeError("QDRANT_URL environment variable is required")
+        _qdrant_client = AsyncQdrantClient(url=qdrant_url, api_key=qdrant_key or None)
         enable_sparse = os.getenv("ENABLE_SPARSE_EMBEDDINGS", "false").lower() == "true"
         if enable_sparse:
             try:

@@ -38,7 +38,7 @@ class DocumentIndexer:
         logger.info(f"DocumentIndexer initialized: {collection_name}")
 
     async def _ensure_collection(self, vector_size: int):
-        """Ensure collection exists with both dense and sparse configurations."""
+        """Ensure collection and metadata filters required by document isolation exist."""
         exists = await self.qdrant.collection_exists(self.collection_name)
         if not exists:
             vectors_config = {
@@ -51,6 +51,16 @@ class DocumentIndexer:
                 sparse_vectors_config=sparse_vectors_config,
             )
             logger.info(f"Created new collection: {self.collection_name}")
+
+        # Qdrant Cloud requires keyword payload indexes for the filters used by
+        # upload verification, retrieval, and deletion.
+        for field_name in ("metadata.user_id", "metadata.source", "metadata.filename"):
+            await self.qdrant.create_payload_index(
+                collection_name=self.collection_name,
+                field_name=field_name,
+                field_schema=models.PayloadSchemaType.KEYWORD,
+                wait=True,
+            )
 
     def load_file(
         self,

@@ -61,6 +61,17 @@ def test_health_check(client):
     assert response.json()["status"] == "healthy"
 
 
+def test_startup_validation_allows_optional_embedding_credentials(monkeypatch):
+    import api.main as api_module
+
+    for name, _hint in api_module._REQUIRED_ENV_VARS:
+        monkeypatch.setenv(name, "configured")
+    monkeypatch.delenv("QDRANT_API_KEY", raising=False)
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+
+    api_module.validate_env()
+
+
 def test_version_endpoint_reports_build_identity(client, monkeypatch):
     """Test unauthenticated deployment identity endpoint."""
     commit_sha = "a" * 40
@@ -211,6 +222,89 @@ def test_upload_documents_uses_cloud_storage(client, api_key, monkeypatch):
     assert response.json()["stats"]["indexed_chunks"] == 1
     assert response.json()["stats"]["verified_chunks"] == 1
     api_module.pipeline.semantic_cache.invalidate_user.assert_awaited_once_with("test_user")
+
+
+def test_upload_normalizes_utf16_text_before_storage_and_indexing(client, api_key, monkeypatch):
+    """Windows UTF-16 text uploads are stored as UTF-8 for the text loader."""
+    from langchain_core.documents import Document
+
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    uploaded = []
+
+    class FakeStorage:
+        bucket = "smartroute-documents"
+
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        def object_path(self, user_id, filename):
+            return f"{user_id}/{filename}"
+
+        async def upload(self, path, content, content_type):
+            uploaded.append((path, content, content_type))
+
+        async def delete(self, path):
+            return None
+
+    class FakeIndexer:
+        def load_file(self, file_path, *, source, metadata=None):
+            assert (
+                file_path.read_text(encoding="utf-8")
+                == "Cover letter for a software engineer role."
+            )
+            return [
+                Document(
+                    page_content="cover letter", metadata={"source": source, **(metadata or {})}
+                )
+            ]
+
+        async def aindex_documents(self, documents):
+            return len(documents)
+
+        async def count_indexed_chunks(self, **_kwargs):
+            return 1
+
+        def get_stats(self):
+            return {"chunker": {}}
+
+    api_module.pipeline.retriever.reload = AsyncMock()
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.post(
+        "/v1/documents/upload",
+        files={
+            "files": (
+                "ATS Prompt.txt",
+                "Cover letter for a software engineer role.".encode("utf-16"),
+                "text/plain",
+            )
+        },
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 200
+    assert uploaded == [
+        (
+            "test_user/ATS Prompt.txt",
+            b"Cover letter for a software engineer role.",
+            "text/plain",
+        )
+    ]
+
+
+def test_upload_rejects_malformed_utf16_text(client, api_key):
+    response = client.post(
+        "/v1/documents/upload",
+        files={"files": ("broken.txt", b"\xff\xfe\x00", "text/plain")},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"].startswith("Unsupported text encoding:")
 
 
 def test_upload_rolls_back_storage_when_indexing_verification_fails(client, api_key, monkeypatch):
