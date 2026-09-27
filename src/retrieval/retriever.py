@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional, Tuple
 
 from langchain_core.documents import Document
@@ -5,6 +6,7 @@ from qdrant_client import models
 
 from src.core.dependencies import get_embeddings, get_qdrant_client, get_sparse_vector
 from src.retrieval.reranker import DocumentReranker
+from src.retrieval.types import Citation
 from src.utils.logger import logger
 
 
@@ -26,6 +28,7 @@ class DocumentRetriever:
         # Re-ranker for post-retrieval relevance filtering
         self.reranker = DocumentReranker()
         self.last_diagnostics: dict = {}
+        self.last_citations: List[Citation] = []
 
         logger.info("####### DocumentRetriever initialized #######")
 
@@ -42,24 +45,63 @@ class DocumentRetriever:
         await self.ensure_ready()
 
     @staticmethod
-    def _user_filter(user_id: Optional[str]) -> Optional[models.Filter]:
+    def _user_filter(
+        user_id: Optional[str], active_sources: Optional[List[str]] = None
+    ) -> Optional[models.Filter]:
         if not user_id:
             return None
-        return models.Filter(
-            must=[
+        conditions: List[models.Condition] = [
+            models.FieldCondition(
+                key="metadata.user_id",
+                match=models.MatchValue(value=user_id),
+            )
+        ]
+        if active_sources is not None:
+            conditions.append(
                 models.FieldCondition(
-                    key="metadata.user_id",
-                    match=models.MatchValue(value=user_id),
+                    key="metadata.source",
+                    match=models.MatchAny(any=active_sources),
                 )
-            ]
-        )
+            )
+        return models.Filter(must=conditions)
+
+    @staticmethod
+    def _citation_for_document(document: Document, index: int) -> Citation:
+        metadata = document.metadata
+        filename = str(metadata.get("filename") or metadata.get("source") or "Unknown")
+        filename = filename.replace("\\", "/").rsplit("/", 1)[-1]
+
+        page: Optional[int] = None
+        if metadata.get("page") is not None:
+            try:
+                page = int(metadata["page"]) + 1
+            except (TypeError, ValueError):
+                page = None
+
+        section_value = metadata.get("section")
+        section = str(section_value).strip() if section_value else None
+        excerpt = re.sub(r"\s+", " ", document.page_content).strip()
+        if len(excerpt) > 280:
+            excerpt = f"{excerpt[:277].rstrip()}..."
+
+        return {
+            "id": f"C{index}",
+            "filename": filename,
+            "page": page,
+            "section": section,
+            "excerpt": excerpt,
+        }
 
     async def _search_qdrant(
-        self, query: str, k: int, user_id: Optional[str] = None
+        self,
+        query: str,
+        k: int,
+        user_id: Optional[str] = None,
+        active_sources: Optional[List[str]] = None,
     ) -> List[Tuple[Document, float]]:
         """Perform native hybrid search using Qdrant client (RRF)."""
         vector = await self.embeddings.aembed_query(query)
-        query_filter = self._user_filter(user_id)
+        query_filter = self._user_filter(user_id, active_sources)
 
         try:
             sparse_vector = get_sparse_vector(self.qdrant, query)
@@ -116,19 +158,27 @@ class DocumentRetriever:
             self.last_diagnostics["search_error"] = str(e)
             return []
 
-    async def count_user_chunks(self, user_id: str) -> int:
+    async def count_user_chunks(
+        self, user_id: str, active_sources: Optional[List[str]] = None
+    ) -> int:
         """Count indexed document chunks for a user."""
         if not await self.qdrant.collection_exists(self.collection_name):
             return 0
         result = await self.qdrant.count(
             collection_name=self.collection_name,
-            count_filter=self._user_filter(user_id),
+            count_filter=self._user_filter(user_id, active_sources),
             exact=True,
         )
         return int(result.count)
 
-    async def retrieve(self, query: str, user_id: Optional[str] = None) -> Tuple[str, List[str]]:
+    async def retrieve(
+        self,
+        query: str,
+        user_id: Optional[str] = None,
+        active_sources: Optional[List[str]] = None,
+    ) -> Tuple[str, List[str]]:
         try:
+            self.last_citations = []
             self.last_diagnostics = {
                 "reason": None,
                 "collection_ready": False,
@@ -138,6 +188,12 @@ class DocumentRetriever:
             if not user_id:
                 logger.warning("No user ID provided; document retrieval disabled")
                 self.last_diagnostics["reason"] = "missing_user_id"
+                return "", []
+
+            if active_sources == []:
+                logger.info("No active documents are available for this user")
+                self.last_diagnostics["reason"] = "no_active_documents"
+                self.last_diagnostics["user_chunk_count"] = 0
                 return "", []
 
             if not hasattr(self, "dense_ready"):
@@ -150,12 +206,16 @@ class DocumentRetriever:
                 return "", []
 
             try:
-                self.last_diagnostics["user_chunk_count"] = await self.count_user_chunks(user_id)
+                self.last_diagnostics["user_chunk_count"] = await self.count_user_chunks(
+                    user_id, active_sources
+                )
             except Exception as e:
                 logger.warning(f"Could not count indexed chunks for user {user_id}: {e}")
                 self.last_diagnostics["count_error"] = str(e)
 
-            context, sources = await self._retrieve_hybrid(query, user_id=user_id)
+            context, sources = await self._retrieve_hybrid(
+                query, user_id=user_id, active_sources=active_sources
+            )
             self.last_diagnostics["retrieved_source_count"] = len(sources)
             if not sources:
                 if self.last_diagnostics.get("search_error"):
@@ -175,7 +235,11 @@ class DocumentRetriever:
             return "", []
 
     async def _retrieve_hybrid(
-        self, query: str, top_k: Optional[int] = None, user_id: Optional[str] = None
+        self,
+        query: str,
+        top_k: Optional[int] = None,
+        user_id: Optional[str] = None,
+        active_sources: Optional[List[str]] = None,
     ) -> Tuple[str, List[str]]:
         """Retrieve using native Qdrant hybrid search with RRF Fusion."""
         logger.info("Using native Qdrant hybrid search")
@@ -190,7 +254,9 @@ class DocumentRetriever:
         effective_k = top_k or (15 if is_list_query else self.top_k)
 
         # Fetch effective_k * 2 candidates from Qdrant
-        results = await self._search_qdrant(query, effective_k * 2, user_id=user_id)
+        results = await self._search_qdrant(
+            query, effective_k * 2, user_id=user_id, active_sources=active_sources
+        )
 
         candidate_docs = [doc for doc, _ in results]
 
@@ -199,16 +265,26 @@ class DocumentRetriever:
 
         context_parts = []
         sources = []
+        citations: List[Citation] = []
 
         for i, doc in enumerate(top_docs):
-            context_parts.append(f"[Source {i + 1}]\n{doc.page_content}")
-            source = doc.metadata.get("filename") or doc.metadata.get("source", "Unknown")
-            if "page" in doc.metadata:
-                try:
-                    source = f"{source} — page {int(doc.metadata['page']) + 1}"
-                except (TypeError, ValueError):
-                    pass
+            citation = self._citation_for_document(doc, i + 1)
+            citations.append(citation)
+            location = citation["filename"]
+            if citation["page"] is not None:
+                location = f"{location}, page {citation['page']}"
+            elif citation["section"]:
+                location = f"{location}, section {citation['section']}"
+            context_parts.append(f"[{citation['id']}] {location}\n{doc.page_content}")
+
+            source = citation["filename"]
+            if citation["page"] is not None:
+                source = f"{source} - page {citation['page']}"
+            elif citation["section"]:
+                source = f"{source} - section {citation['section']}"
             sources.append(f"Source {i + 1}: {source}")
+
+        self.last_citations = citations
 
         logger.info(
             f"Hybrid search retrieved {len(top_docs)} documents (effective_k={effective_k})"

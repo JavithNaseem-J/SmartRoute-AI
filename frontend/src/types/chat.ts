@@ -1,8 +1,17 @@
+export interface Citation {
+  id: string;
+  filename: string;
+  page?: number | null;
+  section?: string | null;
+  excerpt: string;
+}
+
 export interface Message {
   role: "user" | "assistant";
   content: string;
   model?: string;
   sources?: string[];
+  citations?: Citation[];
   streaming?: boolean;
 }
 

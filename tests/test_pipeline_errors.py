@@ -25,6 +25,8 @@ class FakeBudgetManager:
 
 
 class FakeRetriever:
+    last_citations = []
+
     async def retrieve(self, *args, **kwargs):
         return "", []
 
@@ -164,3 +166,29 @@ async def test_streaming_rag_with_no_sources_returns_honest_no_source_answer():
     assert "uploaded documents" in events[1]["content"]
     assert events[-1]["type"] == "done"
     assert events[-1]["result"]["routing_info"]["reason"] == "no_retrieved_document_sources"
+
+
+def test_citation_validation_removes_invented_markers_and_unused_evidence():
+    citations = [
+        {
+            "id": "C1",
+            "filename": "Resume.pdf",
+            "page": 2,
+            "section": None,
+            "excerpt": "Backend engineering experience.",
+        },
+        {
+            "id": "C2",
+            "filename": "Cover Letter.pdf",
+            "page": 1,
+            "section": None,
+            "excerpt": "Application for the backend role.",
+        },
+    ]
+
+    answer, used = InferencePipeline._validate_answer_citations(
+        "Backend experience [C1]. Invented evidence [C9].", citations
+    )
+
+    assert answer == "Backend experience [C1]. Invented evidence ."
+    assert [citation["id"] for citation in used] == ["C1"]

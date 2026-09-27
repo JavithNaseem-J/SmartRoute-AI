@@ -91,6 +91,35 @@ async def test_count_indexed_chunks_filters_by_user_and_source(mock_qdrant):
 
 
 @pytest.mark.asyncio
+async def test_delete_document_waits_and_verifies_vector_removal(mock_qdrant):
+    indexer = DocumentIndexer()
+    mock_qdrant.collection_exists.return_value = True
+    mock_qdrant.delete = AsyncMock(return_value=None)
+    mock_qdrant.count.return_value = type("CountResult", (), {"count": 0})()
+
+    deleted = await indexer.adelete_document("old.txt", source="user-1/old.txt", user_id="user-1")
+
+    assert deleted is True
+    document_delete = mock_qdrant.delete.call_args_list[0]
+    assert document_delete.kwargs["wait"] is True
+    delete_filter = document_delete.kwargs["points_selector"]
+    assert [condition.key for condition in delete_filter.must] == [
+        "metadata.source",
+        "metadata.user_id",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_delete_document_propagates_qdrant_failure(mock_qdrant):
+    indexer = DocumentIndexer()
+    mock_qdrant.collection_exists.return_value = True
+    mock_qdrant.delete.side_effect = RuntimeError("Qdrant unavailable")
+
+    with pytest.raises(RuntimeError, match="Vector deletion failed"):
+        await indexer.adelete_document("old.txt", source="user-1/old.txt", user_id="user-1")
+
+
+@pytest.mark.asyncio
 async def test_indexer_reports_embedding_generation_failure(mock_qdrant):
     """Embedding provider failures should produce a clear upload error."""
     indexer = DocumentIndexer()

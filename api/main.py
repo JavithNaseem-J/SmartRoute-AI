@@ -629,14 +629,20 @@ async def delete_document(filename: str, user_id: str = Depends(require_api_key)
             raise HTTPException(status_code=404, detail=f"Document not found: {filename}")
 
         storage = SupabaseStorage.from_env()
-        await storage.delete(document["storage_path"])
-
         indexer = DocumentIndexer()
-        deleted = await indexer.adelete_document(
-            filename,
-            source=document["storage_path"],
-            user_id=user_id,
-        )
+        try:
+            deleted = await indexer.adelete_document(
+                filename,
+                source=document["storage_path"],
+                user_id=user_id,
+            )
+        except RuntimeError as e:
+            logger.error(f"Vector deletion failed for {filename}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=502,
+                detail="Document vector deletion failed. The document remains active.",
+            )
+        await storage.delete(document["storage_path"])
         await asyncio.to_thread(mark_document_deleted, pipeline.tracker, document["storage_path"])
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
@@ -663,17 +669,25 @@ async def clear_all_documents(user_id: str = Depends(require_api_key)):
     try:
         storage = SupabaseStorage.from_env()
         documents = await asyncio.to_thread(list_active_documents, pipeline.tracker, user_id)
+        indexer = DocumentIndexer()
+        try:
+            await indexer.aclear_all_documents(user_id=user_id)
+        except RuntimeError as e:
+            logger.error(f"Vector clear failed for user {user_id}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=502,
+                detail="Document vector clear failed. Documents remain active.",
+            )
         for document in documents:
             await storage.delete(document["storage_path"])
             await asyncio.to_thread(
                 mark_document_deleted, pipeline.tracker, document["storage_path"]
             )
-
-        indexer = DocumentIndexer()
-        await indexer.aclear_all_documents(user_id=user_id)
         if hasattr(pipeline.retriever, "reload"):
             await pipeline.retriever.reload()
         return {"status": "success", "message": "All documents cleared"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Clearing all documents failed: {e}")
         raise HTTPException(status_code=500, detail="Document clear failed")

@@ -5,6 +5,8 @@ Flow: Guardrails -> Routing -> Budget -> Retrieval -> Generation -> Tracking
 """
 
 import asyncio
+import hashlib
+import re
 import time
 from pathlib import Path
 from typing import AsyncIterator, Dict, List, Optional
@@ -13,10 +15,12 @@ from langfuse.decorators import langfuse_context, observe
 
 from src.cost.budget import BudgetManager
 from src.cost.tracker import CostTracker
+from src.documents import list_active_documents
 from src.memory.conversation import ConversationMemory
 from src.models.model_manager import ModelManager
 from src.retrieval.retriever import DocumentRetriever
 from src.retrieval.semantic_cache import SemanticCache
+from src.retrieval.types import Citation
 from src.routing.router import QueryRouter
 from src.utils.guardrails import GuardrailViolation, validate_query
 from src.utils.logger import logger
@@ -31,6 +35,7 @@ class InferencePipeline:
         "I couldn't find this in your uploaded documents. "
         "Try rephrasing the question or upload a document that contains the answer."
     )
+    CITATION_MARKER = re.compile(r"\[C(\d+)\]")
 
     def __init__(
         self,
@@ -73,13 +78,16 @@ class InferencePipeline:
                 "Do NOT stop at 3-5 items — scan all context chunks and list every single item found. "
                 "If the user asks about a specific term or instruction, quote or summarize that text directly from the context. "
                 "Do NOT use general dictionary definitions or outside parametric memory when the answer is in the context. "
+                "Every factual statement based on the context MUST end with one or more citation markers such as [C1]. "
+                "Use only citation IDs present in the context and never invent a citation ID. "
                 "If the context does not contain relevant information, respond with: "
                 "'The uploaded documents do not contain information about this topic.'"
             )
             user_msg = (
                 f"Document Context:\n{context}\n\n"
                 f"User Question: {prompt}\n\n"
-                "Answer based strictly on the document context above. Be comprehensive and list all items present in the context."
+                "Answer based strictly on the document context above. Be comprehensive, list all items present in the context, "
+                "and cite each supported claim with the exact [C#] marker from its evidence."
             )
         else:
             system_msg = (
@@ -92,6 +100,25 @@ class InferencePipeline:
             *(history or []),
             {"role": "user", "content": user_msg},
         ]
+
+    @classmethod
+    def _validate_answer_citations(
+        cls, answer: str, citations: List[Citation]
+    ) -> tuple[str, List[Citation]]:
+        """Remove invented markers and return only evidence cited by the answer."""
+        citation_by_id = {citation["id"]: citation for citation in citations}
+        used_ids: List[str] = []
+
+        def replace_marker(match: re.Match[str]) -> str:
+            citation_id = f"C{match.group(1)}"
+            if citation_id not in citation_by_id:
+                return ""
+            if citation_id not in used_ids:
+                used_ids.append(citation_id)
+            return f"[{citation_id}]"
+
+        validated_answer = cls.CITATION_MARKER.sub(replace_marker, answer)
+        return validated_answer, [citation_by_id[citation_id] for citation_id in used_ids]
 
     async def _log_query_metrics(
         self,
@@ -131,8 +158,30 @@ class InferencePipeline:
         user_id: Optional[str],
     ) -> Dict:
         """Extract common pipeline setup steps."""
-        # 0. Check Semantic Cache
+        active_sources: Optional[List[str]] = None
+        if use_retrieval:
+            if not user_id:
+                active_sources = []
+            else:
+                active_documents = await asyncio.to_thread(
+                    list_active_documents, self.tracker, user_id
+                )
+                active_sources = sorted(
+                    {
+                        str(document["storage_path"])
+                        for document in active_documents
+                        if document.get("storage_path")
+                    }
+                )
+
         cache_scope = f"strategy={strategy or 'default'}|retrieval={use_retrieval}"
+        if active_sources is not None:
+            document_fingerprint = hashlib.sha256(
+                "\0".join(active_sources).encode("utf-8")
+            ).hexdigest()[:16]
+            cache_scope = f"{cache_scope}|documents={document_fingerprint}"
+
+        # Check semantic cache only after the active document set is known.
         cached_result = await self.semantic_cache.get(
             query, user_id=user_id, cache_scope=cache_scope
         )
@@ -140,6 +189,7 @@ class InferencePipeline:
             if use_retrieval and not cached_result.get("sources"):
                 logger.info("Ignoring source-less semantic cache hit for retrieval request")
             else:
+                cached_result.setdefault("citations", [])
                 cached_result["latency"] = time.time() - start_time
                 await self._log_query_metrics(
                     query=query,
@@ -171,8 +221,12 @@ class InferencePipeline:
         # Retrieval
         context = ""
         sources: List[str] = []
+        citations: List[Citation] = []
         if use_retrieval:
-            context, sources = await self.retriever.retrieve(query, user_id=user_id)
+            context, sources = await self.retriever.retrieve(
+                query, user_id=user_id, active_sources=active_sources
+            )
+            citations = list(getattr(self.retriever, "last_citations", []))
             logger.info(f"Retrieved {len(sources)} sources")
         retrieval_diagnostics = getattr(self.retriever, "last_diagnostics", {})
 
@@ -183,6 +237,7 @@ class InferencePipeline:
             "routing_decision": routing_decision,
             "context": context,
             "sources": sources,
+            "citations": citations,
             "cache_scope": cache_scope,
             "retrieval_diagnostics": retrieval_diagnostics,
         }
@@ -228,6 +283,7 @@ class InferencePipeline:
             "output_tokens": 0,
             "context": "",
             "sources": [],
+            "citations": [],
             "routing_info": routing_info,
             "success": True,
             "error": None,
@@ -246,6 +302,7 @@ class InferencePipeline:
         latency: float,
         context: str,
         sources: List[str],
+        citations: List[Citation],
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         cache_scope: str = "default",
@@ -279,6 +336,7 @@ class InferencePipeline:
             "output_tokens": output_tokens,
             "context": context,
             "sources": sources,
+            "citations": citations,
             "routing_info": routing_decision,
             "success": True,
             "error": None,
@@ -325,6 +383,7 @@ class InferencePipeline:
             routing_decision = prep["routing_decision"]
             context = prep["context"]
             sources = prep["sources"]
+            citations = prep["citations"]
             cache_scope = prep["cache_scope"]
             retrieval_diagnostics = prep["retrieval_diagnostics"]
 
@@ -354,10 +413,11 @@ class InferencePipeline:
             result = await model.agenerate(
                 messages=messages,
                 max_tokens=1000,
-                temperature=0.7,
+                temperature=0.2 if context else 0.7,
             )
 
             answer = result["text"]
+            answer, citations = self._validate_answer_citations(answer, citations)
             input_tokens = int(result.get("input_tokens") or input_tokens)
             output_tokens = int(result.get("output_tokens") or model.count_tokens(answer))
             actual_cost = model.get_cost(input_tokens, output_tokens)
@@ -375,6 +435,7 @@ class InferencePipeline:
                 latency=latency,
                 context=context,
                 sources=sources,
+                citations=citations,
                 session_id=session_id,
                 user_id=user_id,
                 cache_scope=cache_scope,
@@ -440,6 +501,7 @@ class InferencePipeline:
                             "complexity": "cached",
                         },
                         "sources": cached_result.get("sources", []),
+                        "citations": cached_result.get("citations", []),
                     },
                 }
                 yield {"type": "chunk", "content": cached_result["answer"]}
@@ -451,6 +513,7 @@ class InferencePipeline:
             routing_decision = prep["routing_decision"]
             context = prep["context"]
             sources = prep["sources"]
+            citations = prep["citations"]
             cache_scope = prep["cache_scope"]
             retrieval_diagnostics = prep["retrieval_diagnostics"]
 
@@ -459,6 +522,7 @@ class InferencePipeline:
                 "data": {
                     "routing_info": routing_decision,
                     "sources": sources,
+                    "citations": citations,
                     "retrieval_diagnostics": retrieval_diagnostics,
                 },
             }
@@ -491,7 +555,7 @@ class InferencePipeline:
             stream = model.astream(
                 messages=messages,
                 max_tokens=1000,
-                temperature=0.7,
+                temperature=0.2 if context else 0.7,
             )
 
             full_answer = ""
@@ -508,12 +572,21 @@ class InferencePipeline:
                 input_tokens = fallback_model.count_tokens(full_prompt)
 
                 yield {"type": "replace", "content": ""}
-                stream = fallback_model.astream(messages=messages, max_tokens=1000, temperature=0.7)
+                stream = fallback_model.astream(
+                    messages=messages,
+                    max_tokens=1000,
+                    temperature=0.2 if context else 0.7,
+                )
                 full_answer = ""
                 async for chunk in stream:
                     full_answer += chunk
                     yield {"type": "chunk", "content": chunk}
                 model = fallback_model
+
+            validated_answer, citations = self._validate_answer_citations(full_answer, citations)
+            if validated_answer != full_answer:
+                full_answer = validated_answer
+                yield {"type": "replace", "content": full_answer}
 
             output_tokens = model.count_tokens(full_answer)
             actual_cost = model.get_cost(input_tokens, output_tokens)
@@ -531,6 +604,7 @@ class InferencePipeline:
                 latency=latency,
                 context=context,
                 sources=sources,
+                citations=citations,
                 session_id=session_id,
                 user_id=user_id,
                 cache_scope=cache_scope,
@@ -589,6 +663,7 @@ class InferencePipeline:
             "output_tokens": 0,
             "context": "",
             "sources": [],
+            "citations": [],
             "routing_info": {},
             "success": False,
             "error": error,

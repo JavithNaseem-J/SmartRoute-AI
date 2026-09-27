@@ -543,3 +543,86 @@ def test_upload_returns_safe_specific_indexing_error(client, api_key, monkeypatc
     assert response.json()["detail"] == (
         "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
     )
+
+
+def test_delete_keeps_document_active_when_vector_removal_fails(client, api_key, monkeypatch):
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    operations = []
+
+    class FakeStorage:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        async def delete(self, path):
+            operations.append(("storage-delete", path))
+
+    class FakeIndexer:
+        async def adelete_document(self, filename, source=None, user_id=None):
+            raise RuntimeError("Qdrant delete rejected")
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(
+        api_module,
+        "get_active_document",
+        lambda *_args: {
+            "filename": "old.txt",
+            "storage_path": "test_user/old.txt",
+        },
+    )
+    mark_deleted = MagicMock()
+    monkeypatch.setattr(api_module, "mark_document_deleted", mark_deleted)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.delete(
+        "/v1/documents/old.txt",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == (
+        "Document vector deletion failed. The document remains active."
+    )
+    assert operations == []
+    mark_deleted.assert_not_called()
+
+
+def test_clear_keeps_documents_active_when_vector_removal_fails(client, api_key, monkeypatch):
+    import api.main as api_module
+    import src.retrieval.indexer as indexer_module
+
+    operations = []
+
+    class FakeStorage:
+        @classmethod
+        def from_env(cls):
+            return cls()
+
+        async def delete(self, path):
+            operations.append(("storage-delete", path))
+
+    class FakeIndexer:
+        async def aclear_all_documents(self, user_id=None):
+            raise RuntimeError("Qdrant delete rejected")
+
+    monkeypatch.setattr(api_module, "SupabaseStorage", FakeStorage)
+    monkeypatch.setattr(
+        api_module,
+        "list_active_documents",
+        lambda *_args: [{"filename": "old.txt", "storage_path": "test_user/old.txt"}],
+    )
+    mark_deleted = MagicMock()
+    monkeypatch.setattr(api_module, "mark_document_deleted", mark_deleted)
+    monkeypatch.setattr(indexer_module, "DocumentIndexer", FakeIndexer)
+
+    response = client.delete(
+        "/v1/documents",
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == ("Document vector clear failed. Documents remain active.")
+    assert operations == []
+    mark_deleted.assert_not_called()

@@ -246,13 +246,17 @@ class DocumentIndexer:
                             )
                         ]
                     ),
+                    wait=True,
                 )
+        except Exception as e:
+            logger.warning(f"Qdrant semantic cache invalidation failed for user {user_id}: {e}")
+
+        try:
             redis = get_redis_client()
             async for key in redis.scan_iter(match=f"semantic_cache:{user_id}:*"):
                 await redis.delete(key)
-            logger.info(f"Invalidated semantic cache for user {user_id}.")
         except Exception as e:
-            logger.warning(f"Failed to invalidate semantic cache for user {user_id}: {e}")
+            logger.warning(f"Redis semantic cache invalidation failed for user {user_id}: {e}")
 
     async def adelete_document(
         self,
@@ -261,11 +265,9 @@ class DocumentIndexer:
         user_id: Optional[str] = None,
     ) -> bool:
         """Purge a document's vectors from Qdrant and Redis cache."""
-        deleted = False
-
         try:
             if await self.qdrant.collection_exists(self.collection_name):
-                source_conditions: List[models.Condition] = [
+                must_conditions: List[models.Condition] = [
                     models.FieldCondition(
                         key="metadata.source",
                         match=models.MatchValue(value=source),
@@ -276,7 +278,6 @@ class DocumentIndexer:
                         match=models.MatchValue(value=filename),
                     ),
                 ]
-                must_conditions: List[models.Condition] = []
                 if user_id:
                     must_conditions.append(
                         models.FieldCondition(
@@ -286,19 +287,25 @@ class DocumentIndexer:
                     )
                 await self.qdrant.delete(
                     collection_name=self.collection_name,
-                    points_selector=models.Filter(
-                        must=must_conditions or None,
-                        should=source_conditions,
-                    ),
+                    points_selector=models.Filter(must=must_conditions),
+                    wait=True,
                 )
+                remaining = await self.count_indexed_chunks(
+                    user_id=user_id,
+                    source=source,
+                    filename=None if source else filename,
+                )
+                if remaining:
+                    raise RuntimeError(
+                        f"Vector deletion verification failed for {filename}: {remaining} chunks remain"
+                    )
                 logger.info(f"Purged vector points for document: {filename}")
-                deleted = True
         except Exception as e:
-            logger.error(f"Error purging vectors for {filename}: {e}")
+            logger.error(f"Error purging vectors for {filename}: {e}", exc_info=True)
+            raise RuntimeError(f"Vector deletion failed for {filename}") from e
 
         await self._invalidate_user_cache(user_id)
-
-        return deleted
+        return True
 
     async def aclear_all_documents(self, user_id: Optional[str] = None) -> None:
         """Clear document vectors from Qdrant and flush Redis cache."""
@@ -319,10 +326,17 @@ class DocumentIndexer:
                 await self.qdrant.delete(
                     collection_name=self.collection_name,
                     points_selector=points_selector,
+                    wait=True,
                 )
+                remaining = await self.count_indexed_chunks(user_id=user_id)
+                if remaining:
+                    raise RuntimeError(
+                        f"Vector clear verification failed: {remaining} chunks remain"
+                    )
                 logger.info(f"Deleted document vectors for user {user_id or 'all users'}")
         except Exception as e:
-            logger.error(f"Error deleting Qdrant vectors: {e}")
+            logger.error("Error deleting Qdrant vectors", exc_info=True)
+            raise RuntimeError("Vector clear failed") from e
 
         await self._invalidate_user_cache(user_id)
 

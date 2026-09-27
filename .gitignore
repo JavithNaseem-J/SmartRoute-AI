@@ -215,6 +215,7 @@ __marimo__/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
+.test-tmp-*/
 graphify-out/
 
 # ── Project runtime data ───────────────────────────────────────────────────────

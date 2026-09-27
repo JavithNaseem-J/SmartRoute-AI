@@ -38,6 +38,62 @@ async def test_document_retriever_filters_qdrant_by_user_id(mock_qdrant, monkeyp
 
 
 @pytest.mark.asyncio
+async def test_document_retriever_filters_by_active_document_sources(mock_qdrant, monkeypatch):
+    """Orphan vectors cannot be retrieved when their storage paths are no longer active."""
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+    mock_qdrant.collection_exists = AsyncMock(return_value=True)
+    mock_qdrant.count = AsyncMock(return_value=MagicMock(count=1))
+    mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
+    monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: None)
+
+    await retriever.retrieve(
+        "What is SmartRoute?",
+        user_id="user-1",
+        active_sources=["user-1/current-document.txt"],
+    )
+
+    query_filter = mock_qdrant.query_points.call_args.kwargs["query_filter"]
+    assert [condition.key for condition in query_filter.must] == [
+        "metadata.user_id",
+        "metadata.source",
+    ]
+    assert query_filter.must[1].match.any == ["user-1/current-document.txt"]
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_skips_qdrant_when_no_documents_are_active(mock_qdrant):
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+
+    context, sources = await retriever.retrieve(
+        "What is SmartRoute?", user_id="user-1", active_sources=[]
+    )
+
+    assert context == ""
+    assert sources == []
+    assert retriever.last_diagnostics["reason"] == "no_active_documents"
+    mock_qdrant.query_points.assert_not_called()
+    mock_qdrant.count.assert_not_called()
+
+
+def test_document_citation_uses_one_based_pdf_page_and_bounded_excerpt(mock_qdrant):
+    retriever = DocumentRetriever()
+    document = Document(
+        page_content="A cover letter for a backend engineering role. " * 20,
+        metadata={"filename": "Cover Letter.pdf", "page": 2},
+    )
+
+    citation = retriever._citation_for_document(document, 1)
+
+    assert citation["id"] == "C1"
+    assert citation["filename"] == "Cover Letter.pdf"
+    assert citation["page"] == 3
+    assert citation["section"] is None
+    assert len(citation["excerpt"]) <= 280
+
+
+@pytest.mark.asyncio
 async def test_document_retriever_diagnoses_user_with_no_chunks(mock_qdrant, monkeypatch):
     """No-source retrieval should reveal when the current user has no indexed chunks."""
     retriever = DocumentRetriever()

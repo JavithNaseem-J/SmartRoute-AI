@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { PromptInputBox } from "@/components/ui/ai-prompt-box";
 import { CostAnalytics } from "@/components/CostAnalytics";
+import { CitationAnswer } from "@/components/CitationAnswer";
 import { ensureDemoAuthToken, getAuthToken } from "@/lib/auth";
 import { loadSessions, newSession, saveSessions } from "@/lib/chat";
 import {
@@ -9,8 +10,8 @@ import {
   listDocuments,
   type StoredDocument,
 } from "@/lib/documents";
-import { formatBytes, formatUploadedAt, uniqueSources } from "@/lib/format";
-import type { Message, Session } from "@/types/chat";
+import { formatBytes, formatUploadedAt } from "@/lib/format";
+import type { Citation, Message, Session } from "@/types/chat";
 import {
   Sparkles,
   Bot,
@@ -62,7 +63,9 @@ export default function App() {
   const [clearConfirm, setClearConfirm] = useState(false);
 
   const [isLoading, setIsLoading] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    window.matchMedia("(min-width: 768px)").matches
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Sync active session id when sessions first load
@@ -311,6 +314,7 @@ export default function App() {
       let accumulated = "";
       let modelUsed = "";
       let sources: string[] = [];
+      let citations: Citation[] = [];
 
       if (reader) {
         let buffer = "";
@@ -331,8 +335,12 @@ export default function App() {
                 if (parsed.type === "replace" && parsed.content !== undefined) accumulated = parsed.content;
                 if (parsed.type === "metadata" && Array.isArray(parsed.data?.sources))
                   sources = parsed.data.sources;
+                if (parsed.type === "metadata" && Array.isArray(parsed.data?.citations))
+                  citations = parsed.data.citations;
                 if (parsed.type === "done" && Array.isArray(parsed.result?.sources))
                   sources = parsed.result.sources;
+                if (parsed.type === "done" && Array.isArray(parsed.result?.citations))
+                  citations = parsed.result.citations;
                 if (parsed.type === "done" && parsed.result?.model_used)
                   modelUsed = parsed.result.model_used;
               } catch {
@@ -348,7 +356,13 @@ export default function App() {
                     ...s,
                     messages: s.messages.map((m, i, arr) =>
                       i === arr.length - 1 && m.role === "assistant"
-                        ? { ...m, content: accumulated, model: modelUsed || m.model, sources }
+                        ? {
+                            ...m,
+                            content: accumulated,
+                            model: modelUsed || m.model,
+                            sources,
+                            citations,
+                          }
                         : m
                     ),
                   }
@@ -371,6 +385,7 @@ export default function App() {
                         streaming: false,
                         model: modelUsed || "smartroute-gateway",
                         sources,
+                        citations,
                       }
                     : m
                 ),
@@ -394,6 +409,7 @@ export default function App() {
                         streaming: false,
                         model: "request-failed",
                         sources: [],
+                        citations: [],
                       }
                     : m
                 ),
@@ -422,7 +438,7 @@ export default function App() {
             animate={{ width: 260, opacity: 1 }}
             exit={{ width: 0, opacity: 0 }}
             transition={{ duration: 0.25, ease: "easeInOut" }}
-            className="flex-shrink-0 h-full overflow-hidden z-30"
+            className="absolute inset-y-0 left-0 z-30 h-full flex-shrink-0 overflow-hidden md:relative"
           >
             <div className="flex flex-col h-full w-[260px] bg-black/35 backdrop-blur-2xl border-r border-white/10">
               {/* Sidebar Header */}
@@ -609,7 +625,7 @@ export default function App() {
       </AnimatePresence>
 
       {/* ── MAIN AREA ────────────────────────────────────────────────────── */}
-      <div className="relative flex flex-1 flex-col h-full overflow-hidden">
+      <div className="relative flex h-full min-w-0 flex-1 flex-col overflow-hidden">
         {/* Toggle sidebar button when closed */}
         {!sidebarOpen && (
           <button
@@ -750,35 +766,15 @@ export default function App() {
                             </>
                           )}
                         </div>
-                        <div className="whitespace-pre-wrap leading-relaxed">
-                          {m.content}
-                          {m.streaming && (
-                            <span className="inline-block h-3.5 w-1 ml-1 bg-orange-300 animate-pulse align-middle" />
-                          )}
-                        </div>
-                        {m.role === "assistant" && uniqueSources(m.sources).length > 0 && (
-                          <div className="mt-3 rounded-xl border border-emerald-300/15 bg-emerald-950/20 px-3 py-2">
-                            <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-emerald-200/80">
-                              <FileText className="h-3 w-3" />
-                              <span>Sources</span>
-                            </div>
-                            <div className="space-y-1.5">
-                              {uniqueSources(m.sources).map((source, sourceIndex) => (
-                                <div
-                                  key={`${source}-${sourceIndex}`}
-                                  className="rounded-lg bg-black/20 px-2.5 py-2 text-[11px] leading-snug text-white/70"
-                                >
-                                  <span className="font-mono text-emerald-200">
-                                    [{sourceIndex + 1}]
-                                  </span>{" "}
-                                  <span className="font-medium text-white/85">{source}</span>
-                                  <div className="mt-0.5 text-[10px] text-white/45">
-                                    Retrieved from uploaded knowledge base
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
+                        {m.role === "assistant" ? (
+                          <CitationAnswer
+                            content={m.content}
+                            citations={m.citations}
+                            sources={m.sources}
+                            streaming={m.streaming}
+                          />
+                        ) : (
+                          <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
                         )}
                       </div>
                     </motion.div>

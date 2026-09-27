@@ -12,6 +12,14 @@ class QueryRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Session ID for multi-turn conversation")
 
 
+class CitationResponse(BaseModel):
+    id: str
+    filename: str
+    page: Optional[int] = None
+    section: Optional[str] = None
+    excerpt: str
+
+
 class QueryResponse(BaseModel):
     answer: str
     model_used: Optional[str]
@@ -20,6 +28,7 @@ class QueryResponse(BaseModel):
     cost: float
     latency: float
     sources: List[str]
+    citations: List[CitationResponse] = Field(default_factory=list)
     success: bool
     error: Optional[str] = None
 
