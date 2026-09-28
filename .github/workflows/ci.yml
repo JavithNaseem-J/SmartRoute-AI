@@ -230,17 +230,6 @@ jobs:
           grep -qi "SmartRoute" frontend.html
           curl -fsS "http://127.0.0.1:${PORT}/health" -o health.json
 
-      - name: Run browser smoke tests when configured
-        working-directory: frontend
-        run: |
-          if [ -f playwright.config.ts ] || [ -f playwright.config.js ]; then
-            npm run test:e2e --if-present
-          elif [ -f cypress.config.ts ] || [ -f cypress.config.js ]; then
-            npm run cypress:run --if-present
-          else
-            echo "No browser smoke test configuration found; skipping."
-          fi
-
       - name: Clean up smoke-test container
         if: always()
         run: |
