@@ -144,7 +144,7 @@ jobs:
       - name: Trigger Render deploy hook for exact SHA
         run: |
           deploy_url="$(python -c 'import os, urllib.parse; url=os.environ["RENDER_DEPLOY_HOOK_URL"]; sha=os.environ["COMMIT_SHA"]; parts=urllib.parse.urlsplit(url); query=urllib.parse.parse_qsl(parts.query, keep_blank_values=True); query.append(("ref", sha)); print(urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, urllib.parse.urlencode(query), parts.fragment)))')"
-          http_code="$(curl -sS -X POST -o render-deploy-hook-response.json -w '%{http_code}' "${deploy_url}")"
+          http_code="$(curl -sS --connect-timeout 10 --max-time 30 -X POST -o render-deploy-hook-response.json -w '%{http_code}' "${deploy_url}")"
           {
             echo
             echo "## Render deploy hook"
@@ -164,7 +164,7 @@ jobs:
           success="false"
 
           for attempt in $(seq 1 60); do
-            http_code="$(curl -sS -o version-response.json -w '%{http_code}' "${base_url}/version" || true)"
+            http_code="$(curl -sS --connect-timeout 5 --max-time 15 -o version-response.json -w '%{http_code}' "${base_url}/version" || true)"
             reported_sha="$(python -c 'import json, sys; print(json.load(open("version-response.json", encoding="utf-8")).get("commit_sha", ""))' 2>/dev/null || true)"
 
             echo "Attempt ${attempt}: HTTP ${http_code}, commit '${reported_sha}'"
@@ -202,7 +202,7 @@ jobs:
           base_url="${PRODUCTION_BASE_URL%/}"
           ready="false"
           for attempt in $(seq 1 30); do
-            if curl -fsS "${base_url}/ready" -o ready-response.json; then
+            if curl -fsS --connect-timeout 5 --max-time 15 "${base_url}/ready" -o ready-response.json; then
               ready="true"
               break
             fi
@@ -215,16 +215,16 @@ jobs:
             exit 1
           fi
 
-          curl -fsS -X POST "${base_url}/v1/auth/demo-token" \
+          curl -fsS --connect-timeout 5 --max-time 30 -X POST "${base_url}/v1/auth/demo-token" \
             -H 'Content-Type: application/json' \
             -d "{\"session_id\":\"deploy-${COMMIT_SHA}\"}" \
             -o demo-token.json
           token="$(python -c 'import json; print(json.load(open("demo-token.json"))["access_token"])')"
 
-          curl -fsS "${base_url}/v1/models" \
+          curl -fsS --connect-timeout 5 --max-time 30 "${base_url}/v1/models" \
             -H "Authorization: Bearer ${token}" \
             -o models-response.json
-          curl -fsS -X POST "${base_url}/v1/query" \
+          curl -fsS --connect-timeout 5 --max-time 90 -X POST "${base_url}/v1/query" \
             -H 'Content-Type: application/json' \
             -H "Authorization: Bearer ${token}" \
             -d '{"query":"Reply with only OK.","strategy":"quality_first","use_retrieval":false}' \
