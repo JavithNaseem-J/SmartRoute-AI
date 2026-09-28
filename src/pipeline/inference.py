@@ -410,8 +410,8 @@ class InferencePipeline:
                 )
 
             # Generate
-            budget_prompt = f"{context}\n\n{query}" if context else query
-            await self._enforce_budget(model_tier, budget_prompt, user_id)
+            prompt_text = f"{context}\n\n{query}" if context else query
+            await self._enforce_budget(model_tier, prompt_text, user_id)
             model = self.model_manager.load_model(model_tier)
             history = (
                 await self.memory.get_history(user_id, session_id) if session_id and user_id else []
@@ -419,8 +419,7 @@ class InferencePipeline:
             messages = self._build_messages(query, context, history)
 
             # Rough token estimate (we might need a real tokenizer for messages eventually)
-            full_prompt = f"{context}\n\n{query}" if context else query
-            input_tokens = model.count_tokens(full_prompt)
+            input_tokens = model.count_tokens(prompt_text)
 
             try:
                 result = await model.agenerate(
@@ -584,16 +583,15 @@ class InferencePipeline:
                 return
 
             # Generate (Stream)
-            budget_prompt = f"{context}\n\n{query}" if context else query
-            await self._enforce_budget(model_tier, budget_prompt, user_id)
+            prompt_text = f"{context}\n\n{query}" if context else query
+            await self._enforce_budget(model_tier, prompt_text, user_id)
             model = self.model_manager.load_model(model_tier)
             history = (
                 await self.memory.get_history(user_id, session_id) if session_id and user_id else []
             )
             messages = self._build_messages(query, context, history)
 
-            full_prompt = f"{context}\n\n{query}" if context else query
-            input_tokens = model.count_tokens(full_prompt)
+            input_tokens = model.count_tokens(prompt_text)
 
             full_answer = ""
             try:
@@ -614,7 +612,7 @@ class InferencePipeline:
                 )
                 model_tier = fallback_tier
                 model = self.model_manager.load_model(model_tier)
-                input_tokens = model.count_tokens(full_prompt)
+                input_tokens = model.count_tokens(prompt_text)
                 routing_decision["reason"] = "model_fallback"
                 yield {"type": "replace", "content": ""}
                 stream = model.astream(
@@ -705,12 +703,6 @@ class InferencePipeline:
             for q in queries
         ]
         return list(await asyncio.gather(*tasks))
-
-    def get_statistics(self, days: int = 1) -> Dict:
-        return self.tracker.get_statistics(days)
-
-    def get_savings(self, days: int = 1) -> Dict:
-        return self.tracker.calculate_savings(days)
 
     @staticmethod
     def _error_response(answer: str, error: str, latency: float) -> Dict:

@@ -4438,7 +4438,6 @@ dependencies = [
     { name = "slowapi" },
     { name = "sqlalchemy" },
     { name = "tenacity" },
-    { name = "tqdm" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -4488,7 +4487,6 @@ requires-dist = [
     { name = "slowapi", specifier = ">=0.1.9" },
     { name = "sqlalchemy", specifier = ">=2.0.25" },
     { name = "tenacity", specifier = ">=8.4.1" },
-    { name = "tqdm", specifier = ">=4.66.1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.27.0" },
 ]
 

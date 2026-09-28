@@ -10,7 +10,6 @@ import {
   listDocuments,
   type StoredDocument,
 } from "@/lib/documents";
-import { formatBytes, formatUploadedAt } from "@/lib/format";
 import type { Citation, Message, Session } from "@/types/chat";
 import {
   Sparkles,
@@ -30,6 +29,17 @@ import {
   X,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+
+const formatBytes = (bytes: number) =>
+  bytes < 1024 ? `${bytes} B` : bytes < 1024 * 1024
+    ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+
+const formatUploadedAt = (value?: string | null) => {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime())
+    ? date.toLocaleDateString(undefined, { month: "short", day: "numeric" })
+    : value ? "Recently" : "Just now";
+};
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -313,7 +323,6 @@ export default function App() {
       const decoder = new TextDecoder();
       let accumulated = "";
       let modelUsed = "";
-      let sources: string[] = [];
       let citations: Citation[] = [];
 
       if (reader) {
@@ -333,19 +342,14 @@ export default function App() {
                 const parsed = JSON.parse(trimmed.slice(6));
                 if (parsed.type === "chunk" && parsed.content) accumulated += parsed.content;
                 if (parsed.type === "replace" && parsed.content !== undefined) accumulated = parsed.content;
-                if (parsed.type === "metadata" && Array.isArray(parsed.data?.sources))
-                  sources = parsed.data.sources;
                 if (parsed.type === "metadata" && Array.isArray(parsed.data?.citations))
                   citations = parsed.data.citations;
-                if (parsed.type === "done" && Array.isArray(parsed.result?.sources))
-                  sources = parsed.result.sources;
                 if (parsed.type === "done" && Array.isArray(parsed.result?.citations))
                   citations = parsed.result.citations;
                 if (parsed.type === "done" && parsed.result?.model_used)
                   modelUsed = parsed.result.model_used;
                 if (parsed.type === "done" && parsed.result?.success === false) {
                   accumulated = parsed.result.answer || "Request failed. Please try again.";
-                  sources = [];
                   citations = [];
                   modelUsed = "request-failed";
                 }
@@ -366,7 +370,6 @@ export default function App() {
                             ...m,
                             content: accumulated,
                             model: modelUsed || m.model,
-                            sources,
                             citations,
                           }
                         : m
@@ -390,7 +393,6 @@ export default function App() {
                         content: accumulated || "Response received.",
                         streaming: false,
                         model: modelUsed || "smartroute-gateway",
-                        sources,
                         citations,
                       }
                     : m
@@ -414,7 +416,6 @@ export default function App() {
                           "Unable to reach SmartRoute-AI right now. Please check the backend connection and try again.",
                         streaming: false,
                         model: "request-failed",
-                        sources: [],
                         citations: [],
                       }
                     : m
@@ -776,7 +777,6 @@ export default function App() {
                           <CitationAnswer
                             content={m.content}
                             citations={m.citations}
-                            sources={m.sources}
                             streaming={m.streaming}
                           />
                         ) : (

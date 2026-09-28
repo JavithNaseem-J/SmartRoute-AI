@@ -199,10 +199,9 @@ async def test_indexer_reports_fastembed_generation_failure(mock_qdrant):
     mock_qdrant.upsert.assert_not_called()
 
 
-def test_fastembed_embeddings_do_not_require_hf_token(monkeypatch):
-    """Dense embeddings should initialize without Hugging Face credentials."""
+def test_fastembed_embeddings_initialize_locally():
+    """Dense embeddings initialize without a remote provider client."""
     previous_embeddings = deps._embeddings
-    monkeypatch.delenv("HF_TOKEN", raising=False)
     deps._embeddings = None
 
     try:

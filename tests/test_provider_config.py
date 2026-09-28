@@ -24,15 +24,26 @@ def test_groq_provider_resolves_production_models(monkeypatch):
     assert set(manager.available_tiers) == {"economy", "balanced", "quality", "fallback"}
 
 
-def test_openrouter_legacy_key_is_temporarily_supported(monkeypatch, caplog):
+def test_openrouter_uses_active_llm_key(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "openrouter")
+    monkeypatch.setenv("LLM_API_KEY", "active-key")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "legacy-key")
+
+    settings = load_provider_settings(MODELS_CONFIG)
+
+    assert settings.api_key == "active-key"
+
+
+def test_openrouter_does_not_use_legacy_key(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "openrouter")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "legacy-key")
 
     settings = load_provider_settings(MODELS_CONFIG)
 
-    assert settings.api_key == "legacy-key"
-    assert "deprecated" in caplog.text
+    assert settings.configured is False
+    with pytest.raises(LLMAuthenticationError, match="LLM_API_KEY"):
+        ModelManager(MODELS_CONFIG).load_model("economy")
 
 
 def test_provider_is_not_guessed_from_key(monkeypatch):

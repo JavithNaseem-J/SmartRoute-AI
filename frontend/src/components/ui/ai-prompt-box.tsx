@@ -3,8 +3,6 @@ import {
   ArrowUp,
   Paperclip,
   Square,
-  X,
-  FileText,
   Database,
   Zap,
   Scale,
@@ -14,8 +12,6 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Button,
-  Dialog,
-  DialogContent,
   Textarea,
   Tooltip,
   TooltipContent,
@@ -37,7 +33,6 @@ import { cn } from "@/lib/classnames";
 interface PromptInputContextType {
   value: string;
   onValueChange: (value: string) => void;
-  isLoading: boolean;
   onSubmit: () => void;
   disabled?: boolean;
 }
@@ -45,7 +40,6 @@ interface PromptInputContextType {
 const PromptInputContext = React.createContext<PromptInputContextType>({
   value: "",
   onValueChange: () => {},
-  isLoading: false,
   onSubmit: () => {},
 });
 
@@ -54,13 +48,11 @@ const usePromptInput = () => React.useContext(PromptInputContext);
 interface PromptInputProps {
   value: string;
   onValueChange: (value: string) => void;
-  isLoading?: boolean;
   onSubmit?: () => void;
   children: React.ReactNode;
   className?: string;
   disabled?: boolean;
   onDragOver?: (e: React.DragEvent) => void;
-  onDragLeave?: (e: React.DragEvent) => void;
   onDrop?: (e: React.DragEvent) => void;
 }
 
@@ -69,24 +61,21 @@ const PromptInput = React.forwardRef<HTMLDivElement, PromptInputProps>(
     {
       value,
       onValueChange,
-      isLoading = false,
       onSubmit = () => {},
       children,
       className,
       disabled = false,
       onDragOver,
-      onDragLeave,
       onDrop,
     },
     ref
   ) => {
     return (
       <TooltipProvider>
-        <PromptInputContext.Provider value={{ value, onValueChange, isLoading, onSubmit, disabled }}>
+        <PromptInputContext.Provider value={{ value, onValueChange, onSubmit, disabled }}>
           <div
             ref={ref}
             onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
             onDrop={onDrop}
             className={cn(
               "rounded-3xl border bg-[#1F2023] p-3 shadow-2xl transition-all duration-200",
@@ -178,7 +167,7 @@ const PromptInputAction: React.FC<PromptInputActionProps> = ({
 // ── Main PromptInputBox Component ─────────────────────────────────────────────
 
 export interface PromptInputBoxProps {
-  onSend?: (message: string, files?: File[]) => void;
+  onSend?: (message: string) => void;
   isLoading?: boolean;
   placeholder?: string;
   className?: string;
@@ -205,97 +194,45 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
   } = props;
 
   const [input, setInput] = React.useState("");
-  const [files, setFiles] = React.useState<File[]>([]);
-  const [filePreviews, setFilePreviews] = React.useState<{ [key: string]: string }>({});
-  const [selectedImage, setSelectedImage] = React.useState<string | null>(null);
   const uploadInputRef = React.useRef<HTMLInputElement>(null);
   const promptBoxRef = React.useRef<HTMLDivElement>(null);
 
-  const isImageFile = React.useCallback((file: File) => file.type.startsWith("image/"), []);
-  const isDocFile = React.useCallback((file: File) => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    return ["pdf", "txt", "md"].includes(ext || "");
-  }, []);
-
-  const processFile = React.useCallback((file: File) => {
-    if (!ragEnabled) {
-      alert("Please turn on the RAG toggle button to upload documents.");
-      return;
+  const uploadFiles = (files: File[]) => {
+    if (!ragEnabled || !files.length) return;
+    const documents = files.filter((file) =>
+      /\.(pdf|txt|md)$/i.test(file.name) && file.size <= 10 * 1024 * 1024
+    );
+    if (documents.length !== files.length) {
+      alert("Upload PDF, TXT, or Markdown files up to 10 MB each.");
     }
-
-    if (file.size > 10 * 1024 * 1024) {
-      console.warn("File too large (max 10MB)");
-      return;
-    }
-
-    if (isImageFile(file)) {
-      setFiles((prev) => [...prev, file]);
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setFilePreviews((prev) => ({
-          ...prev,
-          [file.name]: (e.target?.result as string) || "",
-        }));
-      };
-      reader.readAsDataURL(file);
-    } else if (isDocFile(file)) {
-      setFiles((prev) => [...prev, file]);
-      onUploadDocument?.([file]);
-    } else {
-      setFiles((prev) => [...prev, file]);
-    }
-  }, [isDocFile, isImageFile, onUploadDocument, ragEnabled]);
+    if (documents.length) onUploadDocument?.(documents);
+  };
 
   const handleDragOver = React.useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
   }, []);
 
-  const handleDragLeave = React.useCallback((e: React.DragEvent) => {
+  const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
-  }, []);
-
-  const handleDrop = React.useCallback(
-    (e: React.DragEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!ragEnabled) return;
-      const droppedFiles = Array.from(e.dataTransfer.files);
-      droppedFiles.forEach((file) => processFile(file));
-    },
-    [processFile, ragEnabled]
-  );
-
-  const handleRemoveFile = (index: number) => {
-    const fileToRemove = files[index];
-    if (fileToRemove && filePreviews[fileToRemove.name]) {
-      setFilePreviews((prev) => {
-        const next = { ...prev };
-        delete next[fileToRemove.name];
-        return next;
-      });
-    }
-    setFiles((prev) => prev.filter((_, i) => i !== index));
+    uploadFiles(Array.from(e.dataTransfer.files));
   };
 
   const handleSubmit = () => {
-    if (input.trim() || files.length > 0) {
-      onSend(input, files);
+    if (input.trim()) {
+      onSend(input);
       setInput("");
-      setFiles([]);
-      setFilePreviews({});
     }
   };
 
-  const hasContent = input.trim() !== "" || files.length > 0;
+  const hasContent = input.trim() !== "";
 
   return (
     <>
       <PromptInput
         value={input}
         onValueChange={setInput}
-        isLoading={isLoading}
         onSubmit={handleSubmit}
         className={cn(
           "w-full bg-[#1F2023]/95 border-[#444444] shadow-[0_12px_40px_rgba(0,0,0,0.35)] transition-all duration-300 ease-in-out",
@@ -304,53 +241,8 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
         disabled={isLoading}
         ref={ref || promptBoxRef}
         onDragOver={handleDragOver}
-        onDragLeave={handleDragLeave}
         onDrop={handleDrop}
       >
-        {/* File preview chips */}
-        {files.length > 0 && (
-          <div className="flex flex-wrap gap-2 p-1 pb-2 transition-all duration-300">
-            {files.map((file, index) => (
-              <div key={index} className="relative group">
-                {isImageFile(file) ? (
-                  <div
-                    className="w-16 h-16 rounded-xl overflow-hidden cursor-pointer transition-all duration-300 border border-[#333333] hover:border-orange-400"
-                    onClick={() => setSelectedImage(filePreviews[file.name] || "")}
-                  >
-                    <img
-                      src={filePreviews[file.name] || ""}
-                      alt={file.name}
-                      className="h-full w-full object-cover"
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleRemoveFile(index);
-                      }}
-                      className="absolute top-1 right-1 rounded-full bg-black/70 p-0.5 text-white hover:bg-black"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2E3033] border border-white/10 text-xs text-gray-200">
-                    <FileText className="h-4 w-4 text-orange-300" />
-                    <span className="max-w-[140px] truncate">{file.name}</span>
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveFile(index)}
-                      className="rounded-full hover:bg-black/50 p-0.5 text-gray-400 hover:text-white"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
         {/* Text input */}
         <div className="transition-all duration-300">
           <PromptInputTextarea placeholder={placeholder} className="text-sm sm:text-base" />
@@ -414,7 +306,7 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
                         className="hidden"
                         onChange={(e) => {
                           if (e.target.files && e.target.files.length > 0) {
-                            Array.from(e.target.files).forEach((f) => processFile(f));
+                            uploadFiles(Array.from(e.target.files));
                           }
                           if (e.target) e.target.value = "";
                         }}
@@ -512,14 +404,6 @@ export const PromptInputBox = React.forwardRef((props: PromptInputBoxProps, ref:
         </div>
       </PromptInput>
 
-      {/* Image Preview Modal */}
-      <Dialog open={!!selectedImage} onOpenChange={(open) => !open && setSelectedImage(null)}>
-        <DialogContent className="max-w-3xl overflow-hidden p-2 bg-black/90 border border-white/20">
-          {selectedImage && (
-            <img src={selectedImage} alt="Preview" className="w-full max-h-[80vh] object-contain rounded-xl" />
-          )}
-        </DialogContent>
-      </Dialog>
     </>
   );
 });

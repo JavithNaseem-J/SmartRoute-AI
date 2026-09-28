@@ -6,9 +6,6 @@ from urllib.parse import urlparse
 
 import yaml  # type: ignore[import-untyped]
 
-from src.utils.logger import logger
-
-
 SUPPORTED_PROVIDERS = ("groq", "openrouter")
 
 
@@ -42,13 +39,6 @@ def load_provider_settings(config_path: Path) -> ProviderSettings:
 
     provider_config = providers[provider]
     api_key = os.getenv("LLM_API_KEY", "").strip()
-    if not api_key and provider == "openrouter":
-        legacy_key = os.getenv("OPENROUTER_API_KEY", "").strip()
-        if legacy_key:
-            logger.warning(
-                "OPENROUTER_API_KEY is deprecated; use LLM_PROVIDER=openrouter and LLM_API_KEY."
-            )
-            api_key = legacy_key
 
     base_url = str(provider_config.get("base_url", "")).rstrip("/")
     models = provider_config.get("models", {})

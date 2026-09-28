@@ -30,7 +30,7 @@ The system SHALL run `alembic upgrade head` before Uvicorn accepts traffic. On R
 ### Requirement: Single canonical env-var contract
 The system SHALL define all required runtime environment variables in `.env.example` as the single source of truth.
 Deployment configs (`render.yaml`) SHALL reference only variables defined in `.env.example`.
-Legacy provider-specific keys SHALL be removed from deployment configs. `OPENROUTER_API_KEY` MAY remain as a temporary runtime-only fallback with a deprecation warning.
+Legacy provider-specific keys SHALL be removed from runtime and deployment configs. Both supported providers SHALL authenticate through `LLM_API_KEY`.
 
 #### Scenario: Runtime uses one active provider key
 - **WHEN** `src/models/openai_compatible_model.py` initializes a model

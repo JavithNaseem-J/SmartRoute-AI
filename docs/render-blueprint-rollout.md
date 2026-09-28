@@ -28,7 +28,7 @@ Confirm these environment variables are ready in Render:
 - `APP_PUBLIC_URL`
 - optional LangFuse/OTEL keys
 
-The Blueprint supplies `REDIS_URL` from `smartroute-redis`. Do not enter a separate external Redis URL. `HF_TOKEN` is needed only if you later change `RERANKER_MODE` to `huggingface`; add it manually at that time.
+The Blueprint supplies `REDIS_URL` from `smartroute-redis`. Do not enter a separate external Redis URL. The local reranker does not need an API key.
 
 Use:
 

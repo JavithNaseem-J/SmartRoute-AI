@@ -1,13 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { FileText, X } from "lucide-react";
 
-import { legacySourcesToCitations } from "@/lib/format";
 import type { Citation } from "@/types/chat";
 
 interface CitationAnswerProps {
   content: string;
   citations?: Citation[];
-  sources?: string[];
   streaming?: boolean;
 }
 
@@ -15,19 +13,11 @@ const MARKER_PATTERN = /(\[C\d+\])/g;
 
 export function CitationAnswer({
   content,
-  citations,
-  sources = [],
+  citations = [],
   streaming = false,
 }: CitationAnswerProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const evidence = useMemo(
-    () => (citations === undefined ? legacySourcesToCitations(sources) : citations),
-    [citations, sources]
-  );
-  const citationById = useMemo(
-    () => new Map(evidence.map((citation) => [citation.id, citation])),
-    [evidence]
-  );
+  const citationById = new Map(citations.map((citation) => [citation.id, citation]));
   const activeCitation = activeId ? citationById.get(activeId) : undefined;
 
   const toggleCitation = (citationId: string) => {
@@ -68,9 +58,9 @@ export function CitationAnswer({
         )}
       </div>
 
-      {!streaming && evidence.length > 0 && (
+      {!streaming && citations.length > 0 && (
         <div className="mt-2.5 flex flex-wrap items-center gap-1.5" aria-label="Answer citations">
-          {evidence.map((citation, index) => {
+          {citations.map((citation, index) => {
             const citationNumber = citation.id.replace(/^C/, "");
             const location = citation.page
               ? `Page ${citation.page}`

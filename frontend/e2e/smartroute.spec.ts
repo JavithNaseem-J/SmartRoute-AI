@@ -122,6 +122,47 @@ test("terminal streaming failure replaces partial output and removes citations",
   await expect(page.getByLabel("Answer citations")).toHaveCount(0);
 });
 
+test("document selection uploads to the knowledge base without a chat attachment", async ({ page }, testInfo) => {
+  let uploaded = false;
+  await page.route("**/v1/documents/upload", async (route) => {
+    uploaded = route.request().postData()?.includes("Notes.md") ?? false;
+    await route.fulfill({ json: { documents: [{ ...activeDocument, id: "doc-2", filename: "Notes.md" }] } });
+  });
+  await page.route("**/v1/documents", async (route) => {
+    await route.fulfill({ json: { documents: uploaded
+      ? [activeDocument, { ...activeDocument, id: "doc-2", filename: "Notes.md" }]
+      : [activeDocument], total: uploaded ? 2 : 1 } });
+  });
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "RAG" }).click();
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "Notes.md", mimeType: "text/markdown", buffer: Buffer.from("# Project notes"),
+  });
+
+  if (testInfo.project.name.startsWith("mobile")) {
+    await page.getByRole("button", { name: "Open sidebar" }).click();
+  }
+  await expect(page.getByText("2 docs embedded")).toBeVisible();
+  await expect(page.getByText("Notes.md")).toHaveCount(1);
+  expect(uploaded).toBe(true);
+  await expect(page.getByPlaceholder("Type your message here...")).toHaveValue("");
+});
+
+test("legacy source names do not become citations", async ({ page }) => {
+  await page.route("**/v1/query/stream", async (route) => {
+    await route.fulfill({
+      contentType: "text/event-stream",
+      body: 'data: {"type":"chunk","content":"Done."}\n\ndata: {"type":"done","result":{"answer":"Done.","sources":["Deleted.txt"],"success":true}}\n\n',
+    });
+  });
+  await page.goto("/");
+  await page.getByPlaceholder("Type your message here...").fill("Ask about my document");
+  await page.getByPlaceholder("Type your message here...").press("Enter");
+  await expect(page.getByText("Done.")).toBeVisible();
+  await expect(page.getByLabel("Answer citations")).toHaveCount(0);
+});
+
 test("mobile interface remains within the viewport", async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.startsWith("mobile"), "mobile-only assertion");
   await page.goto("/");

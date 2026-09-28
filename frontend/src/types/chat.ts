@@ -10,7 +10,6 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   model?: string;
-  sources?: string[];
   citations?: Citation[];
   streaming?: boolean;
 }

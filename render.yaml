@@ -41,10 +41,6 @@ services:
         value: production
       - key: APP_PUBLIC_URL
         sync: false
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: DOCUMENTS_DIR
-        value: data/documents
       - key: ALLOWED_ORIGINS
         value: ""
       - key: OTEL_EXPORTER_OTLP_ENDPOINT

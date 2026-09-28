@@ -270,8 +270,6 @@ class DocumentRetriever:
         # Re-rank candidates against the query
         top_docs = await self.reranker.rerank(query, candidate_docs, top_k=effective_k)
         self.last_diagnostics["reranker_mode"] = self.reranker.last_mode
-        if self.reranker.last_error:
-            self.last_diagnostics["reranker_error"] = self.reranker.last_error
 
         context_parts = []
         sources = []

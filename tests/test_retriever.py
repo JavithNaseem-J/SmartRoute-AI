@@ -154,9 +154,8 @@ async def test_document_retriever_diagnoses_no_matching_chunks(mock_qdrant, monk
 
 
 @pytest.fixture
-def reranker_no_token(monkeypatch):
-    """Reranker with no HF_TOKEN to exercise local keyword fallback path."""
-    monkeypatch.delenv("HF_TOKEN", raising=False)
+def local_reranker(monkeypatch):
+    monkeypatch.setenv("RERANKER_MODE", "local")
     return DocumentReranker()
 
 
@@ -205,9 +204,9 @@ def fill_normalize_docs():
 
 
 @pytest.mark.asyncio
-async def test_local_reranker_keyword_fill(reranker_no_token, fill_normalize_docs):
+async def test_local_reranker_keyword_fill(local_reranker, fill_normalize_docs):
     """Single-word query 'fill' should rank the Fill section chunk first."""
-    results = await reranker_no_token.rerank("fill", fill_normalize_docs, top_k=2)
+    results = await local_reranker.rerank("fill", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
     assert "Fill" in top_doc.page_content or "fill" in top_doc.page_content.lower(), (
@@ -216,9 +215,9 @@ async def test_local_reranker_keyword_fill(reranker_no_token, fill_normalize_doc
 
 
 @pytest.mark.asyncio
-async def test_local_reranker_keyword_normalize(reranker_no_token, fill_normalize_docs):
+async def test_local_reranker_keyword_normalize(local_reranker, fill_normalize_docs):
     """Single-word query 'normalize' should rank the Normalize section chunk first."""
-    results = await reranker_no_token.rerank("normalize", fill_normalize_docs, top_k=2)
+    results = await local_reranker.rerank("normalize", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
     assert "Normalize" in top_doc.page_content or "normalize" in top_doc.page_content.lower(), (
@@ -227,9 +226,9 @@ async def test_local_reranker_keyword_normalize(reranker_no_token, fill_normaliz
 
 
 @pytest.mark.asyncio
-async def test_local_reranker_phrase_query(reranker_no_token, fill_normalize_docs):
+async def test_local_reranker_phrase_query(local_reranker, fill_normalize_docs):
     """Natural-language phrase 'what is fill' should also surface the Fill section."""
-    results = await reranker_no_token.rerank("what is fill", fill_normalize_docs, top_k=2)
+    results = await local_reranker.rerank("what is fill", fill_normalize_docs, top_k=2)
     assert len(results) >= 1
     top_doc = results[0]
     assert "fill" in top_doc.page_content.lower(), (
@@ -238,16 +237,16 @@ async def test_local_reranker_phrase_query(reranker_no_token, fill_normalize_doc
 
 
 @pytest.mark.asyncio
-async def test_local_reranker_empty_docs(reranker_no_token):
+async def test_local_reranker_empty_docs(local_reranker):
     """Empty document list should return empty list without error."""
-    results = await reranker_no_token.rerank("fill", [], top_k=5)
+    results = await local_reranker.rerank("fill", [], top_k=5)
     assert results == []
 
 
 @pytest.mark.asyncio
-async def test_local_reranker_respects_top_k(reranker_no_token, fill_normalize_docs):
+async def test_local_reranker_respects_top_k(local_reranker, fill_normalize_docs):
     """Local reranker should return exactly top_k results when enough docs exist."""
-    results = await reranker_no_token.rerank("fill", fill_normalize_docs, top_k=2)
+    results = await local_reranker.rerank("fill", fill_normalize_docs, top_k=2)
     assert len(results) == 2
 
 

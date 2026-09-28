@@ -81,13 +81,12 @@ def test_readiness_checks_required_components(client):
     assert all(value == "ok" for value in response.json()["components"].values())
 
 
-def test_startup_validation_allows_optional_embedding_credentials(monkeypatch):
+def test_startup_validation_allows_local_qdrant_without_api_key(monkeypatch):
     import api.main as api_module
 
     for name, _hint in api_module._REQUIRED_ENV_VARS:
         monkeypatch.setenv(name, "configured")
     monkeypatch.delenv("QDRANT_API_KEY", raising=False)
-    monkeypatch.delenv("HF_TOKEN", raising=False)
 
     api_module.validate_env()
 
@@ -99,7 +98,6 @@ def test_startup_validation_requires_active_provider_key(monkeypatch):
         monkeypatch.setenv(name, "configured")
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
-    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
 
     with pytest.raises(SystemExit):
         api_module.validate_env()
@@ -593,7 +591,7 @@ def test_upload_returns_safe_specific_indexing_error(client, api_key, monkeypatc
 
         async def aindex_documents(self, documents):
             raise RuntimeError(
-                "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+                "Embedding generation failed. Check the FastEmbed model download and local runtime access."
             )
 
         def get_stats(self):
@@ -610,7 +608,7 @@ def test_upload_returns_safe_specific_indexing_error(client, api_key, monkeypatc
 
     assert response.status_code == 502
     assert response.json()["detail"] == (
-        "Embedding generation failed. Check HF_TOKEN and HuggingFace endpoint access."
+        "Embedding generation failed. Check the FastEmbed model download and local runtime access."
     )
 
 

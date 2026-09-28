@@ -31,7 +31,7 @@ LLM_PROVIDER=openrouter
 LLM_API_KEY=sk-or-v1-...
 ```
 
-`OPENROUTER_API_KEY` remains a temporary compatibility fallback only when `LLM_PROVIDER=openrouter`; startup logs a deprecation warning. The provider is never guessed from the key prefix.
+Both providers use `LLM_API_KEY`; the provider is never guessed from the key prefix.
 
 Model IDs and pricing are defined in `config/models.yaml`. Groq uses production `openai/gpt-oss-20b` and `openai/gpt-oss-120b` endpoints. Run this after changing provider configuration:
 
@@ -58,7 +58,7 @@ ENABLE_SPARSE_EMBEDDINGS=false
 RERANKER_MODE=local
 ```
 
-Set `ENABLE_SPARSE_EMBEDDINGS=true` only when the sparse FastEmbed model is available and the Qdrant collection has a compatible `sparse` vector definition. Set `RERANKER_MODE=huggingface` plus `HF_TOKEN` to use the external cross-encoder; API failures are reported in retrieval diagnostics and fall back to the deterministic local scorer. `RERANKER_MODE=disabled` preserves Qdrant order.
+Set `ENABLE_SPARSE_EMBEDDINGS=true` only when the sparse FastEmbed model is available and the Qdrant collection has a compatible `sparse` vector definition. `RERANKER_MODE=local` uses deterministic keyword overlap after Qdrant retrieval; `RERANKER_MODE=disabled` preserves Qdrant order. Neither mode needs a separate reranker API key.
 
 Scanned image-only PDFs require OCR before upload. The application does not currently perform OCR.
 

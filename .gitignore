@@ -217,6 +217,7 @@ __marimo__/
 .pytest_cache/
 .test-tmp-*/
 .pytest-work/
+.pytest-release/
 frontend/test-results/
 frontend/playwright-report/
 uv-*.lock
