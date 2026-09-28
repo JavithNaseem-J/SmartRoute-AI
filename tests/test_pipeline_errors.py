@@ -3,6 +3,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from src.pipeline.inference import InferencePipeline
+from src.cost.budget import BudgetUnavailableError
 
 
 class FakeSemanticCache:
@@ -67,6 +68,8 @@ class StreamingModel:
 
     async def astream(self, *args, **kwargs):
         for chunk in self.chunks:
+            if isinstance(chunk, Exception):
+                raise chunk
             yield chunk
 
 
@@ -77,8 +80,13 @@ class StreamingModelManager:
     def load_model(self, model_id):
         self.loaded.append(model_id)
         if model_id == "primary-model":
-            return StreamingModel(["Error: primary failed"])
+            return StreamingModel([RuntimeError("primary provider failed")])
         return StreamingModel(["fallback answer"])
+
+
+class AllStreamingModelsFailManager:
+    def load_model(self, model_id):
+        return StreamingModel([RuntimeError(f"{model_id} secret provider failure")])
 
 
 def make_pipeline(model_manager):
@@ -138,8 +146,27 @@ async def test_streaming_fallback_uses_fallback_model_key():
 
 
 @pytest.mark.asyncio
+async def test_streaming_fallback_failure_is_terminal_error_without_secret_text():
+    pipeline = make_pipeline(AllStreamingModelsFailManager())
+
+    events = [
+        event
+        async for event in pipeline.astream_run(
+            "hello", user_id="user-1", session_id="session-1", use_retrieval=False
+        )
+    ]
+
+    assert events[-2] == {"type": "replace", "content": "Request failed. Please try again."}
+    assert events[-1]["type"] == "done"
+    assert events[-1]["result"]["success"] is False
+    assert events[-1]["result"]["error"] == "pipeline_error"
+    assert "secret" not in events[-1]["result"]["answer"]
+
+
+@pytest.mark.asyncio
 async def test_rag_with_no_sources_does_not_fall_back_to_general_model():
     pipeline = make_pipeline(FailingModelManager())
+    pipeline.budget_manager.check_budget = MagicMock()
 
     result = await pipeline.run("what is your personality?", user_id="user-1")
 
@@ -147,6 +174,24 @@ async def test_rag_with_no_sources_does_not_fall_back_to_general_model():
     assert result["sources"] == []
     assert "uploaded documents" in result["answer"]
     assert result["routing_info"]["reason"] == "no_retrieved_document_sources"
+    pipeline.budget_manager.check_budget.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_budget_infrastructure_failure_is_reported_as_service_unavailable():
+    pipeline = make_pipeline(FailingModelManager())
+
+    async def unavailable(*args, **kwargs):
+        raise BudgetUnavailableError("redis host secret")
+
+    pipeline.budget_manager.check_budget = unavailable
+
+    result = await pipeline.run("hello", user_id="user-1", use_retrieval=False)
+
+    assert result["success"] is False
+    assert result["error"] == "budget_unavailable"
+    assert result["answer"] == "Service is temporarily unavailable. Please try again later."
+    assert "redis" not in result["answer"].lower()
 
 
 @pytest.mark.asyncio

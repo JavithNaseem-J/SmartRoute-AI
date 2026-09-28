@@ -10,7 +10,9 @@ services:
     region: singapore
     healthCheckPath: /health
     envVars:
-      - key: OPENROUTER_API_KEY
+      - key: LLM_PROVIDER
+        value: groq
+      - key: LLM_API_KEY
         sync: false
       - key: SUPABASE_JWT_SECRET
         sync: false
@@ -20,8 +22,8 @@ services:
         sync: false
       - key: SUPABASE_STORAGE_BUCKET
         value: smartroute-documents
-      - key: HF_TOKEN
-        sync: false
+      - key: RERANKER_MODE
+        value: local
       - key: DATABASE_URL
         sync: false
       - key: QDRANT_URL
@@ -29,7 +31,10 @@ services:
       - key: QDRANT_API_KEY
         sync: false
       - key: REDIS_URL
-        sync: false
+        fromService:
+          type: keyvalue
+          name: smartroute-redis
+          property: connectionString
       - key: ENABLE_SPARSE_EMBEDDINGS
         value: "false"
       - key: ENVIRONMENT
@@ -50,3 +55,10 @@ services:
         sync: false
       - key: OTEL_SERVICE_NAME
         value: smartroute-ai
+
+  - type: keyvalue
+    name: smartroute-redis
+    plan: free
+    region: singapore
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []

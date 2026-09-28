@@ -9,6 +9,7 @@ from sqlalchemy import text
 
 from src.pipeline.inference import InferencePipeline
 from src.utils.logger import logger
+from src.version import APP_VERSION
 
 
 def _read_build_metadata_file(filename: str) -> str:
@@ -50,16 +51,21 @@ def create_system_router(get_pipeline: Callable[[], InferencePipeline | None]) -
             "model_manager": "ok" if pipeline.model_manager else "error",
             "retriever": "ok" if pipeline.retriever else "error",
             "cost_tracker": "ok" if pipeline.tracker else "error",
+            "llm_provider": "error",
             "redis": "error",
             "qdrant": "error",
             "postgres": "error",
         }
 
         try:
-            from src.core.dependencies import get_redis_client
+            await pipeline.model_manager.validate_provider()
+            components["llm_provider"] = "ok"
+        except Exception as e:
+            logger.warning(f"LLM provider readiness check failed: {e}")
+            components["llm_provider"] = "error"
 
-            redis_client = get_redis_client()
-            if await redis_client.ping():
+        try:
+            if await pipeline.budget_manager.check_health():
                 components["redis"] = "ok"
         except Exception as e:
             logger.warning(f"Redis readiness check failed: {e}")
@@ -95,7 +101,7 @@ def create_system_router(get_pipeline: Callable[[], InferencePipeline | None]) -
         """Cheap liveness probe for Docker, Render, and load balancers."""
         return {
             "status": "healthy" if get_pipeline() else "starting",
-            "version": "2.0.0",
+            "version": APP_VERSION,
         }
 
     @router.get("/version")
@@ -115,7 +121,7 @@ def create_system_router(get_pipeline: Callable[[], InferencePipeline | None]) -
             status_code=200 if ready else 503,
             content={
                 "status": "ready" if ready else "not_ready",
-                "version": "2.0.0",
+                "version": APP_VERSION,
                 "components": components,
             },
         )

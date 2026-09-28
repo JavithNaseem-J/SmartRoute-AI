@@ -21,7 +21,10 @@ os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("REDIS_URL", "rediss://default:test@test.upstash.io:6379")
 os.environ.setdefault("QDRANT_URL", "https://test.qdrant.io")
 os.environ.setdefault("QDRANT_API_KEY", "test-key")
-os.environ.setdefault("OPENROUTER_API_KEY", "test-openrouter-key")
+os.environ.setdefault("LLM_PROVIDER", "openrouter")
+os.environ.setdefault("LLM_API_KEY", "test-openrouter-key")
+os.environ.setdefault("ENABLE_SPARSE_EMBEDDINGS", "false")
+os.environ.setdefault("RERANKER_MODE", "local")
 # Force a deterministic test-only secret even when CI provides a production-like
 # env block. The app intentionally rejects the public sample secret used in docs.
 os.environ["SUPABASE_JWT_SECRET"] = "unit-test-jwt-secret-not-for-production-32-chars-minimum"

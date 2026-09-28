@@ -50,7 +50,7 @@ class QueryRouter:
         strategy_config = self.config["strategies"][strategy]
 
         # Cost-biased hysteresis thresholding for uncertain complex classifications
-        if complexity == "complex" and confidence < 0.75:
+        if strategy != "quality_first" and complexity == "complex" and confidence < 0.75:
             logger.info(
                 f"Uncertain complex classification (confidence {confidence:.2f} < 0.75), "
                 "applying cost-biased hysteresis demotion to medium."
@@ -82,6 +82,7 @@ class QueryRouter:
         # Return routing decision
         return {
             "model_id": model_id,
+            "model_tier": model_id,
             "complexity": complexity,
             "confidence": confidence,
             "fallback_model": fallback_model,

@@ -197,6 +197,57 @@ jobs:
             exit 1
           fi
 
+      - name: Verify readiness and active Quality First provider
+        run: |
+          base_url="${PRODUCTION_BASE_URL%/}"
+          ready="false"
+          for attempt in $(seq 1 30); do
+            if curl -fsS "${base_url}/ready" -o ready-response.json; then
+              ready="true"
+              break
+            fi
+            echo "Waiting for /ready (${attempt}/30)..."
+            sleep 10
+          done
+          if [ "${ready}" != "true" ]; then
+            echo "Production dependencies did not become ready." >&2
+            cat ready-response.json 2>/dev/null || true
+            exit 1
+          fi
+
+          curl -fsS -X POST "${base_url}/v1/auth/demo-token" \
+            -H 'Content-Type: application/json' \
+            -d "{\"session_id\":\"deploy-${COMMIT_SHA}\"}" \
+            -o demo-token.json
+          token="$(python -c 'import json; print(json.load(open("demo-token.json"))["access_token"])')"
+
+          curl -fsS "${base_url}/v1/models" \
+            -H "Authorization: Bearer ${token}" \
+            -o models-response.json
+          curl -fsS -X POST "${base_url}/v1/query" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${token}" \
+            -d '{"query":"Reply with only OK.","strategy":"quality_first","use_retrieval":false}' \
+            -o quality-response.json
+
+          python - <<'PY'
+          import json
+
+          with open("models-response.json", encoding="utf-8") as handle:
+              models = json.load(handle)
+          with open("quality-response.json", encoding="utf-8") as handle:
+              result = json.load(handle)
+
+          expected = models["available"]["quality"]
+          if not result.get("success"):
+              raise SystemExit(f"Quality First smoke query failed: {result.get('error')}")
+          if result.get("model_used") != expected:
+              raise SystemExit(
+                  f"Quality First model mismatch: expected {expected}, got {result.get('model_used')}"
+              )
+          print(f"Quality First verified with {models['provider']} model {expected}.")
+          PY
+
       - name: Upload deployment verification report
         if: always()
         uses: actions/upload-artifact@v4
@@ -206,4 +257,7 @@ jobs:
             deployment-verification-report.md
             render-deploy-hook-response.json
             version-response.json
+            ready-response.json
+            models-response.json
+            quality-response.json
           if-no-files-found: warn

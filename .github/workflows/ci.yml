@@ -13,12 +13,13 @@ permissions:
 env:
   PYTHON_VERSION: "3.10"
   NODE_VERSION: "22"
-  HF_TOKEN: "dummy_hf_token_for_ci_tests"
+  RERANKER_MODE: "local"
   DATABASE_URL: "sqlite:///:memory:"
   REDIS_URL: "redis://localhost:6379/0"
   QDRANT_URL: "https://test.qdrant.io"
   QDRANT_API_KEY: "test-key"
-  OPENROUTER_API_KEY: "test-openrouter-key"
+  LLM_PROVIDER: "groq"
+  LLM_API_KEY: "test-groq-key"
   SUPABASE_JWT_SECRET: "super-secret-jwt-token-with-at-least-32-characters-long"
   SUPABASE_URL: "https://test.supabase.co"
   SUPABASE_SERVICE_ROLE_KEY: "test-service-role-key"
@@ -144,6 +145,12 @@ jobs:
       - name: Frontend production build
         run: npm run build
 
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Browser E2E tests
+        run: npm run test:e2e
+
       - name: Frontend vulnerability scan
         run: npm audit --audit-level=high
 
@@ -177,8 +184,9 @@ jobs:
             -e REDIS_URL="${REDIS_URL}" \
             -e QDRANT_URL="${QDRANT_URL}" \
             -e QDRANT_API_KEY="${QDRANT_API_KEY}" \
-            -e OPENROUTER_API_KEY="${OPENROUTER_API_KEY}" \
-            -e HF_TOKEN="${HF_TOKEN}" \
+            -e LLM_PROVIDER="${LLM_PROVIDER}" \
+            -e LLM_API_KEY="${LLM_API_KEY}" \
+            -e RERANKER_MODE="${RERANKER_MODE}" \
             -e SUPABASE_JWT_SECRET="${SUPABASE_JWT_SECRET}" \
             -e SUPABASE_URL="${SUPABASE_URL}" \
             -e SUPABASE_SERVICE_ROLE_KEY="${SUPABASE_SERVICE_ROLE_KEY}" \

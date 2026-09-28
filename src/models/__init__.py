@@ -1,5 +1,14 @@
 # Models module
 from .model_manager import ModelManager
-from .openrouter_model import OpenRouterModel
+from .openai_compatible_model import (
+    LLMAuthenticationError,
+    LLMProviderError,
+    OpenAICompatibleModel,
+)
 
-__all__ = ["ModelManager", "OpenRouterModel"]
+__all__ = [
+    "LLMAuthenticationError",
+    "LLMProviderError",
+    "ModelManager",
+    "OpenAICompatibleModel",
+]

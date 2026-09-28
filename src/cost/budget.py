@@ -1,32 +1,32 @@
-"""
-BudgetManager — Upstash Redis only.
+"""Tenant-scoped, fail-closed budget enforcement backed by Redis."""
 
-REDIS_URL is REQUIRED. The app will refuse to start without it.
-No SQLite/in-memory fallback — this system runs in the cloud.
-
-Get your free Upstash Redis URL at: https://upstash.com
-"""
-
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
-from redis.asyncio import Redis
 import yaml  # type: ignore
+from redis.asyncio import Redis
 
 from src.core.dependencies import get_redis_client
 from src.cost.tracker import CostTracker
+from src.models.provider_config import load_provider_settings
+from src.utils.alerting import send_alert
 from src.utils.logger import logger
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 
 
-class BudgetManager:
-    """Atomic budget enforcement via Upstash Redis.
+class BudgetUnavailableError(RuntimeError):
+    """Budget state cannot be checked, so paid inference must not proceed."""
 
-    REDIS_URL must be set. Raises RuntimeError on startup if missing.
-    Uses Redis INCRBYFLOAT — no race window under any concurrency level.
-    """
+
+class BudgetExceededError(RuntimeError):
+    """The tenant has reached the configured hard spending limit."""
+
+
+class BudgetManager:
+    """Enforce hard, tenant-scoped budgets with atomic Redis counters."""
 
     def __init__(
         self,
@@ -35,15 +35,16 @@ class BudgetManager:
     ):
         self.tracker = tracker
         self._redis: Optional[Redis[Any]] = None
+        self._enforcement_status = "unavailable"
 
         try:
             self._redis = get_redis_client()
-        except Exception as e:
-            logger.warning(f"BudgetManager: Redis unavailable ({e}). Budget enforcement disabled.")
-            self._redis = None
+            self._enforcement_status = "unknown"
+        except Exception as exc:
+            logger.warning(f"BudgetManager: Redis unavailable ({exc}).")
 
-        with open(config_path, "r") as f:
-            config = yaml.safe_load(f)
+        with open(config_path, encoding="utf-8") as handle:
+            config = yaml.safe_load(handle)
         budgets = config.get("budgets", {})
         self.limits = {
             "daily": budgets.get("daily", 10.0),
@@ -52,65 +53,70 @@ class BudgetManager:
         }
         self.alert_threshold = budgets.get("alert_threshold", 0.8)
 
-        models_path = _PROJECT_ROOT / "config" / "models.yaml"
         try:
-            with open(models_path, "r") as f:
-                self.model_config = yaml.safe_load(f).get("openrouter_models", {})
-        except Exception as e:
-            logger.warning(f"Could not load models.yaml for cost estimation: {e}")
+            settings = load_provider_settings(_PROJECT_ROOT / "config" / "models.yaml")
+            self.model_config = settings.models
+        except Exception as exc:
+            logger.warning(f"Could not load models.yaml for cost estimation: {exc}")
             self.model_config = {}
 
         logger.info(
             f"BudgetManager: daily=${self.limits['daily']}, weekly=${self.limits['weekly']}"
         )
 
-    def _redis_key(self, period: str) -> str:
+    def _redis_key(self, period: str, user_id: str) -> str:
         today = datetime.utcnow().strftime("%Y-%m-%d")
-        return f"smartroute:budget:{period}:{today}"
+        return f"smartroute:budget:{user_id}:{period}:{today}"
 
-    async def check_budget(self, estimated_cost: float) -> Tuple[bool, str]:
-        """Atomic budget check using Redis INCRBYFLOAT.
-
-        INCRBYFLOAT increments the key and returns the new total atomically.
-        If over budget, immediately decrements back and rejects the request.
-        No two concurrent requests can both pass the limit simultaneously.
-        Falls back to allow-all when Redis is unavailable.
-        """
+    async def check_budget(
+        self, estimated_cost: float, user_id: str | None = None
+    ) -> Tuple[bool, str]:
+        """Reserve estimated cost atomically and reject when enforcement is unavailable."""
         if self._redis is None:
-            logger.warning("BudgetManager: Redis unavailable, skipping budget check (fail-open).")
-            return True, "redis_unavailable"
+            self._enforcement_status = "unavailable"
+            raise BudgetUnavailableError("Redis budget enforcement is unavailable.")
 
-        key = self._redis_key("daily")
+        key = self._redis_key("daily", user_id or "anonymous")
         try:
             new_total = float(await self._redis.incrbyfloat(key, estimated_cost))
-            await self._redis.expire(key, 86400)  # auto-expire after 24h
+            await self._redis.expire(key, 86400)
+            self._enforcement_status = "active"
 
             if new_total > self.limits["daily"]:
-                await self._redis.incrbyfloat(key, -estimated_cost)  # roll back
+                await self._redis.incrbyfloat(key, -estimated_cost)
                 logger.warning(f"Daily budget exceeded: ${new_total:.4f} / ${self.limits['daily']}")
-                import asyncio
-
-                from src.utils.alerting import send_alert
-
                 asyncio.create_task(
                     send_alert(
                         "Budget Exceeded",
-                        f"Daily budget limit reached! Spent: ${new_total:.4f} / ${self.limits['daily']}",
+                        f"Daily budget limit reached: ${new_total:.4f} / ${self.limits['daily']}",
                         "critical",
                     )
                 )
-                return False, "daily_limit_exceeded"
+                raise BudgetExceededError("Daily budget limit exceeded.")
 
             return True, "within_budget"
+        except BudgetExceededError:
+            raise
+        except Exception as exc:
+            self._enforcement_status = "unavailable"
+            logger.error(f"Redis budget check failed: {exc}")
+            raise BudgetUnavailableError("Redis budget enforcement is unavailable.") from exc
 
-        except Exception as e:
-            logger.error(f"Redis budget check failed: {e} — allowing query (fail-open)")
-            return True, "redis_error"
+    async def check_health(self) -> bool:
+        if self._redis is None:
+            self._enforcement_status = "unavailable"
+            return False
+        try:
+            healthy = bool(await self._redis.ping())
+        except Exception:
+            healthy = False
+        self._enforcement_status = "active" if healthy else "unavailable"
+        return healthy
 
-    def get_budget_status(self) -> Dict:
-        daily_spent = self.tracker.get_statistics(days=1)["total_cost"]
-        weekly_spent = self.tracker.get_statistics(days=7)["total_cost"]
-        monthly_spent = self.tracker.get_statistics(days=30)["total_cost"]
+    def get_budget_status(self, user_id: str | None = None) -> Dict:
+        daily_spent = self.tracker.get_statistics(days=1, user_id=user_id)["total_cost"]
+        weekly_spent = self.tracker.get_statistics(days=7, user_id=user_id)["total_cost"]
+        monthly_spent = self.tracker.get_statistics(days=30, user_id=user_id)["total_cost"]
 
         def status(spent, limit):
             return {
@@ -126,18 +132,15 @@ class BudgetManager:
             "weekly": status(weekly_spent, self.limits["weekly"]),
             "monthly": status(monthly_spent, self.limits["monthly"]),
             "alert_threshold": self.alert_threshold,
+            "enforcement": self._enforcement_status,
             "timestamp": datetime.utcnow().isoformat(),
         }
 
-    def estimate_query_cost(
-        self,
-        model_id: str,
-        query_length: int,
-    ) -> float:
+    def estimate_query_cost(self, model_id: str, query_length: int) -> float:
         if model_id in self.model_config:
             cfg = self.model_config[model_id]
             estimated_input = query_length // 4
-            estimated_output = 500
+            estimated_output = 1000
             return float(
                 (estimated_input / 1000) * cfg.get("cost_per_1k_input", 0.001)
                 + (estimated_output / 1000) * cfg.get("cost_per_1k_output", 0.002)

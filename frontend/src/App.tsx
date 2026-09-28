@@ -343,6 +343,12 @@ export default function App() {
                   citations = parsed.result.citations;
                 if (parsed.type === "done" && parsed.result?.model_used)
                   modelUsed = parsed.result.model_used;
+                if (parsed.type === "done" && parsed.result?.success === false) {
+                  accumulated = parsed.result.answer || "Request failed. Please try again.";
+                  sources = [];
+                  citations = [];
+                  modelUsed = "request-failed";
+                }
               } catch {
                 // Ignore partial JSON
               }

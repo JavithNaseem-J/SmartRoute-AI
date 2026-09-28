@@ -1,3 +1,4 @@
+import os
 import re
 from typing import List, Optional, Tuple
 
@@ -11,7 +12,7 @@ from src.utils.logger import logger
 
 
 class DocumentRetriever:
-    """Handles document retrieval with Qdrant native hybrid search."""
+    """Handle dense or explicitly enabled hybrid retrieval with Qdrant."""
 
     def __init__(
         self,
@@ -24,6 +25,7 @@ class DocumentRetriever:
         # Initialize components
         self.embeddings = get_embeddings()
         self.qdrant = get_qdrant_client()
+        self.sparse_enabled = os.getenv("ENABLE_SPARSE_EMBEDDINGS", "false").lower() == "true"
 
         # Re-ranker for post-retrieval relevance filtering
         self.reranker = DocumentReranker()
@@ -99,14 +101,15 @@ class DocumentRetriever:
         user_id: Optional[str] = None,
         active_sources: Optional[List[str]] = None,
     ) -> List[Tuple[Document, float]]:
-        """Perform native hybrid search using Qdrant client (RRF)."""
+        """Search Qdrant in dense mode, or fuse dense and sparse results with RRF."""
         vector = await self.embeddings.aembed_query(query)
         query_filter = self._user_filter(user_id, active_sources)
 
         try:
-            sparse_vector = get_sparse_vector(self.qdrant, query)
+            sparse_vector = get_sparse_vector(self.qdrant, query) if self.sparse_enabled else None
 
-            if sparse_vector is not None:
+            if self.sparse_enabled and sparse_vector is not None:
+                self.last_diagnostics["retrieval_mode"] = "hybrid"
                 prefetch = [
                     models.Prefetch(
                         query=vector,
@@ -133,6 +136,9 @@ class DocumentRetriever:
                 )
                 points = query_response.points
             else:
+                self.last_diagnostics["retrieval_mode"] = "dense"
+                if self.sparse_enabled:
+                    self.last_diagnostics["hybrid_fallback_reason"] = "sparse_vector_unavailable"
                 query_response = await self.qdrant.query_points(
                     collection_name=self.collection_name,
                     query=vector,
@@ -184,6 +190,7 @@ class DocumentRetriever:
                 "collection_ready": False,
                 "user_chunk_count": None,
                 "retrieved_source_count": 0,
+                "retrieval_mode": self.retrieval_mode,
             }
             if not user_id:
                 logger.warning("No user ID provided; document retrieval disabled")
@@ -213,7 +220,7 @@ class DocumentRetriever:
                 logger.warning(f"Could not count indexed chunks for user {user_id}: {e}")
                 self.last_diagnostics["count_error"] = str(e)
 
-            context, sources = await self._retrieve_hybrid(
+            context, sources = await self._retrieve_candidates(
                 query, user_id=user_id, active_sources=active_sources
             )
             self.last_diagnostics["retrieved_source_count"] = len(sources)
@@ -234,15 +241,15 @@ class DocumentRetriever:
             self.last_diagnostics["error"] = str(e)
             return "", []
 
-    async def _retrieve_hybrid(
+    async def _retrieve_candidates(
         self,
         query: str,
         top_k: Optional[int] = None,
         user_id: Optional[str] = None,
         active_sources: Optional[List[str]] = None,
     ) -> Tuple[str, List[str]]:
-        """Retrieve using native Qdrant hybrid search with RRF Fusion."""
-        logger.info("Using native Qdrant hybrid search")
+        """Retrieve and rerank candidates using the configured retrieval mode."""
+        logger.info(f"Using Qdrant {self.retrieval_mode} retrieval")
 
         # Dynamically scale top_k for exhaustive/list queries ("all", "terms", "list", "what are")
         q_lower = query.lower()
@@ -262,6 +269,9 @@ class DocumentRetriever:
 
         # Re-rank candidates against the query
         top_docs = await self.reranker.rerank(query, candidate_docs, top_k=effective_k)
+        self.last_diagnostics["reranker_mode"] = self.reranker.last_mode
+        if self.reranker.last_error:
+            self.last_diagnostics["reranker_error"] = self.reranker.last_error
 
         context_parts = []
         sources = []
@@ -287,7 +297,10 @@ class DocumentRetriever:
         self.last_citations = citations
 
         logger.info(
-            f"Hybrid search retrieved {len(top_docs)} documents (effective_k={effective_k})"
+            "%s search retrieved %s documents (effective_k=%s)",
+            self.last_diagnostics.get("retrieval_mode", "dense").title(),
+            len(top_docs),
+            effective_k,
         )
 
         context = "\n\n".join(context_parts)
@@ -297,7 +310,13 @@ class DocumentRetriever:
     def retrieval_mode(self) -> str:
         """Get current retrieval mode."""
         dense = getattr(self, "dense_ready", False)
-        return "native_hybrid" if dense else "unavailable"
+        if not dense:
+            return "unavailable"
+        sparse_ready = bool(
+            self.sparse_enabled
+            and getattr(self.qdrant, "_sparse_embedding_model", None) is not None
+        )
+        return "hybrid" if sparse_ready else "dense"
 
     async def get_stats(self) -> dict:
         """Get retriever statistics."""

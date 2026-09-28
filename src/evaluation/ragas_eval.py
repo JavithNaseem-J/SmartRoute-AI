@@ -73,10 +73,11 @@ class RagasEvaluator:
         pipeline: An initialised InferencePipeline instance.
     """
 
-    def __init__(self, pipeline) -> None:
+    def __init__(self, pipeline, user_id: str) -> None:
         if not _RAGAS_AVAILABLE:
             raise RuntimeError("RAGAS is not installed. Run: pip install ragas datasets")
         self.pipeline = pipeline
+        self.user_id = user_id
 
     async def _run_single(self, sample: EvalSample) -> EvalSample:
         """Run one question through the pipeline and populate answer + contexts."""
@@ -84,12 +85,10 @@ class RagasEvaluator:
             result = await self.pipeline.run(
                 query=sample.question,
                 use_retrieval=True,
+                user_id=self.user_id,
             )
             sample.answer = result.get("answer", "")
-
-            # Extract the raw context chunks used during retrieval
-            context_text, _ = await self.pipeline.retriever.retrieve(sample.question)
-            # Split into individual chunks (separated by double newline in retriever)
+            context_text = result.get("context", "")
             sample.contexts = [c.strip() for c in context_text.split("\n\n") if c.strip()]
 
         except Exception as exc:

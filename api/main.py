@@ -13,7 +13,16 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import uvicorn  # noqa: E402
-from fastapi import APIRouter, Depends, FastAPI, File, HTTPException, Request, UploadFile  # noqa: E402
+from fastapi import (  # noqa: E402
+    APIRouter,
+    Depends,
+    FastAPI,
+    File,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse  # noqa: E402
 from fastapi.staticfiles import StaticFiles  # noqa: E402
@@ -22,6 +31,7 @@ from slowapi.errors import RateLimitExceeded  # noqa: E402
 from slowapi.util import get_remote_address  # noqa: E402
 
 from src.pipeline.inference import InferencePipeline  # noqa: E402
+from src.models.provider_config import load_provider_settings  # noqa: E402
 from src.documents import (  # noqa: E402
     SupabaseStorage,
     create_document_record,
@@ -42,6 +52,7 @@ from api.schemas import (  # noqa: E402
     QueryResponse,
 )
 from api.system_routes import create_system_router  # noqa: E402
+from src.version import APP_VERSION  # noqa: E402
 
 #  validation
 
@@ -63,7 +74,17 @@ def validate_env() -> None:
     preventing confusing 500 errors at request time.
     """
     missing = [(var, hint) for var, hint in _REQUIRED_ENV_VARS if not os.getenv(var)]
-    if not missing:
+    provider_error = ""
+    try:
+        provider_settings = load_provider_settings(
+            Path(__file__).resolve().parent.parent / "config" / "models.yaml"
+        )
+        if not provider_settings.configured:
+            provider_error = f"LLM_API_KEY is required for LLM_PROVIDER={provider_settings.name}."
+    except ValueError as exc:
+        provider_error = str(exc)
+
+    if not missing and not provider_error:
         return
 
     lines = [
@@ -74,6 +95,8 @@ def validate_env() -> None:
     for var, hint in missing:
         lines.append(f"  [MISSING]  {var}")
         lines.append(f"             Get it from: {hint}")
+    if provider_error:
+        lines.append(f"  [INVALID]  LLM provider configuration: {provider_error}")
     lines += [
         "=" * 60,
         "Set these in your .env file or Render environment variables.\n",
@@ -173,7 +196,7 @@ limiter = Limiter(key_func=get_remote_address)
 app = FastAPI(
     title="SmartRoute-AI API",
     description="Cost-optimised async RAG with intelligent LLM routing",
-    version="2.0.0",
+    version=APP_VERSION,
     lifespan=lifespan,  # replaces deprecated @app.on_event("startup")
 )
 
@@ -242,7 +265,7 @@ async def root(request: Request):
     return {
         "status": "healthy" if pipeline else "degraded",
         "service": "SmartRoute-AI",
-        "version": "2.0.0",
+        "version": APP_VERSION,
         "endpoints": {
             "query": "/v1/query",
             "batch": "/v1/query/batch",
@@ -277,6 +300,7 @@ async def demo_token(request: Request, token_request: DemoTokenRequest):
 @limiter.limit("30/minute")
 async def query(
     request: Request,
+    response: Response,
     query_request: QueryRequest,
     user_id: str = Depends(require_api_key),
 ):
@@ -301,6 +325,13 @@ async def query(
                     "warning",
                 )
             )
+        if not result.get("success", False):
+            response.status_code = {
+                "guardrail_violation": 422,
+                "budget_exceeded": 429,
+                "budget_unavailable": 503,
+                "pipeline_error": 502,
+            }.get(str(result.get("error")), 500)
         return QueryResponse(**result)
     except Exception as e:
         logger.error(f"Query failed: {e}")
@@ -368,11 +399,11 @@ async def query_stream(
 async def get_stats(
     request: Request,
     days: int = 1,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return await asyncio.to_thread(pipeline.tracker.get_statistics, days)
+    return await asyncio.to_thread(pipeline.tracker.get_statistics, days, user_id)
 
 
 @v1.get("/savings")
@@ -380,31 +411,39 @@ async def get_stats(
 async def get_savings(
     request: Request,
     days: int = 1,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return await asyncio.to_thread(pipeline.tracker.calculate_savings, days)
+    return await asyncio.to_thread(pipeline.tracker.calculate_savings, days, 0.15, user_id)
 
 
 @v1.get("/budget")
 @limiter.limit("60/minute")
 async def get_budget(
     request: Request,
-    _: str = Depends(require_api_key),
+    user_id: str = Depends(require_api_key),
 ):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    return await asyncio.to_thread(pipeline.budget_manager.get_budget_status)
+    return await asyncio.to_thread(pipeline.budget_manager.get_budget_status, user_id)
 
 
 @v1.get("/models")
 async def list_models(_: str = Depends(require_api_key)):
     if not pipeline:
         raise HTTPException(status_code=503, detail="Service not ready")
-    available = list(pipeline.model_manager.config.get("openrouter_models", {}).keys())
+    available = {
+        tier: pipeline.model_manager.model_id(tier)
+        for tier in pipeline.model_manager.available_tiers
+    }
     loaded = list(pipeline.model_manager.loaded_models.keys())
-    return {"available": available, "loaded": loaded}
+    return {
+        "provider": pipeline.model_manager.provider,
+        "configured": pipeline.model_manager.configured,
+        "available": available,
+        "loaded": loaded,
+    }
 
 
 @v1.delete("/memory/{session_id}")

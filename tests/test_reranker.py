@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.documents import Document
@@ -52,8 +52,10 @@ async def test_reranker_handles_fewer_docs_than_top_k(reranker):
 
 
 @pytest.mark.asyncio
-async def test_reranker_semantic_ranking():
+async def test_reranker_semantic_ranking(monkeypatch):
     """Semantically correct document is ranked first based on mock API scores."""
+    monkeypatch.setenv("RERANKER_MODE", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "test-token")
     reranker = DocumentReranker()
     query = "What is the capital of France?"
 
@@ -71,9 +73,10 @@ async def test_reranker_semantic_ranking():
     docs = [doc_unrelated, doc_partial, doc_correct]
 
     with patch("aiohttp.ClientSession.post") as mock_post:
-        mock_response = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.raise_for_status.return_value = None
         # Mock scores matching the input docs order: unrelated(0.1), partial(0.5), correct(0.9)
-        mock_response.json.return_value = [0.1, 0.5, 0.9]
+        mock_response.json = AsyncMock(return_value=[0.1, 0.5, 0.9])
         mock_post.return_value.__aenter__.return_value = mock_response
 
         result = await reranker.rerank(query, docs, top_k=2)
@@ -81,3 +84,19 @@ async def test_reranker_semantic_ranking():
         assert result[0].metadata["src"] == "correct", (
             f"Expected 'correct' to be top-ranked, got '{result[0].metadata['src']}'"
         )
+        assert reranker.last_mode == "huggingface"
+
+
+@pytest.mark.asyncio
+async def test_reranker_reports_external_fallback(monkeypatch):
+    monkeypatch.setenv("RERANKER_MODE", "huggingface")
+    monkeypatch.setenv("HF_TOKEN", "test-token")
+    reranker = DocumentReranker()
+    docs = [Document(page_content="relevant text")]
+
+    with patch("aiohttp.ClientSession.post", side_effect=TimeoutError("timed out")):
+        result = await reranker.rerank("relevant", docs)
+
+    assert result == docs
+    assert reranker.last_mode == "local_fallback"
+    assert reranker.last_error == "TimeoutError"

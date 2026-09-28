@@ -14,28 +14,27 @@ The system SHALL correctly await `pipeline.retriever.retrieve()` in `_run_single
 
 ---
 
-### Requirement: Migrations run only in pre-deploy, not container startup
-The system SHALL NOT run `alembic upgrade head` as part of the web container startup command.
-Migrations SHALL only be invoked via `render.yaml` `preDeployCommand` for cloud deployments or manually by an operator for local development.
+### Requirement: Migrations run before the web process
+The system SHALL run `alembic upgrade head` before Uvicorn accepts traffic. On Render free plans this is performed by `scripts/start_api.sh`, because a separate pre-deploy command is unavailable.
 
-#### Scenario: Container starts without running migrations
+#### Scenario: Container applies migrations before serving
 - **WHEN** the web container starts
-- **THEN** no `alembic upgrade head` command runs as part of startup
+- **THEN** `alembic upgrade head` completes before Uvicorn starts
 
-#### Scenario: Pre-deploy step runs migrations
-- **WHEN** Render deploys the application on a plan that supports pre-deploy commands
-- **THEN** `alembic upgrade head` runs exactly once via `preDeployCommand` before the web service starts
+#### Scenario: Migration failure blocks readiness
+- **WHEN** the database cannot apply the latest migration
+- **THEN** container startup fails instead of serving against an incompatible schema
 
 ---
 
 ### Requirement: Single canonical env-var contract
 The system SHALL define all required runtime environment variables in `.env.example` as the single source of truth.
 Deployment configs (`render.yaml`) SHALL reference only variables defined in `.env.example`.
-Legacy keys `NVIDIA_API_KEY`, `GROQ_API_KEY`, and `SMARTROUTE_API_KEY` SHALL be removed from all deployment configs.
+Legacy provider-specific keys SHALL be removed from deployment configs. `OPENROUTER_API_KEY` MAY remain as a temporary runtime-only fallback with a deprecation warning.
 
-#### Scenario: Runtime uses OPENROUTER_API_KEY
-- **WHEN** `src/models/openrouter_model.py` initializes a model
-- **THEN** it reads `OPENROUTER_API_KEY` and uses `APP_PUBLIC_URL` for provider referer metadata when supplied
+#### Scenario: Runtime uses one active provider key
+- **WHEN** `src/models/openai_compatible_model.py` initializes a model
+- **THEN** provider selection comes from `LLM_PROVIDER` and authentication comes from `LLM_API_KEY`
 
 #### Scenario: All required vars documented
 - **WHEN** a developer reads `.env.example`
@@ -43,12 +42,12 @@ Legacy keys `NVIDIA_API_KEY`, `GROQ_API_KEY`, and `SMARTROUTE_API_KEY` SHALL be 
 
 ---
 
-### Requirement: Training pipeline consumes generated data
-The system SHALL use the CSV rows loaded from `data/training/synthetic_queries.csv` when training the complexity classifier in `scripts/train_classifier.py`, rather than discarding them.
+### Requirement: Training and evaluation data are isolated
+The system SHALL train on deterministic, duplicate-free examples and evaluate on a separate version-controlled human-authored dataset.
 
-#### Scenario: Synthetic data is included in training
-- **WHEN** `train_classifier.py` loads `synthetic_queries.csv`
-- **THEN** the loaded query/label pairs are appended to the built-in training set before the classifier is fitted
+#### Scenario: Leakage blocks training
+- **WHEN** `train_classifier.py` finds duplicate training rows or overlap with `data/evaluation/routing_eval.json`
+- **THEN** training fails before the classifier is fitted
 
 ---
 

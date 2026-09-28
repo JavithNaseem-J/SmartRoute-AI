@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -54,6 +55,20 @@ async def test_router_strategy_changes_model(router):
     # Quality-first should use bigger model even for simple queries
     assert quality_decision["model_id"] == expected_quality_model
     assert cost_decision["model_id"] != expected_quality_model
+
+
+@pytest.mark.asyncio
+async def test_quality_first_never_demotes_or_uses_generic_fallback(router):
+    router.classifier.predict = AsyncMock(return_value=("complex", 0.2))
+
+    decision = await router.route(
+        "Design a fault-tolerant multi-region payment system.", strategy="quality_first"
+    )
+
+    assert decision["complexity"] == "complex"
+    assert decision["model_id"] == "quality"
+    assert decision["fallback_model"] == "quality"
+    assert decision["reason"] == "normal_routing"
 
 
 @pytest.mark.asyncio

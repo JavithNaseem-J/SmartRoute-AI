@@ -58,7 +58,7 @@ class ConversationMemory:
             if len(history) > max_messages:
                 history = history[-max_messages:]
 
-            await self._redis.setex(key, self.session_ttl, json.dumps(history))
+            await self._redis.set(key, json.dumps(history), ex=self.session_ttl)
         except Exception as e:
             logger.warning(f"ConversationMemory add failed: {e}")
 

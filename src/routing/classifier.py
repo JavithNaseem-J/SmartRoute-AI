@@ -1,8 +1,10 @@
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
+import warnings
 
 import joblib
 import numpy as np
+import sklearn
 from lightgbm import LGBMClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -12,7 +14,9 @@ from src.routing.features import FeatureExtractor
 class ComplexityClassifier:
     """ML-based query complexity classifier"""
 
-    def __init__(self, model_path: Optional[Path] = None):
+    ARTIFACT_VERSION = 2
+
+    def __init__(self, model_path: Optional[Path] = None, auto_train: bool = True):
         self.feature_extractor = FeatureExtractor()
         self.scaler = StandardScaler()
         self.model = LGBMClassifier(
@@ -27,10 +31,11 @@ class ComplexityClassifier:
         # Complexity classes: 0=simple, 1=medium, 2=complex
         self.classes = ["simple", "medium", "complex"]
         self.is_trained = False
+        self.metadata: Dict[str, Any] = {}
 
         if model_path and model_path.exists():
             self.load(model_path)
-        else:
+        elif auto_train:
             self._auto_train()
 
     def _auto_train(self):
@@ -99,7 +104,12 @@ class ComplexityClassifier:
         self.is_trained = True
 
         # Calculate accuracy
-        accuracy = self.model.score(X_scaled, y)
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="X does not have valid feature names, but LGBMClassifier was fitted",
+            )
+            accuracy = self.model.score(X_scaled, y)
 
         return float(accuracy)
 
@@ -116,8 +126,15 @@ class ComplexityClassifier:
         X_scaled = self.scaler.transform(X)
 
         # Predict (very fast, safe on main thread)
-        prediction = self.model.predict(X_scaled)[0]
-        probabilities = self.model.predict_proba(X_scaled)[0]
+        # LightGBM synthesizes Column_* names for ndarray training data and its
+        # sklearn adapter emits a false warning when inference also uses ndarray.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore",
+                message="X does not have valid feature names, but LGBMClassifier was fitted",
+            )
+            prediction = self.model.predict(X_scaled)[0]
+            probabilities = self.model.predict_proba(X_scaled)[0]
 
         complexity = self.classes[prediction]
         confidence = probabilities[prediction]
@@ -132,14 +149,18 @@ class ComplexityClassifier:
         feature_names = self.feature_extractor.FEATURE_ORDER
         return {name: float(score) for name, score in zip(feature_names, importances)}
 
-    def save(self, path: Path):
-        """Save trained model using joblib (safer than pickle)"""
+    def save(self, path: Path, metadata: Optional[Dict[str, Any]] = None):
+        """Save a versioned model bundle with training and feature metadata."""
         path.parent.mkdir(parents=True, exist_ok=True)
 
         model_data = {
             "model": self.model,
             "scaler": self.scaler,
             "is_trained": self.is_trained,
+            "artifact_version": self.ARTIFACT_VERSION,
+            "feature_order": list(self.feature_extractor.FEATURE_ORDER),
+            "sklearn_version": sklearn.__version__,
+            "metadata": metadata or {},
         }
 
         joblib.dump(model_data, path)
@@ -148,6 +169,22 @@ class ComplexityClassifier:
         """Load trained model using joblib"""
         model_data = joblib.load(path)
 
+        artifact_version = model_data.get("artifact_version")
+        if artifact_version != self.ARTIFACT_VERSION:
+            raise RuntimeError(
+                "Classifier artifact is obsolete. Run `uv run python scripts/train_classifier.py`."
+            )
+        feature_order = model_data.get("feature_order")
+        if feature_order != list(self.feature_extractor.FEATURE_ORDER):
+            raise RuntimeError("Classifier feature schema does not match runtime feature order.")
+        artifact_sklearn = model_data.get("sklearn_version")
+        if artifact_sklearn != sklearn.__version__:
+            raise RuntimeError(
+                "Classifier scikit-learn version mismatch: "
+                f"artifact={artifact_sklearn}, runtime={sklearn.__version__}. Retrain the artifact."
+            )
+
         self.model = model_data["model"]
         self.scaler = model_data["scaler"]
         self.is_trained = model_data["is_trained"]
+        self.metadata = model_data.get("metadata", {})

@@ -76,3 +76,26 @@ def test_tracker_savings(tracker):
     assert savings["baseline_cost"] == 0.50
     assert savings["actual_cost"] == 0.0
     assert savings["percentage"] == 100
+
+
+def test_tracker_statistics_are_scoped_by_user(tracker):
+    for user_id in ("user-a", "user-b"):
+        tracker.log_query(
+            query="Tenant query",
+            model_id="economy",
+            complexity="simple",
+            strategy="cost_optimized",
+            input_tokens=10,
+            output_tokens=10,
+            cost=0.01,
+            latency=0.2,
+            user_id=user_id,
+        )
+
+    user_a = tracker.get_statistics(days=1, user_id="user-a")
+    user_b = tracker.get_statistics(days=1, user_id="user-b")
+    unknown = tracker.get_statistics(days=1, user_id="user-c")
+
+    assert user_a["total_queries"] == 1
+    assert user_b["total_queries"] == 1
+    assert unknown["total_queries"] == 0

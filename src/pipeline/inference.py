@@ -13,7 +13,7 @@ from typing import AsyncIterator, Dict, List, Optional
 
 from langfuse.decorators import langfuse_context, observe
 
-from src.cost.budget import BudgetManager
+from src.cost.budget import BudgetExceededError, BudgetManager, BudgetUnavailableError
 from src.cost.tracker import CostTracker
 from src.documents import list_active_documents
 from src.memory.conversation import ConversationMemory
@@ -120,6 +120,14 @@ class InferencePipeline:
         validated_answer = cls.CITATION_MARKER.sub(replace_marker, answer)
         return validated_answer, [citation_by_id[citation_id] for citation_id in used_ids]
 
+    def _configured_model_id(self, model_tier: str) -> str:
+        resolver = getattr(self.model_manager, "model_id", None)
+        return str(resolver(model_tier)) if resolver else model_tier
+
+    @staticmethod
+    def _loaded_model_id(model, model_tier: str) -> str:
+        return str(getattr(model, "model_id", model_tier))
+
     async def _log_query_metrics(
         self,
         query: str,
@@ -131,6 +139,7 @@ class InferencePipeline:
         cost: float = 0.0,
         latency: float = 0.0,
         success: bool = True,
+        user_id: Optional[str] = None,
     ) -> None:
         """Centralized async logging helper to log query metrics."""
         try:
@@ -145,6 +154,7 @@ class InferencePipeline:
                 cost=cost,
                 latency=latency,
                 success=success,
+                user_id=user_id,
             )
         except Exception as e:
             logger.warning(f"Query metric logging failed: {e}")
@@ -197,26 +207,18 @@ class InferencePipeline:
                     complexity="cached",
                     strategy="cache",
                     latency=cached_result["latency"],
+                    user_id=user_id,
                 )
                 return {"is_cached": True, "cached_result": cached_result}
 
         # Route
         routing_decision = await self.router.route(query, strategy)
-        model_id = routing_decision["model_id"]
+        model_tier = routing_decision["model_id"]
         complexity = routing_decision["complexity"]
         logger.info(
-            f"Routed -> {model_id} "
+            f"Routed -> {model_tier} "
             f"(complexity={complexity}, confidence={routing_decision['confidence']:.2f})"
         )
-
-        # Budget check
-        estimated_cost = self.budget_manager.estimate_query_cost(model_id, len(query))
-        can_afford, reason = await self.budget_manager.check_budget(estimated_cost)
-        if not can_afford:
-            logger.warning(f"Budget exceeded ({reason}) - falling back to cheapest model")
-            model_id = routing_decision.get("fallback_model", "openrouter/free")
-            routing_decision["model_id"] = model_id
-            routing_decision["reason"] = f"budget_{reason}"
 
         # Retrieval
         context = ""
@@ -232,7 +234,7 @@ class InferencePipeline:
 
         return {
             "is_cached": False,
-            "model_id": model_id,
+            "model_tier": model_tier,
             "complexity": complexity,
             "routing_decision": routing_decision,
             "context": context,
@@ -246,7 +248,7 @@ class InferencePipeline:
         self,
         *,
         query: str,
-        model_id: str,
+        model_tier: str,
         complexity: str,
         routing_decision: Dict,
         latency: float,
@@ -267,6 +269,7 @@ class InferencePipeline:
             strategy=routing_info.get("strategy", "unknown"),
             latency=latency,
             success=True,
+            user_id=user_id,
         )
 
         if session_id and user_id:
@@ -274,7 +277,7 @@ class InferencePipeline:
 
         return {
             "answer": self.NO_RAG_SOURCES_ANSWER,
-            "model_used": model_id,
+            "model_used": self._configured_model_id(model_tier),
             "complexity": complexity,
             "confidence": routing_info.get("confidence", 0.0),
             "cost": 0.0,
@@ -288,6 +291,12 @@ class InferencePipeline:
             "success": True,
             "error": None,
         }
+
+    async def _enforce_budget(
+        self, model_tier: str, prompt_text: str, user_id: Optional[str]
+    ) -> None:
+        estimated_cost = self.budget_manager.estimate_query_cost(model_tier, len(prompt_text))
+        await self.budget_manager.check_budget(estimated_cost, user_id=user_id)
 
     async def _finalize_response(
         self,
@@ -318,6 +327,7 @@ class InferencePipeline:
             cost=actual_cost,
             latency=latency,
             success=True,
+            user_id=user_id,
         )
 
         if session_id and user_id:
@@ -378,7 +388,7 @@ class InferencePipeline:
             if prep["is_cached"]:
                 return dict(prep["cached_result"])
 
-            model_id = prep["model_id"]
+            model_tier = prep["model_tier"]
             complexity = prep["complexity"]
             routing_decision = prep["routing_decision"]
             context = prep["context"]
@@ -390,7 +400,7 @@ class InferencePipeline:
             if use_retrieval and not sources:
                 return await self._rag_no_sources_response(
                     query=query,
-                    model_id=model_id,
+                    model_tier=model_tier,
                     complexity=complexity,
                     routing_decision=routing_decision,
                     latency=time.time() - start_time,
@@ -400,7 +410,9 @@ class InferencePipeline:
                 )
 
             # Generate
-            model = self.model_manager.load_model(model_id)
+            budget_prompt = f"{context}\n\n{query}" if context else query
+            await self._enforce_budget(model_tier, budget_prompt, user_id)
+            model = self.model_manager.load_model(model_tier)
             history = (
                 await self.memory.get_history(user_id, session_id) if session_id and user_id else []
             )
@@ -410,11 +422,27 @@ class InferencePipeline:
             full_prompt = f"{context}\n\n{query}" if context else query
             input_tokens = model.count_tokens(full_prompt)
 
-            result = await model.agenerate(
-                messages=messages,
-                max_tokens=1000,
-                temperature=0.2 if context else 0.7,
-            )
+            try:
+                result = await model.agenerate(
+                    messages=messages,
+                    max_tokens=1000,
+                    temperature=0.2 if context else 0.7,
+                )
+            except Exception:
+                fallback_tier = routing_decision.get("fallback_model", "fallback")
+                if fallback_tier == model_tier:
+                    raise
+                logger.warning(
+                    f"Primary model tier {model_tier} failed; retrying tier {fallback_tier}"
+                )
+                model_tier = fallback_tier
+                model = self.model_manager.load_model(model_tier)
+                routing_decision["reason"] = "model_fallback"
+                result = await model.agenerate(
+                    messages=messages,
+                    max_tokens=1000,
+                    temperature=0.2 if context else 0.7,
+                )
 
             answer = result["text"]
             answer, citations = self._validate_answer_citations(answer, citations)
@@ -426,7 +454,7 @@ class InferencePipeline:
             return await self._finalize_response(
                 query=query,
                 answer=answer,
-                model_id=model_id,
+                model_id=self._loaded_model_id(model, model_tier),
                 complexity=complexity,
                 routing_decision=routing_decision,
                 input_tokens=input_tokens,
@@ -441,17 +469,30 @@ class InferencePipeline:
                 cache_scope=cache_scope,
             )
 
+        except (BudgetUnavailableError, BudgetExceededError) as exc:
+            latency = time.time() - start_time
+            is_limit = isinstance(exc, BudgetExceededError)
+            return self._error_response(
+                (
+                    "Daily usage limit reached. Please try again later."
+                    if is_limit
+                    else "Service is temporarily unavailable. Please try again later."
+                ),
+                "budget_exceeded" if is_limit else "budget_unavailable",
+                latency,
+            )
         except Exception as e:
             latency = time.time() - start_time
             logger.error(f"Pipeline failed: {e}", exc_info=True)
-            if "model_id" in locals() and "complexity" in locals():
+            if "model_tier" in locals() and "complexity" in locals():
                 await self._log_query_metrics(
                     query=query,
-                    model_id=model_id,
+                    model_id=self._configured_model_id(model_tier),
                     complexity=complexity,
                     strategy=strategy or "unknown",
                     latency=latency,
                     success=False,
+                    user_id=user_id,
                 )
             return self._error_response(
                 "Request failed. Please try again.", "pipeline_error", latency
@@ -508,7 +549,7 @@ class InferencePipeline:
                 yield {"type": "done", "result": cached_result}
                 return
 
-            model_id = prep["model_id"]
+            model_tier = prep["model_tier"]
             complexity = prep["complexity"]
             routing_decision = prep["routing_decision"]
             context = prep["context"]
@@ -530,7 +571,7 @@ class InferencePipeline:
             if use_retrieval and not sources:
                 response_payload = await self._rag_no_sources_response(
                     query=query,
-                    model_id=model_id,
+                    model_tier=model_tier,
                     complexity=complexity,
                     routing_decision=routing_decision,
                     latency=time.time() - start_time,
@@ -543,7 +584,9 @@ class InferencePipeline:
                 return
 
             # Generate (Stream)
-            model = self.model_manager.load_model(model_id)
+            budget_prompt = f"{context}\n\n{query}" if context else query
+            await self._enforce_budget(model_tier, budget_prompt, user_id)
+            model = self.model_manager.load_model(model_tier)
             history = (
                 await self.memory.get_history(user_id, session_id) if session_id and user_id else []
             )
@@ -552,27 +595,29 @@ class InferencePipeline:
             full_prompt = f"{context}\n\n{query}" if context else query
             input_tokens = model.count_tokens(full_prompt)
 
-            stream = model.astream(
-                messages=messages,
-                max_tokens=1000,
-                temperature=0.2 if context else 0.7,
-            )
-
             full_answer = ""
-            async for chunk in stream:
-                full_answer += chunk
-                yield {"type": "chunk", "content": chunk}
-
-            # If fallback needed due to error
-            if full_answer.startswith("Error:"):
-                fallback_id = routing_decision.get("fallback_model", "openrouter/free")
-                model_id = fallback_id
-                routing_decision["strategy"] = "model_fallback"
-                fallback_model = self.model_manager.load_model(model_id)
-                input_tokens = fallback_model.count_tokens(full_prompt)
-
+            try:
+                stream = model.astream(
+                    messages=messages,
+                    max_tokens=1000,
+                    temperature=0.2 if context else 0.7,
+                )
+                async for chunk in stream:
+                    full_answer += chunk
+                    yield {"type": "chunk", "content": chunk}
+            except Exception:
+                fallback_tier = routing_decision.get("fallback_model", "fallback")
+                if fallback_tier == model_tier:
+                    raise
+                logger.warning(
+                    f"Primary stream tier {model_tier} failed; retrying tier {fallback_tier}"
+                )
+                model_tier = fallback_tier
+                model = self.model_manager.load_model(model_tier)
+                input_tokens = model.count_tokens(full_prompt)
+                routing_decision["reason"] = "model_fallback"
                 yield {"type": "replace", "content": ""}
-                stream = fallback_model.astream(
+                stream = model.astream(
                     messages=messages,
                     max_tokens=1000,
                     temperature=0.2 if context else 0.7,
@@ -581,7 +626,9 @@ class InferencePipeline:
                 async for chunk in stream:
                     full_answer += chunk
                     yield {"type": "chunk", "content": chunk}
-                model = fallback_model
+
+            if not full_answer.strip():
+                raise RuntimeError("The active LLM provider returned an empty stream.")
 
             validated_answer, citations = self._validate_answer_citations(full_answer, citations)
             if validated_answer != full_answer:
@@ -595,7 +642,7 @@ class InferencePipeline:
             response_payload = await self._finalize_response(
                 query=query,
                 answer=full_answer,
-                model_id=model_id,
+                model_id=self._loaded_model_id(model, model_tier),
                 complexity=complexity,
                 routing_decision=routing_decision,
                 input_tokens=input_tokens,
@@ -611,15 +658,30 @@ class InferencePipeline:
             )
             yield {"type": "done", "result": response_payload}
 
+        except (BudgetUnavailableError, BudgetExceededError) as exc:
+            latency = time.time() - start_time
+            is_limit = isinstance(exc, BudgetExceededError)
+            error_result = self._error_response(
+                (
+                    "Daily usage limit reached. Please try again later."
+                    if is_limit
+                    else "Service is temporarily unavailable. Please try again later."
+                ),
+                "budget_exceeded" if is_limit else "budget_unavailable",
+                latency,
+            )
+            yield {"type": "replace", "content": error_result["answer"]}
+            yield {"type": "done", "result": error_result}
         except Exception as e:
             latency = time.time() - start_time
             logger.error(f"Pipeline stream failed: {e}", exc_info=True)
-            yield {"type": "chunk", "content": "\n\nError: request failed. Please try again."}
+            error_result = self._error_response(
+                "Request failed. Please try again.", "pipeline_error", latency
+            )
+            yield {"type": "replace", "content": error_result["answer"]}
             yield {
                 "type": "done",
-                "result": self._error_response(
-                    "Request failed. Please try again.", "pipeline_error", latency
-                ),
+                "result": error_result,
             }
 
     async def batch_run(

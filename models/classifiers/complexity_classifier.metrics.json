@@ -1,0 +1,93 @@
+{
+  "artifact_version": 2,
+  "dataset_fingerprint": "095380161d3cbbfb41f060a0f87f7a58836f9534d24c3df471f0b06de25853eb",
+  "training_examples": 540,
+  "unique_training_examples": 540,
+  "evaluation_examples": 30,
+  "train_evaluation_overlap": 0,
+  "class_counts": {
+    "0": 180,
+    "1": 180,
+    "2": 180
+  },
+  "train_accuracy": 1.0,
+  "evaluation_accuracy": 0.966667,
+  "evaluation_macro_f1": 0.966583,
+  "confusion_matrix": [
+    [
+      10,
+      0,
+      0
+    ],
+    [
+      1,
+      9,
+      0
+    ],
+    [
+      0,
+      0,
+      10
+    ]
+  ],
+  "classification_report": {
+    "simple": {
+      "precision": 0.9090909090909091,
+      "recall": 1.0,
+      "f1-score": 0.9523809523809523,
+      "support": 10.0
+    },
+    "medium": {
+      "precision": 1.0,
+      "recall": 0.9,
+      "f1-score": 0.9473684210526315,
+      "support": 10.0
+    },
+    "complex": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 10.0
+    },
+    "accuracy": 0.9666666666666667,
+    "macro avg": {
+      "precision": 0.9696969696969697,
+      "recall": 0.9666666666666667,
+      "f1-score": 0.9665831244778613,
+      "support": 30.0
+    },
+    "weighted avg": {
+      "precision": 0.9696969696969696,
+      "recall": 0.9666666666666667,
+      "f1-score": 0.9665831244778613,
+      "support": 30.0
+    }
+  },
+  "feature_order": [
+    "word_count",
+    "sentence_count",
+    "has_code",
+    "has_technical_terms",
+    "has_numbers",
+    "question_depth",
+    "is_multipart",
+    "requires_reasoning",
+    "is_analysis",
+    "comma_count",
+    "logic_operator_count",
+    "symbol_density",
+    "flesch_kincaid_grade",
+    "code_syntax_density",
+    "centroid_margin",
+    "semantic_complexity",
+    "simple_similarity",
+    "medium_similarity",
+    "complex_similarity"
+  ],
+  "semantic_centroids_loaded": true,
+  "versions": {
+    "scikit_learn": "1.7.2",
+    "lightgbm": "4.6.0",
+    "numpy": "2.2.6"
+  }
+}

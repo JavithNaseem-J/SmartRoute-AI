@@ -4,55 +4,55 @@ strategies:
   cost_optimized:
     description: "Use smallest effective model for each query complexity (saves cost)"
     simple:
-      model: "liquid/lfm-2.5-2.6b:free"
-      fallback: "openrouter/free"
+      model: "economy"
+      fallback: "fallback"
       quality_threshold: 0.7
       max_latency: 3.0
 
     medium:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
+      model: "balanced"
+      fallback: "fallback"
       quality_threshold: 0.75
       max_latency: 5.0
 
     complex:
-      model: "google/gemma-4-31b-it:free"
-      fallback: "openrouter/free"
+      model: "quality"
+      fallback: "fallback"
       quality_threshold: 0.8
       max_latency: 10.0
 
   quality_first:
     description: "Always use the most capable model (best quality, slower)"
     simple:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
-      quality_threshold: 0.70
+      model: "quality"
+      fallback: "quality"
+      quality_threshold: 0.0
 
     medium:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
-      quality_threshold: 0.85
+      model: "quality"
+      fallback: "quality"
+      quality_threshold: 0.0
 
     complex:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
-      quality_threshold: 0.9
+      model: "quality"
+      fallback: "quality"
+      quality_threshold: 0.0
 
   balanced:
     description: "Balance between cost and quality"
     simple:
-      model: "liquid/lfm-2.5-2.6b:free"
-      fallback: "openrouter/free"
+      model: "balanced"
+      fallback: "quality"
       quality_threshold: 0.75
 
     medium:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
+      model: "balanced"
+      fallback: "quality"
       quality_threshold: 0.8
 
     complex:
-      model: "nvidia/nemotron-3.5-lightning:free"
-      fallback: "openrouter/free"
+      model: "quality"
+      fallback: "quality"
       quality_threshold: 0.85
 
 # Budget limits (USD)

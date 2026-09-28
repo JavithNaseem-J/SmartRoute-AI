@@ -34,7 +34,17 @@ def client():
     mock_pipeline = MagicMock()
     mock_pipeline.run = AsyncMock(return_value=_MOCK_RESULT)
     mock_pipeline.tracker.get_statistics.return_value = {"total_queries": 10}
+    mock_pipeline.tracker.calculate_savings.return_value = {
+        "baseline_cost": 1.0,
+        "actual_cost": 0.5,
+        "savings": 0.5,
+        "percentage": 50.0,
+    }
     mock_pipeline.budget_manager.get_budget_status.return_value = {"daily": {"spent": 0}}
+    mock_pipeline.budget_manager.check_health = AsyncMock(return_value=True)
+    mock_pipeline.model_manager.configured = True
+    mock_pipeline.model_manager.provider_ready = True
+    mock_pipeline.model_manager.validate_provider = AsyncMock(return_value=None)
 
     original = api_module.pipeline
     api_module.pipeline = mock_pipeline
@@ -59,6 +69,16 @@ def test_health_check(client):
     response = client.get("/")
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
+    assert response.json()["version"] == "2.1.0"
+
+
+def test_readiness_checks_required_components(client):
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ready"
+    assert response.json()["version"] == "2.1.0"
+    assert all(value == "ok" for value in response.json()["components"].values())
 
 
 def test_startup_validation_allows_optional_embedding_credentials(monkeypatch):
@@ -70,6 +90,19 @@ def test_startup_validation_allows_optional_embedding_credentials(monkeypatch):
     monkeypatch.delenv("HF_TOKEN", raising=False)
 
     api_module.validate_env()
+
+
+def test_startup_validation_requires_active_provider_key(monkeypatch):
+    import api.main as api_module
+
+    for name, _hint in api_module._REQUIRED_ENV_VARS:
+        monkeypatch.setenv(name, "configured")
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.delenv("LLM_API_KEY", raising=False)
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit):
+        api_module.validate_env()
 
 
 def test_version_endpoint_reports_build_identity(client, monkeypatch):
@@ -103,6 +136,27 @@ def test_query_with_auth(client, api_key):
     )
     assert response.status_code == 200
     assert response.json()["success"] is True
+
+
+def test_query_provider_failure_returns_bad_gateway(client, api_key, monkeypatch):
+    import api.main as api_module
+
+    failed = {
+        **api_module.pipeline.run.return_value,
+        "answer": "Request failed. Please try again.",
+        "success": False,
+        "error": "pipeline_error",
+    }
+    api_module.pipeline.run = AsyncMock(return_value=failed)
+
+    response = client.post(
+        "/v1/query",
+        json={"query": "What is AI?"},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == "pipeline_error"
 
 
 def test_demo_token_allows_portfolio_query(client):
@@ -149,6 +203,21 @@ def test_stats_endpoint(client, api_key):
     """Test stats endpoint."""
     response = client.get("/v1/stats", headers={"Authorization": f"Bearer {api_key}"})
     assert response.status_code == 200
+    import api.main as api_module
+
+    api_module.pipeline.tracker.get_statistics.assert_called_with(1, "test_user")
+
+
+def test_savings_and_budget_endpoints_are_tenant_scoped(client, api_key):
+    import api.main as api_module
+
+    savings = client.get("/v1/savings", headers={"Authorization": f"Bearer {api_key}"})
+    budget = client.get("/v1/budget", headers={"Authorization": f"Bearer {api_key}"})
+
+    assert savings.status_code == 200
+    assert budget.status_code == 200
+    api_module.pipeline.tracker.calculate_savings.assert_called_with(1, 0.15, "test_user")
+    api_module.pipeline.budget_manager.get_budget_status.assert_called_with("test_user")
 
 
 def test_list_documents_endpoint(client, api_key):

@@ -9,7 +9,8 @@ from dotenv import load_dotenv
 load_dotenv()
 
 sys.path.append(str(Path(__file__).parent.parent))
-from src.models.openrouter_model import OpenRouterModel  # noqa: E402
+from src.models.base import BaseLLM  # noqa: E402
+from src.models.model_manager import ModelManager  # noqa: E402
 from src.utils.logger import logger  # noqa: E402
 
 # Number of queries to generate per complexity class
@@ -25,7 +26,7 @@ Medium: Short code, comparisons, guides.
 Complex: Deep architecture, multi-step math, system design."""
 
 
-async def generate_class(model: OpenRouterModel, complexity: str, num_samples: int) -> list[str]:
+async def generate_class(model: BaseLLM, complexity: str, num_samples: int) -> list[str]:
     logger.info(f"Generating {num_samples} {complexity} queries...")
 
     prompt = SYSTEM_PROMPT.format(num_samples=num_samples, complexity=complexity)
@@ -54,8 +55,8 @@ async def generate_class(model: OpenRouterModel, complexity: str, num_samples: i
 async def main():
     logger.info("Starting synthetic data generation...")
 
-    # Initialize the fast model to use for generation
-    model = OpenRouterModel("nvidia/nemotron-nano-9b-v2:free")
+    # Use the active provider's economy tier; credentials come from LLM_API_KEY.
+    model = ModelManager().load_model("economy")
 
     out_dir = Path("data/training")
     out_dir.mkdir(parents=True, exist_ok=True)

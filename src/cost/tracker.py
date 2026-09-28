@@ -4,7 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Dict
 
-from sqlalchemy import Boolean, Column, DateTime, Float, Integer, String, create_engine
+from sqlalchemy import Boolean, Column, DateTime, Float, Index, Integer, String, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from src.utils.logger import logger
@@ -16,9 +16,11 @@ class Base(DeclarativeBase):
 
 class QueryLog(Base):
     __tablename__ = "query_logs"
+    __table_args__ = (Index("ix_query_logs_user_timestamp", "user_id", "timestamp"),)
 
     id = Column(Integer, primary_key=True)
     timestamp = Column(DateTime, default=datetime.utcnow)
+    user_id = Column(String, nullable=True)
     query = Column(String, nullable=False)
     query_hash = Column(String)
     query_length = Column(Integer)
@@ -97,6 +99,7 @@ class CostTracker:
         cost: float,
         latency: float,
         success: bool = True,
+        user_id: str | None = None,
     ):
         q_hash = hashlib.sha256(query.encode()).hexdigest()
         log_entry = QueryLog(
@@ -111,16 +114,20 @@ class CostTracker:
             cost=cost,
             latency=latency,
             success=success,
+            user_id=user_id,
         )
         with self._get_session() as session:
             session.add(log_entry)
             session.commit()
         logger.info(f"Logged: {model_id}, cost=${cost:.4f}, tokens={input_tokens + output_tokens}")
 
-    def get_statistics(self, days: int = 1) -> Dict:
+    def get_statistics(self, days: int = 1, user_id: str | None = None) -> Dict:
         cutoff = datetime.utcnow() - timedelta(days=days)
         with self._get_session() as session:
-            logs = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff).all()
+            query = session.query(QueryLog).filter(QueryLog.timestamp >= cutoff)
+            if user_id is not None:
+                query = query.filter(QueryLog.user_id == user_id)
+            logs = query.all()
 
         if not logs:
             return {
@@ -164,8 +171,13 @@ class CostTracker:
             "by_strategy": by_strategy,
         }
 
-    def calculate_savings(self, days: int = 1, baseline_cost_per_query: float = 0.15) -> Dict:
-        stats = self.get_statistics(days)
+    def calculate_savings(
+        self,
+        days: int = 1,
+        baseline_cost_per_query: float = 0.15,
+        user_id: str | None = None,
+    ) -> Dict:
+        stats = self.get_statistics(days, user_id=user_id)
         total_queries = stats["total_queries"]
         actual_cost = stats["total_cost"]
         if total_queries == 0:

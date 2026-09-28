@@ -216,13 +216,21 @@ __marimo__/
 .ruff_cache/
 .pytest_cache/
 .test-tmp-*/
+.pytest-work/
+frontend/test-results/
+frontend/playwright-report/
+uv-*.lock
 graphify-out/
 
 # ── Project runtime data ───────────────────────────────────────────────────────
-data/
+data/*
 logs/
 # keep placeholder files that preserve empty dirs in git
 !data/**/.gitkeep
+!data/evaluation/
+!data/evaluation/*.json
+!data/models/
+!data/models/reference_centroids.npy
 !logs/.gitkeep
 
 # ── Scripts not relevant to production ────────────────────────────────────────

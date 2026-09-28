@@ -35,6 +35,26 @@ async def test_document_retriever_filters_qdrant_by_user_id(mock_qdrant, monkeyp
     query_filter = mock_qdrant.query_points.call_args.kwargs["query_filter"]
     assert query_filter.must[0].key == "metadata.user_id"
     assert query_filter.must[0].match.value == "user-1"
+    assert retriever.last_diagnostics["retrieval_mode"] == "dense"
+
+
+@pytest.mark.asyncio
+async def test_document_retriever_uses_hybrid_only_when_enabled(mock_qdrant, monkeypatch):
+    monkeypatch.setenv("ENABLE_SPARSE_EMBEDDINGS", "true")
+    retriever = DocumentRetriever()
+    retriever.dense_ready = True
+    mock_qdrant.collection_exists = AsyncMock(return_value=True)
+    mock_qdrant.count = AsyncMock(return_value=MagicMock(count=1))
+    mock_qdrant.query_points = AsyncMock(return_value=MagicMock(points=[]))
+    sparse = MagicMock(indices=MagicMock(), values=MagicMock())
+    sparse.indices.tolist.return_value = [1]
+    sparse.values.tolist.return_value = [0.5]
+    monkeypatch.setattr("src.retrieval.retriever.get_sparse_vector", lambda *_: sparse)
+
+    await retriever.retrieve("hybrid query", user_id="user-1")
+
+    assert mock_qdrant.query_points.call_args.kwargs["prefetch"]
+    assert retriever.last_diagnostics["retrieval_mode"] == "hybrid"
 
 
 @pytest.mark.asyncio

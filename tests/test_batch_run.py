@@ -13,8 +13,8 @@ async def mock_run_1s(query, strategy=None, use_retrieval=True, session_id=None,
     return {"query": query, "answer": "mock answer", "success": True}
 
 
-@pytest.fixture(scope="module")
-def pipeline():
+@pytest.fixture
+def pipeline(mock_qdrant, mock_redis, mock_embeddings):
     return InferencePipeline()
 
 

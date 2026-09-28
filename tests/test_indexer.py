@@ -72,6 +72,29 @@ async def test_indexer_creates_keyword_indexes_for_document_metadata(mock_qdrant
 
 
 @pytest.mark.asyncio
+async def test_indexer_dense_mode_does_not_create_sparse_schema(mock_qdrant):
+    indexer = DocumentIndexer()
+    mock_qdrant.collection_exists.return_value = False
+    mock_qdrant.create_collection = AsyncMock(return_value=None)
+
+    await indexer._ensure_collection(384)
+
+    assert "sparse_vectors_config" not in mock_qdrant.create_collection.call_args.kwargs
+
+
+@pytest.mark.asyncio
+async def test_indexer_hybrid_mode_requires_sparse_model(mock_qdrant, monkeypatch):
+    monkeypatch.setenv("ENABLE_SPARSE_EMBEDDINGS", "true")
+    indexer = DocumentIndexer()
+    indexer.embeddings.aembed_documents.return_value = [[0.1] * 384]
+    mock_qdrant.collection_exists.return_value = True
+    mock_qdrant._sparse_embedding_model = None
+
+    with pytest.raises(RuntimeError, match="no sparse embedding model"):
+        await indexer.aindex_documents([Document(page_content="hybrid document")])
+
+
+@pytest.mark.asyncio
 async def test_count_indexed_chunks_filters_by_user_and_source(mock_qdrant):
     """Indexer verification counts the same user/source payload used during retrieval."""
     indexer = DocumentIndexer()

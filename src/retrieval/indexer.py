@@ -1,3 +1,4 @@
+import os
 import uuid
 from pathlib import Path
 from typing import List, Optional, cast
@@ -34,6 +35,7 @@ class DocumentIndexer:
         self.embeddings = get_embeddings()
         self.qdrant = get_qdrant_client()
         self.chunker = DocumentChunker(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        self.sparse_enabled = os.getenv("ENABLE_SPARSE_EMBEDDINGS", "false").lower() == "true"
 
         logger.info(f"DocumentIndexer initialized: {collection_name}")
 
@@ -44,12 +46,17 @@ class DocumentIndexer:
             vectors_config = {
                 "dense": models.VectorParams(size=vector_size, distance=models.Distance.COSINE)
             }
-            sparse_vectors_config = {"sparse": models.SparseVectorParams()}
-            await self.qdrant.create_collection(
-                collection_name=self.collection_name,
-                vectors_config=vectors_config,
-                sparse_vectors_config=sparse_vectors_config,
-            )
+            if self.sparse_enabled:
+                await self.qdrant.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=vectors_config,
+                    sparse_vectors_config={"sparse": models.SparseVectorParams()},
+                )
+            else:
+                await self.qdrant.create_collection(
+                    collection_name=self.collection_name,
+                    vectors_config=vectors_config,
+                )
             logger.info(f"Created new collection: {self.collection_name}")
 
         # Qdrant Cloud requires keyword payload indexes for the filters used by
@@ -141,7 +148,12 @@ class DocumentIndexer:
             hasattr(self.qdrant, "_sparse_embedding_model")
             and self.qdrant._sparse_embedding_model is not None  # type: ignore[attr-defined]
         )
-        if sparse_supported:
+        if self.sparse_enabled and not sparse_supported:
+            raise RuntimeError(
+                "Sparse embeddings are enabled, but the configured Qdrant client has no sparse embedding model."
+            )
+
+        if self.sparse_enabled:
             try:
                 sparse_vectors_generator = self.qdrant._sparse_embedding_model.embed(texts)  # type: ignore[attr-defined]
                 sparse_vectors_list = list(sparse_vectors_generator)
@@ -342,6 +354,13 @@ class DocumentIndexer:
 
     def get_stats(self) -> dict:
         """Get indexer statistics."""
+        sparse_ready = bool(
+            self.sparse_enabled
+            and getattr(self.qdrant, "_sparse_embedding_model", None) is not None
+        )
         return {
             "chunker": self.chunker.get_config(),
+            "retrieval_mode": "hybrid" if sparse_ready else "dense",
+            "sparse_enabled": self.sparse_enabled,
+            "sparse_ready": sparse_ready,
         }

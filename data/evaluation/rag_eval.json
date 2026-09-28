@@ -1,0 +1,122 @@
+[
+  {
+    "id": "cover-letter-purpose",
+    "question": "What is this cover letter about?",
+    "ground_truth": "The applicant is applying for a backend engineer role and highlights Python API experience.",
+    "relevant_id": "cover-1",
+    "passages": [
+      {
+        "id": "cover-1",
+        "text": "I am applying for the Backend Engineer role. My experience building Python APIs and reliable data services fits the position.",
+        "filename": "Cover Letter.pdf",
+        "page": 0
+      },
+      {
+        "id": "policy-1",
+        "text": "Employees receive twenty days of annual leave after completing probation.",
+        "filename": "Employee Policy.pdf",
+        "page": 3
+      }
+    ]
+  },
+  {
+    "id": "invoice-total",
+    "question": "What is the invoice total?",
+    "ground_truth": "The invoice total is 18,450 rupees.",
+    "relevant_id": "invoice-1",
+    "passages": [
+      {
+        "id": "invoice-1",
+        "text": "Invoice summary: subtotal 15,000 rupees, tax 3,450 rupees, total 18,450 rupees.",
+        "filename": "Invoice.md",
+        "page": 0
+      },
+      {
+        "id": "meeting-1",
+        "text": "The design review meeting starts Tuesday at ten in the morning.",
+        "filename": "Meeting Notes.txt",
+        "page": 0
+      }
+    ]
+  },
+  {
+    "id": "resume-skills",
+    "question": "Which database skills are listed in the resume?",
+    "ground_truth": "The resume lists PostgreSQL, Redis, and Qdrant.",
+    "relevant_id": "resume-1",
+    "passages": [
+      {
+        "id": "resume-1",
+        "text": "Database skills include PostgreSQL, Redis, and Qdrant, with production experience in indexing and caching.",
+        "filename": "Resume.pdf",
+        "page": 1
+      },
+      {
+        "id": "travel-1",
+        "text": "The travel request covers flights and hotel accommodation for three nights.",
+        "filename": "Travel Request.txt",
+        "page": 0
+      }
+    ]
+  },
+  {
+    "id": "contract-notice",
+    "question": "How much notice is required to terminate the contract?",
+    "ground_truth": "Either party must provide thirty days written notice.",
+    "relevant_id": "contract-1",
+    "passages": [
+      {
+        "id": "contract-1",
+        "text": "Termination requires either party to provide thirty days written notice to the other party.",
+        "filename": "Service Contract.pdf",
+        "page": 4
+      },
+      {
+        "id": "roadmap-1",
+        "text": "The product roadmap schedules dashboard filters for the next release.",
+        "filename": "Roadmap.md",
+        "page": 1
+      }
+    ]
+  },
+  {
+    "id": "report-recommendation",
+    "question": "What does the report recommend for authentication?",
+    "ground_truth": "The report recommends short-lived JWTs with key rotation.",
+    "relevant_id": "report-1",
+    "passages": [
+      {
+        "id": "report-1",
+        "text": "For authentication, the report recommends short-lived JWT access tokens and scheduled signing-key rotation.",
+        "filename": "Security Review.pdf",
+        "page": 6
+      },
+      {
+        "id": "menu-1",
+        "text": "The lunch menu includes rice, vegetables, soup, and fresh fruit.",
+        "filename": "Menu.txt",
+        "page": 0
+      }
+    ]
+  },
+  {
+    "id": "manual-backup",
+    "question": "When should database backups run?",
+    "ground_truth": "Database backups should run daily at 02:00 UTC.",
+    "relevant_id": "manual-1",
+    "passages": [
+      {
+        "id": "manual-1",
+        "text": "Schedule database backups daily at 02:00 UTC and retain encrypted copies for thirty days.",
+        "filename": "Operations Manual.md",
+        "page": 2
+      },
+      {
+        "id": "hiring-1",
+        "text": "Candidate interviews include a coding task and a system design discussion.",
+        "filename": "Hiring Process.pdf",
+        "page": 1
+      }
+    ]
+  }
+]
