@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -237,3 +237,56 @@ def test_citation_validation_removes_invented_markers_and_unused_evidence():
 
     assert answer == "Backend experience [C1]. Invented evidence ."
     assert [citation["id"] for citation in used] == ["C1"]
+
+
+def test_citation_validation_normalizes_provider_bracket_variants():
+    citations = [
+        {
+            "id": "C1",
+            "filename": "Cover Letter.pdf",
+            "page": 1,
+            "section": None,
+            "excerpt": "Backend Engineer position.",
+        }
+    ]
+
+    answer, used = InferencePipeline._validate_answer_citations(
+        "Backend Engineer【C1】. Again ［c1］. Invented 【C9】.", citations
+    )
+
+    assert answer == "Backend Engineer[C1]. Again [C1]. Invented ."
+    assert [citation["id"] for citation in used] == ["C1"]
+
+
+@pytest.mark.asyncio
+async def test_stream_normalizes_provider_citation_and_keeps_evidence(monkeypatch):
+    pipeline = make_pipeline(StreamingModelManager())
+    pipeline.model_manager.load_model = lambda tier: StreamingModel(["Backend Engineer【C1】"])
+    pipeline.retriever.last_citations = [
+        {
+            "id": "C1",
+            "filename": "Cover Letter.pdf",
+            "page": 1,
+            "section": None,
+            "excerpt": "Backend Engineer position.",
+        }
+    ]
+    pipeline.retriever.retrieve = AsyncMock(
+        return_value=(
+            "[C1] Cover Letter.pdf, page 1\nBackend Engineer position.",
+            ["Source 1: Cover Letter.pdf - page 1"],
+        )
+    )
+    monkeypatch.setattr(
+        "src.pipeline.inference.list_active_documents",
+        lambda tracker, user_id: [{"storage_path": "eval/Cover Letter.pdf"}],
+    )
+
+    events = [
+        event
+        async for event in pipeline.astream_run("Which role?", user_id="user-1", use_retrieval=True)
+    ]
+
+    assert any(event == {"type": "replace", "content": "Backend Engineer[C1]"} for event in events)
+    assert events[-1]["result"]["answer"] == "Backend Engineer[C1]"
+    assert [citation["id"] for citation in events[-1]["result"]["citations"]] == ["C1"]

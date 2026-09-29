@@ -35,7 +35,7 @@ class InferencePipeline:
         "I couldn't find this in your uploaded documents. "
         "Try rephrasing the question or upload a document that contains the answer."
     )
-    CITATION_MARKER = re.compile(r"\[C(\d+)\]")
+    CITATION_MARKER = re.compile(r"\[C(\d+)\]|【C(\d+)】|［C(\d+)］", re.IGNORECASE)
 
     def __init__(
         self,
@@ -110,7 +110,7 @@ class InferencePipeline:
         used_ids: List[str] = []
 
         def replace_marker(match: re.Match[str]) -> str:
-            citation_id = f"C{match.group(1)}"
+            citation_id = f"C{next(group for group in match.groups() if group is not None)}"
             if citation_id not in citation_by_id:
                 return ""
             if citation_id not in used_ids:

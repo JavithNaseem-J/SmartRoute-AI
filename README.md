@@ -79,11 +79,19 @@ Current reproducible classifier evaluation:
 
 The held-out set is intentionally small, so these values are regression signals rather than a broad real-world performance claim. Training metadata and the confusion matrix are stored in `models/classifiers/complexity_classifier.metrics.json`.
 
-The version-controlled RAG benchmark in `data/evaluation/rag_eval.json` checks retrieval hit rate, reciprocal rank, and citation metadata without consuming LLM tokens:
+The six-case offline benchmark in `data/evaluation/rag_eval.json` checks reranking of passages supplied in the dataset. It does not run document ingestion, Qdrant retrieval, answer generation, or citation validation:
 
 ```bash
 uv run python scripts/run_eval.py
 ```
+
+The separate live end-to-end benchmark uses synthetic PDF, Markdown, and text files. It uploads them under a new demo session, asks ten Quality First RAG questions, checks expected answer facts and cited filename/page/excerpt, tests one unanswerable question, and deletes the evaluation documents. This uses the deployed provider and may incur API costs; it is not run in CI:
+
+```bash
+uv run python scripts/run_live_rag_eval.py --base-url https://<your-service>.onrender.com --confirm-live
+```
+
+The live report is a small synthetic quality signal, not a proof of general factual correctness. Answer patterns check expected facts but cannot detect every unsupported extra claim; review the printed answers and citations before making broader quality claims.
 
 An optional RAGAS harness remains in `src/evaluation/ragas_eval.py` for judge-based evaluation against documents already indexed for a dedicated evaluation user.
 
