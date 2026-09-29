@@ -26,7 +26,6 @@ class OfflineRagReport:
 
 
 async def evaluate_dataset(path: Path) -> OfflineRagReport:
-    """Check reranking of supplied passages; this does not run document QA."""
     samples = json.loads(path.read_text(encoding="utf-8"))
     if not samples:
         raise ValueError("RAG evaluation dataset is empty.")

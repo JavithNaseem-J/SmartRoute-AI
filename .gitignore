@@ -237,4 +237,11 @@ logs/
 # ── Scripts not relevant to production ────────────────────────────────────────
 scripts/benchmark_cost_savings.py
 
+# Local-only notes and editor settings
+/.agents/
+/README_AUDIT*.md
+/docs/
+/.vscode/
+/.devcontainer/
+
 # ── uv lock file (auto-generated, noisy in diffs) ──────────────────────────────

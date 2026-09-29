@@ -1,193 +1,137 @@
 # SmartRoute-AI
 
-SmartRoute-AI is a multi-tenant LLM routing and document-question-answering application. It combines a FastAPI backend, React chat interface, LightGBM complexity routing, Qdrant retrieval, Redis budget enforcement and memory, PostgreSQL analytics, and citation-aware streamed answers.
+**A chat application that routes requests to a configured LLM tier and can answer from a user's uploaded documents with source-linked citations.**
 
-Live🚀: [Live](https://smartroute-ai-r19a.onrender.com/)
+Click Here: [Live](https://smartroute-ai-r19a.onrender.com/)
 
-## Current Behavior
+Python · FastAPI · LightGBM · FastEmbed · Qdrant · Redis · PostgreSQL · React · Docker
 
-- One active LLM provider at a time: `groq` or `openrouter`.
-- One authentication variable for either provider: `LLM_API_KEY`.
-- Internal routes use logical tiers: `economy`, `balanced`, `quality`, and `fallback`.
-- `quality_first` always selects the active provider's `quality` tier, regardless of classifier confidence.
-- Provider failures are terminal errors or explicit fallback attempts; error text is never presented as an LLM answer.
-- Document records, Qdrant filters, semantic cache entries, cost analytics, and daily budget counters are tenant-scoped.
-- RAG answers include validated `[C#]` markers. The frontend renders compact citation buttons with filename, page or section, and an evidence excerpt.
-- Deleted documents are excluded from retrieval by filtering Qdrant with the authenticated user's current active storage paths.
+SmartRoute-AI addresses two practical problems: sending every question to the same model, and answering document questions without a clear link to evidence. A classifier predicts query complexity; a selected strategy maps that prediction to an economy, balanced, or quality tier at one active provider. With document retrieval enabled, the application searches only the authenticated user's active uploads and streams answers with clickable filename, page, and excerpt details.
 
-## Provider Configuration
+The repository includes a single-service Render deployment configuration. Demo availability and external service health were not checked for this README.
 
-Set exactly one provider and one key:
+## Evidence
 
-```env
-LLM_PROVIDER=groq
-LLM_API_KEY=gsk_...
-```
-
-To use OpenRouter instead:
-
-```env
-LLM_PROVIDER=openrouter
-LLM_API_KEY=sk-or-v1-...
-```
-
-Both providers use `LLM_API_KEY`; the provider is never guessed from the key prefix.
-
-Model IDs and pricing are defined in `config/models.yaml`. Groq uses production `openai/gpt-oss-20b` and `openai/gpt-oss-120b` endpoints. Run this after changing provider configuration:
-
-```bash
-uv run python scripts/provider_predeploy.py
-```
-
-The command authenticates with the active provider and verifies every configured model ID. It does not generate text.
-
-## RAG Pipeline
-
-1. Upload PDF, UTF-8/UTF-16/Windows-1252 TXT, or Markdown.
-2. Store the original object in Supabase Storage.
-3. Extract readable text and split it into 500-character chunks with 50-character overlap.
-4. Create local `BAAI/bge-small-en-v1.5` dense embeddings with FastEmbed.
-5. Upsert tenant and source metadata into Qdrant, then verify the indexed chunk count.
-6. At query time, filter retrieval by authenticated user and active document storage paths.
-7. Rerank candidates, assemble `[C#]` context, and validate generated citation markers against retrieved evidence.
-
-Dense retrieval is the production default:
-
-```env
-ENABLE_SPARSE_EMBEDDINGS=false
-RERANKER_MODE=local
-```
-
-Set `ENABLE_SPARSE_EMBEDDINGS=true` only when the sparse FastEmbed model is available and the Qdrant collection has a compatible `sparse` vector definition. `RERANKER_MODE=local` uses deterministic keyword overlap after Qdrant retrieval; `RERANKER_MODE=disabled` preserves Qdrant order. Neither mode needs a separate reranker API key.
-
-Scanned image-only PDFs require OCR before upload. The application does not currently perform OCR.
-
-## Routing And Evaluation
-
-The complexity classifier uses 19 lexical and semantic features. Its committed artifact is built with scikit-learn `1.7.2` and artifact schema version `2`.
-
-Current reproducible classifier evaluation:
-
-| Measure | Result |
+| Committed classifier evaluation | Result |
 |---|---:|
-| Training examples | 540 |
-| Unique training examples | 540 |
-| Held-out human-authored examples | 30 |
-| Train/evaluation overlap | 0 |
+| Training questions | 540 synthetic, unique examples |
+| Held-out questions | 30 separately authored examples; zero normalized text overlap |
 | Held-out accuracy | 96.67% |
 | Held-out macro F1 | 0.9666 |
 
-The held-out set is intentionally small, so these values are regression signals rather than a broad real-world performance claim. Training metadata and the confusion matrix are stored in `models/classifiers/complexity_classifier.metrics.json`.
+These numbers come from [the model metrics artifact](models/classifiers/complexity_classifier.metrics.json) and the [evaluation set](data/evaluation/routing_eval.json). The small held-out set is a regression signal, not evidence of general routing accuracy across real traffic. A separate [six-case offline dataset](data/evaluation/rag_eval.json) checks reranking of supplied passages; it does not exercise upload, Qdrant retrieval, answer generation, or factual support for citations. No end-to-end RAG quality or measured cost-saving result is published here.
 
-The six-case offline benchmark in `data/evaluation/rag_eval.json` checks reranking of passages supplied in the dataset. It does not run document ingestion, Qdrant retrieval, answer generation, or citation validation:
+## Architecture
 
-```bash
-uv run python scripts/run_eval.py
+```mermaid
+%%{init: {"theme": "base", "themeVariables": {"background": "#0B1220", "primaryColor": "#1F2937", "primaryTextColor": "#FFFFFF", "primaryBorderColor": "#64748B", "secondaryColor": "#111827", "secondaryTextColor": "#FFFFFF", "tertiaryColor": "#0F172A", "tertiaryTextColor": "#FFFFFF", "lineColor": "#CBD5E1", "textColor": "#FFFFFF", "edgeLabelBackground": "#1F2937"}}}%%
+flowchart TD
+    UI["React app"] -->|JWT + API calls| API["FastAPI + demo JWT"]
+
+    subgraph QUERY["Query path: InferencePipeline"]
+        SCOPE["Active documents + cache scope"] --> CACHE["Semantic cache"]
+        CACHE -->|miss| ROUTE["LightGBM + strategy"]
+        ROUTE -->|retrieval on| RETRIEVE["Tenant-filtered retrieval"]
+        ROUTE -->|retrieval off| BUDGET["Daily budget"]
+        RETRIEVE -->|sources found| BUDGET
+        RETRIEVE -->|no sources| RESPONSE["SSE / JSON"]
+        BUDGET --> GENERATE["Provider + fallback"]
+        GENERATE --> FINAL["Citations, usage, memory"]
+        FINAL --> RESPONSE
+        CACHE -->|hit| RESPONSE
+    end
+
+    subgraph DOCUMENTS["Document lifecycle"]
+        UPLOAD["Validate + store upload"] --> PREP["Extract + chunk + embed"]
+        PREP --> INDEX["Index + verify"]
+        INDEX --> RECORD["Save metadata"]
+        DELETE["Verified document delete"]
+    end
+
+    subgraph SERVICES["State and external services"]
+        POSTGRES["PostgreSQL: documents + logs"]
+        QDRANT["Qdrant: vectors + cache"]
+        REDIS["Redis: budget + sessions + cache"]
+        STORAGE["Supabase Storage"]
+        PROVIDER["Groq or OpenRouter"]
+    end
+
+    API -->|query| SCOPE
+    RESPONSE -->|answer| UI
+    API -->|upload| UPLOAD
+    API -->|delete| DELETE
+    SCOPE --> POSTGRES
+    CACHE --> QDRANT
+    CACHE --> REDIS
+    RETRIEVE --> QDRANT
+    BUDGET --> REDIS
+    GENERATE --> PROVIDER
+    FINAL --> POSTGRES
+    FINAL --> REDIS
+    UPLOAD -->|original object| STORAGE
+    INDEX --> QDRANT
+    RECORD --> POSTGRES
+    DELETE --> QDRANT
+    DELETE --> STORAGE
+    DELETE --> POSTGRES
+
+    classDef default fill:#1F2937,stroke:#64748B,color:#FFFFFF
+    style QUERY fill:#0F172A,stroke:#64748B,color:#FFFFFF
+    style DOCUMENTS fill:#0F172A,stroke:#64748B,color:#FFFFFF
+    style SERVICES fill:#0F172A,stroke:#64748B,color:#FFFFFF
 ```
 
-The separate live end-to-end benchmark uses synthetic PDF, Markdown, and text files. It uploads them under a new demo session, asks ten Quality First RAG questions, checks expected answer facts and cited filename/page/excerpt, tests one unanswerable question, and deletes the evaluation documents. This uses the deployed provider and may incur API costs; it is not run in CI:
+- **Chat path:** The browser obtains a short-lived demo JWT, then uses the streaming `/v1/query/stream` endpoint. The backend emits routing metadata, answer chunks, replacement events when needed, and a terminal result.
+- **Routing:** A committed LightGBM classifier uses lexical and centroid-based features. `config/routing.yaml` defines cost-optimized, balanced, and quality-first strategies; `config/models.yaml` maps logical tiers to model IDs for either Groq or OpenRouter. Only one provider is active per deployment.
+- **Document path:** PDF, TXT, and Markdown uploads go to Supabase Storage. The API extracts text, splits it into chunks, creates local FastEmbed vectors, verifies Qdrant indexing, then records document metadata in PostgreSQL.
+- **Grounding:** Qdrant searches filter by user ID and active document storage paths. Local keyword overlap reranks the dense-search candidates. Retrieved chunks receive citation IDs; the backend removes generated citation IDs absent from the retrieved set. If no source is found, it returns a no-document answer without calling the LLM.
+- **State and telemetry:** Redis holds session history, semantic answer cache, and tenant-scoped daily budget reservations. PostgreSQL stores query logs and document records. JSON logs and optional OTLP/Langfuse traces provide telemetry. `/health` reports process liveness; `/ready` checks provider configuration and required services.
 
-```bash
-uv run python scripts/run_live_rag_eval.py --base-url https://<your-service>.onrender.com --confirm-live
-```
+## Engineering decisions
 
-The live report is a small synthetic quality signal, not a proof of general factual correctness. Answer patterns check expected facts but cannot detect every unsupported extra claim; review the printed answers and citations before making broader quality claims.
+- **One web image:** Docker builds the React app and serves it from FastAPI on the same origin. The Render blueprint deploys one web service and a Redis-compatible Key Value service. Frontend and API releases therefore move together.
+- **Active-document allowlist:** Retrieval consults PostgreSQL before Qdrant search, so vectors left behind by a failed deletion are excluded from answers. Document deletion also waits for vector removal and checks the remaining count before marking the record deleted. These cross-service writes are ordered, but they are not one atomic transaction.
+- **Explicit failure handling:** Provider calls retry selected transient errors and use a per-model circuit breaker. A configured fallback tier can be tried after failure. Streaming replaces partial failed output and finishes with a failed terminal result if generation cannot complete.
+- **Budget before generation:** Redis atomically reserves an estimated daily amount per user. Generation stops when Redis budget enforcement is unavailable. Weekly and monthly figures are reporting limits rather than hard gates.
 
-An optional RAGAS harness remains in `src/evaluation/ragas_eval.py` for judge-based evaluation against documents already indexed for a dedicated evaluation user.
+## Run locally
 
-## Budget And Analytics
-
-- Redis uses an atomic tenant-scoped daily reservation key.
-- Redis failure is fail-closed: paid inference returns `budget_unavailable` instead of bypassing the limit.
-- The daily hard limit is configured in `config/routing.yaml`.
-- Weekly and monthly values are analytics/reporting limits; they are not currently atomic hard gates.
-- PostgreSQL query logs include `user_id`; `/v1/stats`, `/v1/savings`, and `/v1/budget` return only the authenticated tenant's data.
-- Token counts use provider usage for non-streaming calls when available. Streaming estimates tokens with `len(text) // 4`, so streaming cost remains approximate.
-
-## API
-
-Business endpoints require a JWT bearer token.
-
-| Method | Endpoint | Purpose |
-|---|---|---|
-| `GET` | `/health` | Cheap process liveness |
-| `GET` | `/ready` | Redis, Qdrant, PostgreSQL, pipeline, and provider configuration readiness |
-| `GET` | `/version` | Deployment commit and build identity |
-| `POST` | `/v1/query` | Non-streaming query |
-| `POST` | `/v1/query/stream` | SSE query stream with terminal success/failure payload |
-| `POST` | `/v1/query/batch` | Up to ten concurrent queries |
-| `GET` | `/v1/models` | Active provider and logical-to-physical model mapping |
-| `GET` | `/v1/stats` | Tenant-scoped usage analytics |
-| `GET` | `/v1/savings` | Tenant-scoped baseline comparison |
-| `GET` | `/v1/budget` | Tenant-scoped budget status and enforcement state |
-| `POST` | `/v1/documents/upload` | Store, index, and verify documents |
-| `GET` | `/v1/documents` | List active tenant documents |
-| `DELETE` | `/v1/documents/{filename}` | Remove one document from vectors, storage, and metadata |
-| `DELETE` | `/v1/documents` | Clear all active tenant documents |
-
-Non-streaming failures use non-200 HTTP statuses. Streaming responses cannot change HTTP status after headers are sent, so they end with `done.result.success=false` and a stable error code.
-
-## Local Setup
-
-Requirements: Python 3.10, Node.js 22, PostgreSQL/Supabase, Redis, and Qdrant.
+Requires Python 3.10, Node.js 22, `uv`, and reachable PostgreSQL, Redis, Qdrant, Supabase Storage, and one configured Groq or OpenRouter account. Copy `.env.example` to `.env` and fill in the required credentials and service URLs. Keep the file private.
 
 ```bash
 uv sync --all-groups
-cd frontend
-npm ci
-cd ..
-
 cp .env.example .env
-# Fill in provider and infrastructure credentials.
-
 uv run alembic upgrade head
-uv run python scripts/provider_predeploy.py
 uv run uvicorn api.main:app --host 127.0.0.1 --port 8000
 ```
 
-In a second terminal:
+In another terminal:
 
 ```bash
 cd frontend
+npm ci
 npm run dev -- --port 5173
 ```
 
+The Vite dev server proxies API requests to port 8000. To inspect provider model availability before use, run `uv run python scripts/provider_predeploy.py`; that command contacts the configured provider. Local run commands above are documented from configuration and were not executed for this README.
+
 ## Verification
 
-```bash
-uv run pytest
-uv run ruff check src api tests scripts
-uv run ruff format --check src api tests scripts
-uv run mypy src/ api/
-uv run python scripts/run_eval.py
+`uv run pytest tests/` covers routing, provider failure paths, budget behavior, tenant filters, document lifecycle, API responses, and cache behavior using fakes and mocks. `uv run python scripts/run_eval.py` runs the supplied-passage reranking check. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run test:e2e` cover the UI; Playwright intercepts API traffic. GitHub Actions also defines a Docker smoke job and a deployment workflow that checks the deployed commit and readiness. This audit inspected those checks but did not execute them.
 
-cd frontend
-npm run lint
-npm run typecheck
-npm run build
-npx playwright install chromium
-npm run test:e2e
-```
+## Limits
 
-The browser suite mocks provider traffic and verifies Quality First selection, active-document isolation, streamed citation details, terminal stream failures, and mobile viewport containment. It consumes no LLM tokens.
+- The classifier trains on templated examples and has a small authored holdout. Routing quality and cost/answer-quality trade-offs have not been measured on representative user traffic.
+- A valid citation ID proves that a retrieved chunk was supplied to the model; it does not verify every factual claim in the answer. Local reranking is lexical, and scanned PDFs need OCR before upload.
+- `/v1/savings` compares logged cost with a fixed assumed cost per query, rather than a measured alternative system. Streaming token counts and therefore cost estimates use a character-based approximation.
+- The public demo-token endpoint supplies session isolation without account identity. The Render blueprint's free Key Value plan can lose cache, memory, and budget-counter state on restart.
 
-## Deployment
+## FutureWork
 
-`render.yaml` declares one Docker web service and a private Render Key Value service. The Blueprint injects the Key Value internal connection string as `REDIS_URL`; no Redis URL needs to be copied into Render manually. The free Key Value plan is suitable for this demonstration but loses cache, memory, and budget-counter state when it restarts. Use a persistent paid plan for production budget enforcement.
+1. **Add real user identity and access controls.** Replace public demo-token issuance for normal users, then test authorization across API, document, vector, and analytics paths.
+2. **Make spending controls durable and accurate.** Use persistent Redis, reconcile estimated reservations with actual provider usage, and test restart and outage behavior.
+3. **Evaluate the full document-answering path.** Build a representative, labeled set of uploads and questions; measure retrieval, answer support, citation accuracy, latency, and cost before setting release thresholds.
+4. **Harden document lifecycle.** Add retry-safe upload and delete operations plus reconciliation for mismatches among Storage, Qdrant, and PostgreSQL.
+5. **Exercise deployment and recovery.** Run migrations as a controlled deployment step, verify readiness and rollback, and load-test the service with monitoring and alerts enabled.
 
-`scripts/start_api.sh` applies Alembic migrations before Uvicorn starts. The image builds the frontend and packages the committed classifier artifact; it does not retrain during deployment.
-
-Set `LLM_PROVIDER` and `LLM_API_KEY` in Render after deployment configuration is updated. `/health` can remain healthy during a dependency outage, while `/ready` correctly returns `503` until Redis, Qdrant, PostgreSQL, and the provider configuration are ready.
-
-## Known Limits
-
-- The classifier's held-out set has only 30 examples.
-- Local reranking is lexical, not a local neural cross-encoder.
-- Sparse retrieval requires more memory and a compatible Qdrant collection schema.
-- Streaming token accounting is approximate.
-- Uploaded scanned PDFs need external OCR.
-- Provider availability and model catalogs can change; run the predeploy validator whenever provider models are updated.
-
-## License
-
-This project is licensed under the [MIT License](LICENSE).
+Licensed under the [MIT License](LICENSE).
