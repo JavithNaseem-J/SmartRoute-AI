@@ -1,10 +1,13 @@
+import asyncio
 import json
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import ScoredPoint
+from qdrant_client import models
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -24,6 +27,16 @@ async def test_semantic_cache_miss(cache, mock_qdrant):
     mock_qdrant.query_points = AsyncMock(return_value=mock_res)
     result = await cache.get("What is SmartRoute?", user_id="user-1")
     assert result is None
+    mock_qdrant.create_collection.assert_awaited_once()
+    vector_config = mock_qdrant.create_collection.call_args.kwargs["vectors_config"]
+    assert vector_config.size == 384
+    assert vector_config.distance == models.Distance.COSINE
+    assert {
+        call.kwargs["field_name"] for call in mock_qdrant.create_payload_index.await_args_list
+    } == {
+        "user_id",
+        "cache_scope",
+    }
     mock_qdrant.query_points.assert_called_once()
 
 
@@ -65,6 +78,52 @@ async def test_semantic_cache_set(cache, mock_qdrant, mock_redis):
     mock_qdrant.upsert.assert_called_once()
     point = mock_qdrant.upsert.call_args.kwargs["points"][0]
     assert point.payload["user_id"] == "user-1"
+
+
+async def test_existing_cache_collection_is_reused(cache, mock_qdrant):
+    mock_qdrant.collection_exists.return_value = True
+    mock_qdrant.query_points = AsyncMock(return_value=AsyncMock(points=[]))
+
+    await cache.get("first", user_id="user-1")
+    await cache.get("second", user_id="user-1")
+
+    mock_qdrant.create_collection.assert_not_awaited()
+    assert mock_qdrant.create_payload_index.await_count == 2
+    assert mock_qdrant.query_points.await_count == 2
+
+
+async def test_concurrent_cache_reads_create_collection_once(cache, mock_qdrant):
+    mock_qdrant.query_points = AsyncMock(return_value=AsyncMock(points=[]))
+
+    await asyncio.gather(
+        cache.get("first", user_id="user-1"),
+        cache.get("second", user_id="user-1"),
+    )
+
+    mock_qdrant.create_collection.assert_awaited_once()
+    assert mock_qdrant.create_payload_index.await_count == 2
+    assert mock_qdrant.query_points.await_count == 2
+
+
+async def test_cache_setup_failure_does_not_write_partial_entry(cache, mock_qdrant, mock_redis):
+    mock_qdrant.create_collection.side_effect = RuntimeError("Qdrant unavailable")
+
+    await cache.set("question", {"answer": "answer"}, user_id="user-1")
+
+    assert await mock_redis.keys("semantic_cache:*") == []
+    mock_qdrant.upsert.assert_not_awaited()
+
+
+async def test_cache_round_trip_with_local_qdrant(cache, mock_embeddings):
+    client = AsyncQdrantClient(location=":memory:")
+    cache.qdrant = client
+    mock_embeddings.aembed_query.return_value = [1.0] + [0.0] * 383
+    try:
+        assert await cache.get("question", user_id="user-1") is None
+        await cache.set("question", {"answer": "answer"}, user_id="user-1")
+        assert await cache.get("question", user_id="user-1") == {"answer": "answer"}
+    finally:
+        await client.close()
 
 
 async def test_semantic_cache_skips_anonymous_user(cache, mock_qdrant, mock_redis):

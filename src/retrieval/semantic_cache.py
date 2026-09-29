@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from typing import Any, Dict, Optional
@@ -24,6 +25,35 @@ class SemanticCache:
             self.redis = None
 
         self.qdrant = get_qdrant_client()
+        self._collection_ready = False
+        self._collection_lock = asyncio.Lock()
+
+    async def _ensure_collection(self, vector_size: int) -> None:
+        if self._collection_ready:
+            return
+        async with self._collection_lock:
+            if self._collection_ready:
+                return
+            if not await self.qdrant.collection_exists(self.collection_name):
+                try:
+                    await self.qdrant.create_collection(
+                        collection_name=self.collection_name,
+                        vectors_config=models.VectorParams(
+                            size=vector_size, distance=models.Distance.COSINE
+                        ),
+                    )
+                except Exception:
+                    # Another worker may have created the collection concurrently.
+                    if not await self.qdrant.collection_exists(self.collection_name):
+                        raise
+            for field_name in ("user_id", "cache_scope"):
+                await self.qdrant.create_payload_index(
+                    collection_name=self.collection_name,
+                    field_name=field_name,
+                    field_schema=models.PayloadSchemaType.KEYWORD,
+                    wait=True,
+                )
+            self._collection_ready = True
 
     @staticmethod
     def _redis_key(user_id: str, point_id: str) -> str:
@@ -53,6 +83,7 @@ class SemanticCache:
         try:
             # 1. Embed the incoming query
             vector = await self.embeddings.aembed_query(query)
+            await self._ensure_collection(len(vector))
 
             # 2. Search Qdrant for nearest match
             query_response = await self.qdrant.query_points(
@@ -94,6 +125,7 @@ class SemanticCache:
         try:
             # 1. Embed the query
             vector = await self.embeddings.aembed_query(query)
+            await self._ensure_collection(len(vector))
             point_id = str(uuid.uuid4())
 
             # 2. Store payload in Redis

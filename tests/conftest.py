@@ -41,6 +41,7 @@ async def mock_qdrant():
     mock_instance.search = AsyncMock(return_value=[])
     mock_instance.upsert = AsyncMock(return_value=None)
     mock_instance.collection_exists = AsyncMock(return_value=False)
+    mock_instance.create_collection = AsyncMock(return_value=None)
     mock_instance.count = AsyncMock(return_value=MagicMock(count=0))
     mock_instance.create_payload_index = AsyncMock(return_value=None)
 
