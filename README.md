@@ -2,7 +2,7 @@
 
 SmartRoute-AI is a multi-tenant LLM routing and document-question-answering application. It combines a FastAPI backend, React chat interface, LightGBM complexity routing, Qdrant retrieval, Redis budget enforcement and memory, PostgreSQL analytics, and citation-aware streamed answers.
 
-Live deployment: [smartroute-ai-ev2b.onrender.com](https://smartroute-ai-ev2b.onrender.com/)
+Live🚀: [Live](https://smartroute-ai-r19a.onrender.com/)
 
 ## Current Behavior
 
