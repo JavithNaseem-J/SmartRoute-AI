@@ -19,7 +19,6 @@ The repository includes a single-service Render deployment configuration. Demo a
 | Held-out accuracy | 86.67% |
 | Held-out macro F1 | 0.8666 |
 
-These numbers come from [the model metrics artifact](models/classifiers/complexity_classifier.metrics.json) and the [evaluation set](data/evaluation/routing_eval.json). The small held-out set is a regression signal, not evidence of general routing accuracy across real traffic. A separate [six-case offline dataset](data/evaluation/rag_eval.json) checks reranking of supplied passages; it does not exercise upload, Qdrant retrieval, answer generation, or factual support for citations. No end-to-end RAG quality or measured cost-saving result is published here.
 
 ## Architecture
 
