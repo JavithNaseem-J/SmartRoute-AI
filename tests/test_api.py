@@ -99,7 +99,7 @@ def test_startup_validation_requires_active_provider_key(monkeypatch):
     monkeypatch.setenv("LLM_PROVIDER", "groq")
     monkeypatch.delenv("LLM_API_KEY", raising=False)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(RuntimeError):
         api_module.validate_env()
 
 
