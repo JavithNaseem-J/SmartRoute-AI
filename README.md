@@ -2,7 +2,9 @@
 
 **A chat application that routes requests to a configured LLM tier and can answer from a user's uploaded documents with source-linked citations.**
 
-Live: [Click Here](https://smartroute-ai-0tur.onrender.com). 
+Live: [Click Here](https://smartroute-ai-0tur.onrender.com).
+
+
 Python · FastAPI · LightGBM · FastEmbed · Qdrant · Redis · PostgreSQL · React · Docker
 
 SmartRoute-AI addresses two practical problems: sending every question to the same model, and answering document questions without a clear link to evidence. A classifier predicts query complexity; a selected strategy maps that prediction to an economy, balanced, or quality tier at one active provider. With document retrieval enabled, the application searches only the authenticated user's active uploads and streams answers with clickable filename, page, and excerpt details.
