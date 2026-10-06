@@ -2,8 +2,7 @@
 
 **A chat application that routes requests to a configured LLM tier and can answer from a user's uploaded documents with source-linked citations.**
 
-Current deployment: [SmartRoute-AI](https://smartroute-ai-r19a.onrender.com/). The demo needs a working LLM provider and backing services; check `/ready` for current availability. A new Render URL is planned, and this link will change only after it is verified.
-
+Live: [Click Here](https://smartroute-ai-0tur.onrender.com). 
 Python · FastAPI · LightGBM · FastEmbed · Qdrant · Redis · PostgreSQL · React · Docker
 
 SmartRoute-AI addresses two practical problems: sending every question to the same model, and answering document questions without a clear link to evidence. A classifier predicts query complexity; a selected strategy maps that prediction to an economy, balanced, or quality tier at one active provider. With document retrieval enabled, the application searches only the authenticated user's active uploads and streams answers with clickable filename, page, and excerpt details.
@@ -15,9 +14,8 @@ The repository includes a Render web service and a Key Value service. The fronte
 | Committed classifier evaluation | Result |
 |---|---:|
 | Training questions | 540 synthetic, unique examples |
-| Held-out questions | 30 separately authored examples; zero normalized text overlap |
-| Held-out accuracy | 96.67% |
-| Held-out macro F1 | 0.9666 |
+| accuracy | 86.67% |
+| macro F1 | 0.8666 |
 
 These numbers are from the committed classifier metrics artifact, not a live document-answering benchmark. The holdout has only 30 synthetic-domain questions, so it is a regression signal rather than evidence of general routing quality.
 
