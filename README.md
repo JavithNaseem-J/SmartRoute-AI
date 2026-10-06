@@ -2,13 +2,13 @@
 
 **A chat application that routes requests to a configured LLM tier and can answer from a user's uploaded documents with source-linked citations.**
 
-Click Here: [Live](https://smartroute-ai-r19a.onrender.com/)
+Current deployment: [SmartRoute-AI](https://smartroute-ai-r19a.onrender.com/). The demo needs a working LLM provider and backing services; check `/ready` for current availability. A new Render URL is planned, and this link will change only after it is verified.
 
 Python · FastAPI · LightGBM · FastEmbed · Qdrant · Redis · PostgreSQL · React · Docker
 
 SmartRoute-AI addresses two practical problems: sending every question to the same model, and answering document questions without a clear link to evidence. A classifier predicts query complexity; a selected strategy maps that prediction to an economy, balanced, or quality tier at one active provider. With document retrieval enabled, the application searches only the authenticated user's active uploads and streams answers with clickable filename, page, and excerpt details.
 
-The repository includes a single-service Render deployment configuration. Demo availability and external service health were not checked for this README.
+The repository includes a Render web service and a Key Value service. The frontend and API share one origin. `/health` checks process liveness; `/ready` also checks the provider and backing services.
 
 ## Evidence
 
@@ -16,8 +16,10 @@ The repository includes a single-service Render deployment configuration. Demo a
 |---|---:|
 | Training questions | 540 synthetic, unique examples |
 | Held-out questions | 30 separately authored examples; zero normalized text overlap |
-| Held-out accuracy | 86.67% |
-| Held-out macro F1 | 0.8666 |
+| Held-out accuracy | 96.67% |
+| Held-out macro F1 | 0.9666 |
+
+These numbers are from the committed classifier metrics artifact, not a live document-answering benchmark. The holdout has only 30 synthetic-domain questions, so it is a regression signal rather than evidence of general routing quality.
 
 
 ## Architecture
@@ -112,11 +114,13 @@ npm ci
 npm run dev -- --port 5173
 ```
 
-The Vite dev server proxies API requests to port 8000. To inspect provider model availability before use, run `uv run python scripts/provider_predeploy.py`; that command contacts the configured provider. Local run commands above are documented from configuration and were not executed for this README.
+The Vite dev server proxies API requests to port 8000. To inspect provider model availability before use, run `uv run python scripts/provider_predeploy.py`; that command contacts the configured provider.
 
 ## Verification
 
-`uv run pytest tests/` covers routing, provider failure paths, budget behavior, tenant filters, document lifecycle, API responses, and cache behavior using fakes and mocks. `uv run python scripts/run_eval.py` runs the supplied-passage reranking check. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run test:e2e` cover the UI; Playwright intercepts API traffic. GitHub Actions also defines a Docker smoke job and a deployment workflow that checks the deployed commit and readiness. This audit inspected those checks but did not execute them.
+`uv run pytest tests/` covers routing, provider failure paths, budget behavior, tenant filters, document lifecycle, API responses, and cache behavior using fakes and mocks. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run test:e2e` cover the UI; Playwright intercepts API traffic. GitHub Actions defines a Docker smoke job and a deployment workflow that checks the deployed commit and readiness. The old supplied-passage reranking check is kept locally; it is not a full document-answering evaluation and is not a release gate.
+
+The clean checkout contains the runtime model and centroid artifacts, their training code and evaluation fixture, the API and frontend, migrations, CI workflows, and this README. Local-only development material such as `.agent/`, `openspec/`, `graphify-out/`, `docs/`, and the optional RAG evaluation harness stays outside Git and Docker. Uploaded documents are stored in Supabase Storage, their records in PostgreSQL, and embeddings in Qdrant; the application does not read uploaded files from this repository at startup.
 
 ## Limits
 

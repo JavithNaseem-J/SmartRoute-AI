@@ -1,6 +1,15 @@
 # Git
 .git
 .gitignore
+.github/
+.agent/
+.agents/
+openspec/
+graphify-out/
+.pre-commit-config.yaml
+.python-version
+.env.example
+render.yaml
 
 # Python
 __pycache__
@@ -9,6 +18,9 @@ __pycache__
 *.so
 .Python
 .pytest_cache
+.mypy_cache/
+.ruff_cache/
+.test-tmp-*/
 .coverage
 htmlcov/
 .tox
@@ -21,6 +33,11 @@ build/
 # Frontend
 frontend/node_modules/
 frontend/dist/
+frontend/e2e/
+frontend/playwright.config.ts
+frontend/eslint.config.js
+frontend/test-results/
+frontend/playwright-report/
 
 # Virtual environments
 .env
@@ -46,6 +63,13 @@ notebooks/
 
 # Tests
 tests/
+data/evaluation/
+src/evaluation/
+scripts/run_eval.py
+scripts/train_classifier.py
+scripts/generate_centroids.py
+scripts/provider_predeploy.py
+models/classifiers/*.metrics.json
 
 # Documentation
 *.md

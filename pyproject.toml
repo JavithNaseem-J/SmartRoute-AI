@@ -55,8 +55,6 @@ dev = [
     "mypy>=1.8.0",
     "types-redis",
     "types-PyYAML",
-    "ragas>=0.1.7",
-    "datasets>=2.18.0",
 ]
 
 [tool.isort]

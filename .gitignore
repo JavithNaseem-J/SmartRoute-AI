@@ -229,7 +229,7 @@ logs/
 # keep placeholder files that preserve empty dirs in git
 !data/**/.gitkeep
 !data/evaluation/
-!data/evaluation/*.json
+!data/evaluation/routing_eval.json
 !data/models/
 !data/models/reference_centroids.npy
 !logs/.gitkeep
@@ -243,5 +243,14 @@ scripts/benchmark_cost_savings.py
 /docs/
 /.vscode/
 /.devcontainer/
+/.agent/
+/openspec/
+/.pre-commit-config.yaml
+/.python-version
+/alembic/README
+/data/evaluation/rag_eval.json
+/scripts/run_eval.py
+/src/evaluation/
+/tests/test_rag_evaluation.py
 
 # ── uv lock file (auto-generated, noisy in diffs) ──────────────────────────────
