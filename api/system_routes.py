@@ -60,6 +60,15 @@ def create_system_router(get_pipeline: Callable[[], InferencePipeline | None]) -
         try:
             await pipeline.model_manager.validate_provider()
             components["llm_provider"] = "ok"
+        except RuntimeError as e:
+            msg = str(e)
+            if "LLM_API_KEY is required" in msg:
+                # Key is missing — config issue, not infra; surface but don't block ready
+                components["llm_provider"] = "unconfigured"
+                logger.warning(f"LLM provider not configured: {e}")
+            else:
+                logger.warning(f"LLM provider readiness check failed: {e}")
+                components["llm_provider"] = "error"
         except Exception as e:
             logger.warning(f"LLM provider readiness check failed: {e}")
             components["llm_provider"] = "error"
@@ -116,7 +125,9 @@ def create_system_router(get_pipeline: Callable[[], InferencePipeline | None]) -
     async def readiness_check():
         """Readiness probe that checks runtime dependencies."""
         components = await component_status()
-        ready = bool(get_pipeline()) and all(value == "ok" for value in components.values())
+        # 'unconfigured' = key missing (config issue) — not an infra error
+        infra_error = any(v == "error" for v in components.values())
+        ready = bool(get_pipeline()) and not infra_error
         return JSONResponse(
             status_code=200 if ready else 503,
             content={

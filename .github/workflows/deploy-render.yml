@@ -215,6 +215,14 @@ jobs:
             exit 1
           fi
 
+          # Check if LLM provider is configured before attempting live query
+          llm_status="$(python -c 'import json; d=json.load(open("ready-response.json")); print(d.get("components",{}).get("llm_provider","error"))' 2>/dev/null || echo "error")"
+          if [ "${llm_status}" = "unconfigured" ]; then
+            echo "::warning::LLM_API_KEY is not set in Render environment. Skipping live query smoke test."
+            echo "::warning::Set LLM_API_KEY in Render dashboard to enable full smoke testing."
+            exit 0
+          fi
+
           curl -fsS --connect-timeout 5 --max-time 30 -X POST "${base_url}/v1/auth/demo-token" \
             -H 'Content-Type: application/json' \
             -d "{\"session_id\":\"deploy-${COMMIT_SHA}\"}" \
