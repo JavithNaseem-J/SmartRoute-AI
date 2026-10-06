@@ -1,7 +1,6 @@
 import asyncio
 import inspect
 import os
-import sys
 import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -101,8 +100,9 @@ def validate_env() -> None:
         "=" * 60,
         "Set these in your .env file or Render environment variables.\n",
     ]
-    logger.error("\n".join(lines))
-    sys.exit(1)
+    error_message = "\n".join(lines)
+    logger.error(error_message)
+    raise RuntimeError(error_message)
 
 
 #  Application lifespan
@@ -185,7 +185,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("Pipeline initialised - all cloud services connected.")
     except Exception as exc:
         logger.error(f"Pipeline init failed: {exc}")
-        sys.exit(1)
+        raise RuntimeError(f"Pipeline init failed: {exc}") from exc
     yield
     logger.info("Shutting down SmartRoute-AI.")
 
