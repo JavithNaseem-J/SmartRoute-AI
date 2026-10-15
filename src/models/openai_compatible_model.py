@@ -2,6 +2,8 @@ from typing import AsyncGenerator, Dict, List, Optional
 
 from openai import (
     APIConnectionError,
+    APIStatusError,
+    APITimeoutError,
     AsyncOpenAI,
     AuthenticationError,
     InternalServerError,
@@ -10,16 +12,23 @@ from openai import (
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src.models.base import BaseLLM
-from src.utils.circuit_breaker import AsyncCircuitBreaker
+from src.utils.circuit_breaker import AsyncCircuitBreaker, CircuitBreakerOpenException
 from src.utils.logger import logger
 
 
 class LLMProviderError(RuntimeError):
     """A provider request failed and must not be treated as answer text."""
 
+    def __init__(self, message: str, *, category: str = "unknown_provider_error") -> None:
+        super().__init__(message)
+        self.category = category
+
 
 class LLMAuthenticationError(LLMProviderError):
     """The active provider rejected or is missing its API key."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, category="authentication")
 
 
 class OpenAICompatibleModel(BaseLLM):
@@ -61,8 +70,6 @@ class OpenAICompatibleModel(BaseLLM):
     async def _execute_with_breaker(self, api_func, **kwargs):
         self._breaker._update_state()
         if self._breaker.state == "OPEN":
-            from src.utils.circuit_breaker import CircuitBreakerOpenException
-
             raise CircuitBreakerOpenException(f"Circuit breaker OPEN for {self.model_id}")
         try:
             result = await api_func(**kwargs)
@@ -78,6 +85,39 @@ class OpenAICompatibleModel(BaseLLM):
         except Exception:
             self._breaker.record_failure()
             raise
+
+    @staticmethod
+    def _provider_error_category(error: Exception) -> str:
+        if isinstance(error, LLMProviderError):
+            return error.category
+        if isinstance(error, AuthenticationError):
+            return "authentication"
+        if isinstance(error, RateLimitError):
+            return "rate_limited"
+        if isinstance(error, APITimeoutError):
+            return "timeout"
+        if isinstance(error, APIConnectionError):
+            return "connection"
+        if isinstance(error, CircuitBreakerOpenException):
+            return "circuit_open"
+        if isinstance(error, InternalServerError) or (
+            isinstance(error, APIStatusError) and error.status_code >= 500
+        ):
+            return "provider_5xx"
+        return "unknown_provider_error"
+
+    def _provider_failure(self, operation: str, error: Exception) -> LLMProviderError:
+        category = self._provider_error_category(error)
+        logger.error(
+            "LLM %s failed: provider=%s, model=%s, category=%s",
+            operation,
+            self.provider,
+            self.model_id,
+            category,
+        )
+        return LLMProviderError(
+            f"Provider '{self.provider}' {operation} failed.", category=category
+        )
 
     @retry(
         wait=wait_exponential(multiplier=1, min=1, max=10),
@@ -124,14 +164,14 @@ class OpenAICompatibleModel(BaseLLM):
         except LLMProviderError:
             raise
         except Exception as error:
-            logger.error(
-                f"LLM generation failed: provider={self.provider}, model={self.model_id}: {error}"
-            )
-            raise LLMProviderError(f"Provider '{self.provider}' generation failed.") from error
+            raise self._provider_failure("generation", error) from error
 
         content = response.choices[0].message.content
         if not content:
-            raise LLMProviderError(f"Provider '{self.provider}' returned an empty response.")
+            raise LLMProviderError(
+                f"Provider '{self.provider}' returned an empty response.",
+                category="empty_response",
+            )
         return {
             "text": content.strip(),
             "input_tokens": response.usage.prompt_tokens if response.usage else 0,
@@ -157,16 +197,16 @@ class OpenAICompatibleModel(BaseLLM):
                     yield chunk.choices[0].delta.content
             if not emitted_content:
                 self._breaker.record_failure()
-                raise LLMProviderError(f"Provider '{self.provider}' returned an empty stream.")
+                raise LLMProviderError(
+                    f"Provider '{self.provider}' returned an empty stream.",
+                    category="empty_response",
+                )
         except LLMProviderError:
             raise
         except Exception as error:
             if stream_started:
                 self._breaker.record_failure()
-            logger.error(
-                f"LLM stream failed: provider={self.provider}, model={self.model_id}: {error}"
-            )
-            raise LLMProviderError(f"Provider '{self.provider}' stream failed.") from error
+            raise self._provider_failure("stream", error) from error
 
     def count_tokens(self, text: str) -> int:
         return max(1, len(text) // 4) if text else 0

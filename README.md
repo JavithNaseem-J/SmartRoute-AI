@@ -13,73 +13,66 @@ The repository includes a Render web service and a Key Value service. The fronte
 
 ## Evidence
 
-| Committed classifier evaluation | Result |
-|---|---:|
-| Training questions | 540 synthetic, unique examples |
-| accuracy | 86.67% |
-| macro F1 | 0.8666 |
+### ML classifier
 
-These numbers are from the committed classifier metrics artifact, not a live document-answering benchmark. The holdout has only 30 synthetic-domain questions, so it is a regression signal rather than evidence of general routing quality.
+| Metric | Score |
+|---|---:|
+| Accuracy | 96.67% |
+| Macro precision | 96.97% |
+| Macro recall | 96.67% |
+| Macro F1 | 96.66% |
+
+These scores come from the committed classifier metrics artifact. Its small synthetic holdout is a regression signal, not a measure of general routing quality.
+
+### ML routing
+
+| Metric | Score |
+|---|---:|
+| Complexity-label agreement | 84.00% |
+| Macro precision | 84.07% |
+| Macro recall | 83.80% |
+| Macro F1 | 83.25% |
+| Strategy-to-model mapping | 100.00% |
+
+These local routing scores compare predictions with benchmark labels that still need independent review. Answer-quality comparisons between routed and fixed models also need blinded review; label agreement alone does not show which model produces the best answer.
+
+### RAG
+
+| Metric | Score |
+|---|---:|
+| Recall@5 | 87.18% |
+| Precision@5 | 83.76% |
+| Passage recall | 81.08% |
+| Citation precision | 91.67% |
+| Fact recall | 85.00% |
+| Refusal accuracy | 77.78% |
+| Citation coverage | 87.18% |
+| Faithfulness | Not measured |
+| Groundedness | Not measured |
+
+These are deterministic scores from a small fictional, local evaluation. Recall@5 and precision@5 compare the first five returned citation filenames with expected sources; passage recall and citation precision use exact excerpt matches. Fact recall checks required facts, while citation coverage checks whether expected sources were cited. Duplicate filenames can make filename matches ambiguous, and references still need independent review. RAGAS faithfulness could not be scored because its judge calls failed to connect; groundedness was not evaluated separately. These metrics are not production-quality claims or release gates; raw answers and reports remain local and Git-ignored.
 
 
 ## Architecture
 
 ```mermaid
-%%{init: {"theme": "base", "themeVariables": {"background": "#0B1220", "primaryColor": "#1F2937", "primaryTextColor": "#FFFFFF", "primaryBorderColor": "#64748B", "secondaryColor": "#111827", "secondaryTextColor": "#FFFFFF", "tertiaryColor": "#0F172A", "tertiaryTextColor": "#FFFFFF", "lineColor": "#CBD5E1", "textColor": "#FFFFFF", "edgeLabelBackground": "#1F2937"}}}%%
+%%{init: {"theme": "base", "themeVariables": {"background": "#0B1220", "primaryColor": "#1F2937", "primaryTextColor": "#FFFFFF", "lineColor": "#CBD5E1", "textColor": "#FFFFFF", "edgeLabelBackground": "#1F2937"}}}%%
 flowchart TD
-    UI["React app"] -->|JWT + API calls| API["FastAPI + demo JWT"]
-
-    subgraph QUERY["Query path: InferencePipeline"]
-        SCOPE["Active documents + cache scope"] --> CACHE["Semantic cache"]
-        CACHE -->|miss| ROUTE["LightGBM + strategy"]
-        ROUTE -->|retrieval on| RETRIEVE["Tenant-filtered retrieval"]
-        ROUTE -->|retrieval off| BUDGET["Daily budget"]
-        RETRIEVE -->|sources found| BUDGET
-        RETRIEVE -->|no sources| RESPONSE["SSE / JSON"]
-        BUDGET --> GENERATE["Provider + fallback"]
-        GENERATE --> FINAL["Citations, usage, memory"]
-        FINAL --> RESPONSE
-        CACHE -->|hit| RESPONSE
-    end
-
-    subgraph DOCUMENTS["Document lifecycle"]
-        UPLOAD["Validate + store upload"] --> PREP["Extract + chunk + embed"]
-        PREP --> INDEX["Index + verify"]
-        INDEX --> RECORD["Save metadata"]
-        DELETE["Verified document delete"]
-    end
-
-    subgraph SERVICES["State and external services"]
-        POSTGRES["PostgreSQL: documents + logs"]
-        QDRANT["Qdrant: vectors + cache"]
-        REDIS["Redis: budget + sessions + cache"]
-        STORAGE["Supabase Storage"]
-        PROVIDER["Groq or OpenRouter"]
-    end
-
-    API -->|query| SCOPE
+    UI["React app"] --> API["FastAPI + demo JWT"]
+    API -->|chat| ROUTE["Cache + LightGBM routing"]
+    ROUTE -->|cache hit| RESPONSE["Response + optional citations"]
+    ROUTE -->|RAG on| RETRIEVE["User-scoped Qdrant search"]
+    ROUTE -->|RAG off| MODEL["LLM provider + fallback"]
+    RETRIEVE -->|sources found| MODEL
+    RETRIEVE -->|no sources| RESPONSE
+    MODEL --> RESPONSE
     RESPONSE -->|answer| UI
-    API -->|upload| UPLOAD
-    API -->|delete| DELETE
-    SCOPE --> POSTGRES
-    CACHE --> QDRANT
-    CACHE --> REDIS
-    RETRIEVE --> QDRANT
-    BUDGET --> REDIS
-    GENERATE --> PROVIDER
-    FINAL --> POSTGRES
-    FINAL --> REDIS
-    UPLOAD -->|original object| STORAGE
-    INDEX --> QDRANT
-    RECORD --> POSTGRES
-    DELETE --> QDRANT
-    DELETE --> STORAGE
-    DELETE --> POSTGRES
+
+    API -->|upload / delete| DOCS["Document lifecycle + FastEmbed"]
+    DOCS --> STORES["Supabase Storage + PostgreSQL + Qdrant"]
+    ROUTE --> REDIS["Redis: cache + sessions + budget"]
 
     classDef default fill:#1F2937,stroke:#64748B,color:#FFFFFF
-    style QUERY fill:#0F172A,stroke:#64748B,color:#FFFFFF
-    style DOCUMENTS fill:#0F172A,stroke:#64748B,color:#FFFFFF
-    style SERVICES fill:#0F172A,stroke:#64748B,color:#FFFFFF
 ```
 
 - **Chat path:** The browser obtains a short-lived demo JWT, then uses the streaming `/v1/query/stream` endpoint. The backend emits routing metadata, answer chunks, replacement events when needed, and a terminal result.
@@ -118,13 +111,14 @@ The Vite dev server proxies API requests to port 8000. To inspect provider model
 
 ## Verification
 
-`uv run pytest tests/` covers routing, provider failure paths, budget behavior, tenant filters, document lifecycle, API responses, and cache behavior using fakes and mocks. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run test:e2e` cover the UI; Playwright intercepts API traffic. GitHub Actions defines a Docker smoke job and a deployment workflow that checks the deployed commit and readiness. The old supplied-passage reranking check is kept locally; it is not a full document-answering evaluation and is not a release gate.
+`uv run pytest tests/` covers routing, provider failure paths, budget behavior, tenant filters, document lifecycle, API responses, and cache behavior using fakes and mocks. In `frontend/`, `npm run lint`, `npm run typecheck`, `npm run build`, and `npm run test:e2e` cover the UI; Playwright intercepts API traffic. GitHub Actions defines a Docker smoke job and a deployment workflow that checks the deployed commit and readiness. The old supplied-passage reranking check is kept locally; it is not a full document-answering evaluation. The local routing and RAG scores above use real application outputs, while raw evidence and the evaluation harness remain local and Git-ignored; neither check is a release gate.
 
 The clean checkout contains the runtime model and centroid artifacts, their training code and evaluation fixture, the API and frontend, migrations, CI workflows, and this README. Local-only development material such as `.agent/`, `openspec/`, `graphify-out/`, `docs/`, and the optional RAG evaluation harness stays outside Git and Docker. Uploaded documents are stored in Supabase Storage, their records in PostgreSQL, and embeddings in Qdrant; the application does not read uploaded files from this repository at startup.
 
 ## Limits
 
-- The classifier trains on templated examples and has a small authored holdout. Routing quality and cost/answer-quality trade-offs have not been measured on representative user traffic.
+- The classifier trains on templated examples and has a small authored holdout. Local routing and RAG tests use fictional cases; quality and cost/answer-quality trade-offs have not been measured on representative user traffic.
+- Benchmark references need independent review. Exact text matching can reject correct paraphrases, and the failed RAGAS judge run leaves semantic faithfulness and context metrics unverified.
 - A valid citation ID proves that a retrieved chunk was supplied to the model; it does not verify every factual claim in the answer. Local reranking is lexical, and scanned PDFs need OCR before upload.
 - `/v1/savings` compares logged cost with a fixed assumed cost per query, rather than a measured alternative system. Streaming token counts and therefore cost estimates use a character-based approximation.
 - The public demo-token endpoint supplies session isolation without account identity. The Render blueprint's free Key Value plan can lose cache, memory, and budget-counter state on restart.
@@ -133,7 +127,7 @@ The clean checkout contains the runtime model and centroid artifacts, their trai
 
 1. **Add real user identity and access controls.** Replace public demo-token issuance for normal users, then test authorization across API, document, vector, and analytics paths.
 2. **Make spending controls durable and accurate.** Use persistent Redis, reconcile estimated reservations with actual provider usage, and test restart and outage behavior.
-3. **Evaluate the full document-answering path.** Build a representative, labeled set of uploads and questions; measure retrieval, answer support, citation accuracy, latency, and cost before setting release thresholds.
+3. **Strengthen the evaluation evidence.** Review benchmark references, correct overly strict scoring rules, investigate the remaining failures, then expand to representative labeled questions and human-reviewed answer quality before setting release thresholds.
 4. **Harden document lifecycle.** Add retry-safe upload and delete operations plus reconciliation for mismatches among Storage, Qdrant, and PostgreSQL.
 5. **Exercise deployment and recovery.** Run migrations as a controlled deployment step, verify readiness and rollback, and load-test the service with monitoring and alerts enabled.
 

@@ -31,6 +31,7 @@ class QueryResponse(BaseModel):
     citations: List[CitationResponse] = Field(default_factory=list)
     success: bool
     error: Optional[str] = None
+    error_category: Optional[str] = None
 
 
 class DemoTokenRequest(BaseModel):

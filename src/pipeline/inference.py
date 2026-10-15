@@ -18,6 +18,7 @@ from src.cost.tracker import CostTracker
 from src.documents import list_active_documents
 from src.memory.conversation import ConversationMemory
 from src.models.model_manager import ModelManager
+from src.models.openai_compatible_model import LLMProviderError
 from src.retrieval.retriever import DocumentRetriever
 from src.retrieval.semantic_cache import SemanticCache
 from src.retrieval.types import Citation
@@ -34,6 +35,12 @@ class InferencePipeline:
     NO_RAG_SOURCES_ANSWER = (
         "I couldn't find this in your uploaded documents. "
         "Try rephrasing the question or upload a document that contains the answer."
+    )
+    DOCUMENT_NOT_FOUND_ANSWER = (
+        "The uploaded documents do not contain information about this topic."
+    )
+    MISSING_CITATIONS_ANSWER = (
+        "I couldn't produce a verifiable answer from the uploaded documents. Please try again."
     )
     CITATION_MARKER = re.compile(r"\[C(\d+)\]|【C(\d+)】|［C(\d+)］", re.IGNORECASE)
 
@@ -80,6 +87,7 @@ class InferencePipeline:
                 "Do NOT use general dictionary definitions or outside parametric memory when the answer is in the context. "
                 "Every factual statement based on the context MUST end with one or more citation markers such as [C1]. "
                 "Use only citation IDs present in the context and never invent a citation ID. "
+                "A response without at least one valid [C#] marker is invalid. "
                 "If the context does not contain relevant information, respond with: "
                 "'The uploaded documents do not contain information about this topic.'"
             )
@@ -119,6 +127,13 @@ class InferencePipeline:
 
         validated_answer = cls.CITATION_MARKER.sub(replace_marker, answer)
         return validated_answer, [citation_by_id[citation_id] for citation_id in used_ids]
+
+    @classmethod
+    def _is_document_not_found_answer(cls, answer: str) -> bool:
+        """Recognize the explicit RAG refusal, allowing citation markers only."""
+        answer_without_markers = cls.CITATION_MARKER.sub("", answer)
+        normalized = re.sub(r"\s+", " ", answer_without_markers).strip().strip("\"'").casefold()
+        return normalized == cls.DOCUMENT_NOT_FOUND_ANSWER.casefold()
 
     def _configured_model_id(self, model_tier: str) -> str:
         resolver = getattr(self.model_manager, "model_id", None)
@@ -198,6 +213,8 @@ class InferencePipeline:
         if cached_result:
             if use_retrieval and not cached_result.get("sources"):
                 logger.info("Ignoring source-less semantic cache hit for retrieval request")
+            elif use_retrieval and not cached_result.get("citations"):
+                logger.info("Ignoring uncited semantic cache hit for retrieval request")
             else:
                 cached_result.setdefault("citations", [])
                 cached_result["latency"] = time.time() - start_time
@@ -298,6 +315,56 @@ class InferencePipeline:
         estimated_cost = self.budget_manager.estimate_query_cost(model_tier, len(prompt_text))
         await self.budget_manager.check_budget(estimated_cost, user_id=user_id)
 
+    async def _citation_error_response(
+        self,
+        *,
+        query: str,
+        model_id: str,
+        complexity: str,
+        routing_decision: Dict,
+        input_tokens: int,
+        output_tokens: int,
+        actual_cost: float,
+        latency: float,
+        sources: List[str],
+        user_id: Optional[str],
+    ) -> Dict:
+        """Fail closed when a grounded answer has no validated evidence marker."""
+        routing_info = {**routing_decision, "reason": "missing_valid_citations"}
+        await self._log_query_metrics(
+            query=query,
+            model_id=model_id,
+            complexity=complexity,
+            strategy=routing_info.get("strategy", "unknown"),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            cost=actual_cost,
+            latency=latency,
+            success=False,
+            user_id=user_id,
+        )
+        logger.warning(
+            "Grounded answer rejected: category=missing_valid_citations, model=%s",
+            model_id,
+        )
+        return {
+            "answer": self.MISSING_CITATIONS_ANSWER,
+            "model_used": model_id,
+            "complexity": complexity,
+            "confidence": routing_info.get("confidence", 0.0),
+            "cost": actual_cost,
+            "latency": latency,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "context": "",
+            "sources": sources,
+            "citations": [],
+            "routing_info": routing_info,
+            "success": False,
+            "error": "citation_error",
+            "error_category": "missing_valid_citations",
+        }
+
     async def _finalize_response(
         self,
         query: str,
@@ -315,6 +382,7 @@ class InferencePipeline:
         session_id: Optional[str] = None,
         user_id: Optional[str] = None,
         cache_scope: str = "default",
+        cache_response: bool = True,
     ) -> Dict:
         """Log metrics, update session memory, build response payload, and update cache."""
         await self._log_query_metrics(
@@ -352,7 +420,7 @@ class InferencePipeline:
             "error": None,
         }
 
-        if user_id:
+        if user_id and cache_response:
             asyncio.create_task(
                 self.semantic_cache.set(
                     query,
@@ -443,12 +511,31 @@ class InferencePipeline:
                     temperature=0.2 if context else 0.7,
                 )
 
-            answer = result["text"]
+            raw_answer = result["text"]
+            answer = raw_answer
             answer, citations = self._validate_answer_citations(answer, citations)
+            is_document_not_found = self._is_document_not_found_answer(answer)
+            if is_document_not_found:
+                answer = self.DOCUMENT_NOT_FOUND_ANSWER
+                citations = []
             input_tokens = int(result.get("input_tokens") or input_tokens)
-            output_tokens = int(result.get("output_tokens") or model.count_tokens(answer))
+            output_tokens = int(result.get("output_tokens") or model.count_tokens(raw_answer))
             actual_cost = model.get_cost(input_tokens, output_tokens)
             latency = time.time() - start_time
+
+            if use_retrieval and sources and not citations and not is_document_not_found:
+                return await self._citation_error_response(
+                    query=query,
+                    model_id=self._loaded_model_id(model, model_tier),
+                    complexity=complexity,
+                    routing_decision=routing_decision,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    actual_cost=actual_cost,
+                    latency=latency,
+                    sources=sources,
+                    user_id=user_id,
+                )
 
             return await self._finalize_response(
                 query=query,
@@ -466,6 +553,7 @@ class InferencePipeline:
                 session_id=session_id,
                 user_id=user_id,
                 cache_scope=cache_scope,
+                cache_response=not is_document_not_found,
             )
 
         except (BudgetUnavailableError, BudgetExceededError) as exc:
@@ -480,9 +568,9 @@ class InferencePipeline:
                 "budget_exceeded" if is_limit else "budget_unavailable",
                 latency,
             )
-        except Exception as e:
+        except LLMProviderError as exc:
             latency = time.time() - start_time
-            logger.error(f"Pipeline failed: {e}", exc_info=True)
+            logger.error("Pipeline provider failure: category=%s", exc.category)
             if "model_tier" in locals() and "complexity" in locals():
                 await self._log_query_metrics(
                     query=query,
@@ -494,7 +582,32 @@ class InferencePipeline:
                     user_id=user_id,
                 )
             return self._error_response(
-                "Request failed. Please try again.", "pipeline_error", latency
+                "Request failed. Please try again.",
+                "pipeline_error",
+                latency,
+                error_category=exc.category,
+            )
+        except Exception as e:
+            latency = time.time() - start_time
+            logger.error(
+                "Pipeline failed: category=internal_error, exception_type=%s",
+                type(e).__name__,
+            )
+            if "model_tier" in locals() and "complexity" in locals():
+                await self._log_query_metrics(
+                    query=query,
+                    model_id=self._configured_model_id(model_tier),
+                    complexity=complexity,
+                    strategy=strategy or "unknown",
+                    latency=latency,
+                    success=False,
+                    user_id=user_id,
+                )
+            return self._error_response(
+                "Request failed. Please try again.",
+                "pipeline_error",
+                latency,
+                error_category="internal_error",
             )
 
     @observe()
@@ -629,6 +742,10 @@ class InferencePipeline:
                 raise RuntimeError("The active LLM provider returned an empty stream.")
 
             validated_answer, citations = self._validate_answer_citations(full_answer, citations)
+            is_document_not_found = self._is_document_not_found_answer(validated_answer)
+            if is_document_not_found:
+                validated_answer = self.DOCUMENT_NOT_FOUND_ANSWER
+                citations = []
             if validated_answer != full_answer:
                 full_answer = validated_answer
                 yield {"type": "replace", "content": full_answer}
@@ -636,6 +753,23 @@ class InferencePipeline:
             output_tokens = model.count_tokens(full_answer)
             actual_cost = model.get_cost(input_tokens, output_tokens)
             latency = time.time() - start_time
+
+            if use_retrieval and sources and not citations and not is_document_not_found:
+                response_payload = await self._citation_error_response(
+                    query=query,
+                    model_id=self._loaded_model_id(model, model_tier),
+                    complexity=complexity,
+                    routing_decision=routing_decision,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    actual_cost=actual_cost,
+                    latency=latency,
+                    sources=sources,
+                    user_id=user_id,
+                )
+                yield {"type": "replace", "content": response_payload["answer"]}
+                yield {"type": "done", "result": response_payload}
+                return
 
             response_payload = await self._finalize_response(
                 query=query,
@@ -653,6 +787,7 @@ class InferencePipeline:
                 session_id=session_id,
                 user_id=user_id,
                 cache_scope=cache_scope,
+                cache_response=not is_document_not_found,
             )
             yield {"type": "done", "result": response_payload}
 
@@ -670,11 +805,38 @@ class InferencePipeline:
             )
             yield {"type": "replace", "content": error_result["answer"]}
             yield {"type": "done", "result": error_result}
+        except LLMProviderError as exc:
+            latency = time.time() - start_time
+            logger.error("Pipeline stream provider failure: category=%s", exc.category)
+            if "model_tier" in locals() and "complexity" in locals():
+                await self._log_query_metrics(
+                    query=query,
+                    model_id=self._configured_model_id(model_tier),
+                    complexity=complexity,
+                    strategy=strategy or "unknown",
+                    latency=latency,
+                    success=False,
+                    user_id=user_id,
+                )
+            error_result = self._error_response(
+                "Request failed. Please try again.",
+                "pipeline_error",
+                latency,
+                error_category=exc.category,
+            )
+            yield {"type": "replace", "content": error_result["answer"]}
+            yield {"type": "done", "result": error_result}
         except Exception as e:
             latency = time.time() - start_time
-            logger.error(f"Pipeline stream failed: {e}", exc_info=True)
+            logger.error(
+                "Pipeline stream failed: category=internal_error, exception_type=%s",
+                type(e).__name__,
+            )
             error_result = self._error_response(
-                "Request failed. Please try again.", "pipeline_error", latency
+                "Request failed. Please try again.",
+                "pipeline_error",
+                latency,
+                error_category="internal_error",
             )
             yield {"type": "replace", "content": error_result["answer"]}
             yield {
@@ -705,7 +867,13 @@ class InferencePipeline:
         return list(await asyncio.gather(*tasks))
 
     @staticmethod
-    def _error_response(answer: str, error: str, latency: float) -> Dict:
+    def _error_response(
+        answer: str,
+        error: str,
+        latency: float,
+        *,
+        error_category: Optional[str] = None,
+    ) -> Dict:
         return {
             "answer": answer,
             "model_used": None,
@@ -721,4 +889,5 @@ class InferencePipeline:
             "routing_info": {},
             "success": False,
             "error": error,
+            "error_category": error_category,
         }

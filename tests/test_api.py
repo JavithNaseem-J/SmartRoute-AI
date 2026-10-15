@@ -144,6 +144,7 @@ def test_query_provider_failure_returns_bad_gateway(client, api_key, monkeypatch
         "answer": "Request failed. Please try again.",
         "success": False,
         "error": "pipeline_error",
+        "error_category": "rate_limited",
     }
     api_module.pipeline.run = AsyncMock(return_value=failed)
 
@@ -155,6 +156,30 @@ def test_query_provider_failure_returns_bad_gateway(client, api_key, monkeypatch
 
     assert response.status_code == 502
     assert response.json()["error"] == "pipeline_error"
+    assert response.json()["error_category"] == "rate_limited"
+
+
+def test_query_citation_failure_returns_bad_gateway(client, api_key):
+    import api.main as api_module
+
+    failed = {
+        **api_module.pipeline.run.return_value,
+        "answer": "I couldn't produce a verifiable answer from the uploaded documents. Please try again.",
+        "success": False,
+        "error": "citation_error",
+        "error_category": "missing_valid_citations",
+    }
+    api_module.pipeline.run = AsyncMock(return_value=failed)
+
+    response = client.post(
+        "/v1/query",
+        json={"query": "What does the document say?"},
+        headers={"Authorization": f"Bearer {api_key}"},
+    )
+
+    assert response.status_code == 502
+    assert response.json()["error"] == "citation_error"
+    assert response.json()["error_category"] == "missing_valid_citations"
 
 
 def test_demo_token_allows_portfolio_query(client):

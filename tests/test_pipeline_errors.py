@@ -4,6 +4,7 @@ import pytest
 
 from src.pipeline.inference import InferencePipeline
 from src.cost.budget import BudgetUnavailableError
+from src.models.openai_compatible_model import LLMProviderError
 
 
 class FakeSemanticCache:
@@ -89,6 +90,48 @@ class AllStreamingModelsFailManager:
         return StreamingModel([RuntimeError(f"{model_id} secret provider failure")])
 
 
+class GeneratingModel:
+    model_id = "provider-model"
+
+    def __init__(self, answer):
+        self.answer = answer
+
+    def count_tokens(self, text):
+        return len(text)
+
+    def get_cost(self, input_tokens, output_tokens):
+        return 0.25
+
+    async def agenerate(self, *args, **kwargs):
+        return {"text": self.answer, "input_tokens": 7, "output_tokens": 5}
+
+
+class GeneratingModelManager:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def load_model(self, model_id):
+        return GeneratingModel(self.answer)
+
+
+class CategorizedFailingModel(GeneratingModel):
+    async def agenerate(self, *args, **kwargs):
+        raise LLMProviderError("safe provider failure", category="rate_limited")
+
+
+class CategorizedFailingModelManager:
+    def load_model(self, model_id):
+        return CategorizedFailingModel("")
+
+
+class StaticStreamingModelManager:
+    def __init__(self, answer):
+        self.answer = answer
+
+    def load_model(self, model_id):
+        return StreamingModel([self.answer])
+
+
 def make_pipeline(model_manager):
     pipeline = InferencePipeline.__new__(InferencePipeline)
     pipeline.router = FakeRouter()
@@ -124,6 +167,248 @@ async def test_pipeline_error_response_survives_metric_logging_failure():
     assert result["success"] is False
     assert result["answer"] == "Request failed. Please try again."
     assert result["error"] == "pipeline_error"
+
+
+@pytest.mark.asyncio
+async def test_provider_failure_category_survives_pipeline_fallback():
+    pipeline = make_pipeline(CategorizedFailingModelManager())
+
+    result = await pipeline.run("hello", user_id="user-1", use_retrieval=False)
+
+    assert result["success"] is False
+    assert result["error"] == "pipeline_error"
+    assert result["error_category"] == "rate_limited"
+    assert "provider failure" not in result["answer"]
+
+
+def configure_grounded_retrieval(pipeline, monkeypatch):
+    pipeline.retriever.retrieve = AsyncMock(
+        return_value=(
+            "[C1] handbook.txt\nThe support window is 47 minutes.",
+            ["Source 1: handbook.txt"],
+        )
+    )
+    pipeline.retriever.last_citations = [
+        {
+            "id": "C1",
+            "filename": "handbook.txt",
+            "page": None,
+            "section": None,
+            "excerpt": "The support window is 47 minutes.",
+        }
+    ]
+    monkeypatch.setattr(
+        "src.pipeline.inference.list_active_documents",
+        lambda tracker, user_id: [{"storage_path": "eval/handbook.txt"}],
+    )
+
+
+@pytest.mark.asyncio
+async def test_grounded_answer_without_marker_fails_closed_and_retains_usage(monkeypatch):
+    pipeline = make_pipeline(GeneratingModelManager("The support window is 47 minutes."))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    result = await pipeline.run(
+        "What is the support window?",
+        user_id="user-1",
+        session_id="session-1",
+        use_retrieval=True,
+    )
+
+    assert result["success"] is False
+    assert result["error"] == "citation_error"
+    assert result["error_category"] == "missing_valid_citations"
+    assert result["model_used"] == "provider-model"
+    assert result["input_tokens"] == 7
+    assert result["output_tokens"] == 5
+    assert result["cost"] == 0.25
+    assert result["citations"] == []
+    assert result["sources"] == ["Source 1: handbook.txt"]
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_not_awaited()
+    assert pipeline.tracker.log_query.call_args.kwargs["success"] is False
+    assert pipeline.tracker.log_query.call_args.kwargs["cost"] == 0.25
+
+
+@pytest.mark.asyncio
+async def test_explicit_document_not_found_answer_succeeds_without_citation(monkeypatch):
+    pipeline = make_pipeline(GeneratingModelManager(InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    result = await pipeline.run(
+        "What is the airport lounge policy?",
+        user_id="user-1",
+        session_id="session-1",
+        use_retrieval=True,
+    )
+
+    assert result["success"] is True
+    assert result["error"] is None
+    assert result["answer"] == InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER
+    assert result["citations"] == []
+    assert result["sources"] == ["Source 1: handbook.txt"]
+    assert result["cost"] == 0.25
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_awaited_once_with(
+        "user-1",
+        "session-1",
+        "What is the airport lounge policy?",
+        InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER,
+    )
+    assert pipeline.tracker.log_query.call_args.kwargs["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_document_not_found_answer_discards_citation_marker(monkeypatch):
+    answer = f"{InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER} [C1]"
+    pipeline = make_pipeline(GeneratingModelManager(answer))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    result = await pipeline.run(
+        "What is the airport lounge policy?",
+        user_id="user-1",
+        session_id="session-1",
+        use_retrieval=True,
+    )
+
+    assert result["success"] is True
+    assert result["answer"] == InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER
+    assert result["citations"] == []
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_awaited_once_with(
+        "user-1",
+        "session-1",
+        "What is the airport lounge policy?",
+        InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER,
+    )
+
+
+@pytest.mark.asyncio
+async def test_grounded_answer_with_valid_marker_still_succeeds(monkeypatch):
+    pipeline = make_pipeline(GeneratingModelManager("The support window is 47 minutes [C1]."))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+
+    result = await pipeline.run("What is the support window?", user_id="user-1", use_retrieval=True)
+
+    assert result["success"] is True
+    assert result["error"] is None
+    assert [citation["id"] for citation in result["citations"]] == ["C1"]
+
+
+@pytest.mark.asyncio
+async def test_uncited_grounded_cache_entry_is_ignored(monkeypatch):
+    pipeline = make_pipeline(GeneratingModelManager("The support window is 47 minutes [C1]."))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.get = AsyncMock(
+        return_value={
+            "answer": "Old uncited answer",
+            "sources": ["Source 1: handbook.txt"],
+            "citations": [],
+        }
+    )
+
+    result = await pipeline.run("What is the support window?", user_id="user-1", use_retrieval=True)
+
+    assert result["success"] is True
+    assert result["answer"] != "Old uncited answer"
+    assert result["model_used"] == "provider-model"
+    assert [citation["id"] for citation in result["citations"]] == ["C1"]
+
+
+@pytest.mark.asyncio
+async def test_stream_replaces_uncited_grounded_answer_with_terminal_failure(monkeypatch):
+    pipeline = make_pipeline(StaticStreamingModelManager("Uncited grounded answer"))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    events = [
+        event
+        async for event in pipeline.astream_run(
+            "What is the support window?",
+            user_id="user-1",
+            session_id="session-1",
+            use_retrieval=True,
+        )
+    ]
+
+    done_events = [event for event in events if event["type"] == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["result"]["success"] is False
+    assert done_events[0]["result"]["error"] == "citation_error"
+    assert done_events[0]["result"]["error_category"] == "missing_valid_citations"
+    assert events[-2] == {
+        "type": "replace",
+        "content": InferencePipeline.MISSING_CITATIONS_ANSWER,
+    }
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stream_allows_explicit_document_not_found_answer_without_citation(monkeypatch):
+    pipeline = make_pipeline(
+        StaticStreamingModelManager(InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER)
+    )
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    events = [
+        event
+        async for event in pipeline.astream_run(
+            "What is the airport lounge policy?",
+            user_id="user-1",
+            session_id="session-1",
+            use_retrieval=True,
+        )
+    ]
+
+    done_events = [event for event in events if event["type"] == "done"]
+    assert len(done_events) == 1
+    assert done_events[0]["result"]["success"] is True
+    assert done_events[0]["result"]["error"] is None
+    assert done_events[0]["result"]["answer"] == InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER
+    assert done_events[0]["result"]["citations"] == []
+    assert not any(event["type"] == "replace" for event in events)
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_discards_citation_marker_from_document_not_found_answer(monkeypatch):
+    answer = f"{InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER} [C1]"
+    pipeline = make_pipeline(StaticStreamingModelManager(answer))
+    configure_grounded_retrieval(pipeline, monkeypatch)
+    pipeline.semantic_cache.set = AsyncMock()
+    pipeline.memory.add_turn = AsyncMock()
+
+    events = [
+        event
+        async for event in pipeline.astream_run(
+            "What is the airport lounge policy?",
+            user_id="user-1",
+            session_id="session-1",
+            use_retrieval=True,
+        )
+    ]
+
+    result = events[-1]["result"]
+    assert events[-2] == {
+        "type": "replace",
+        "content": InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER,
+    }
+    assert result["success"] is True
+    assert result["answer"] == InferencePipeline.DOCUMENT_NOT_FOUND_ANSWER
+    assert result["citations"] == []
+    pipeline.semantic_cache.set.assert_not_awaited()
+    pipeline.memory.add_turn.assert_awaited_once()
 
 
 @pytest.mark.asyncio

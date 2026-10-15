@@ -316,8 +316,6 @@ async def query(
             user_id=user_id,
         )
         if result.get("latency", 0) > 10.0:
-            from src.utils.alerting import send_alert
-
             asyncio.create_task(
                 send_alert(
                     "High API Latency",
@@ -331,6 +329,7 @@ async def query(
                 "budget_exceeded": 429,
                 "budget_unavailable": 503,
                 "pipeline_error": 502,
+                "citation_error": 502,
             }.get(str(result.get("error")), 500)
         return QueryResponse(**result)
     except Exception as e:
